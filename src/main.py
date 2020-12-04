@@ -4,14 +4,20 @@ import websockets
 host = 'wss://irc-ws.chat.twitch.tv'
 port = '443'
 uri = host + port
+
+
 class Client:
 
-    def __init__(self, token):
+    def __init__(self):
         pass
 
-    async def run(self):
+    async def run(self, token, name, channels) -> None:
         async with websockets.connect(uri) as ws:
-            name = input("What's your name? ")
+            ws.send(f'PASS {token}')
+            ws.send(f'NICK {name}')
+            for channel in self.channels:
+                ws.send(f'JOIN #{channel}')
+            self.send_privmsg(channel, 'Hey there!')
 
             await ws.send(name)
             print(f"> {name}")
