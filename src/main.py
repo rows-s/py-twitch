@@ -5,7 +5,11 @@ host = 'wss://irc-ws.chat.twitch.tv'
 port = '443'
 uri = host + port
 class Client:
-    async def run():
+
+    def __init__(self, token):
+        pass
+
+    async def run(self):
         async with websockets.connect(uri) as ws:
             name = input("What's your name? ")
 
