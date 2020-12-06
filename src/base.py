@@ -74,11 +74,12 @@ class Bot:
             prefix = parts[0][1:]
             user = self.get_user_from_prefix(prefix)
             parts = parts[1:]
-
+        # next returns fitst object that matches the condition
         text_start = next(
             (idx for idx, part in enumerate(parts) if part.startswith(':')),
             None
         )
+        # select message-text from parts, and delete the text from parts
         if text_start is not None:
             text_parts = parts[text_start:]
             text_parts[0] = text_parts[0][1:]
@@ -87,6 +88,7 @@ class Bot:
             text_args = text_parts[1:]
             parts = parts[:text_start]
 
+        # everything still in variable is irc-command with args
         irc_command = parts[0]
         irc_args = parts[1:]
 
