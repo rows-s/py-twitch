@@ -23,7 +23,7 @@ class Bot:
     def __init__(self):
         self.irc_server = 'irc.twitch.tv'
         self.irc_port = 6667
-        self.oauth_token = config.OAUTH_TOKEN
+        self.oauth_token = config.token
         self.username = 'squishymcbotty'
         self.channels = ['squishymcbotty', 'vladh']
         self.custom_commands = {
