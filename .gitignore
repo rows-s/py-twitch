@@ -1,4 +1,3 @@
 .vscode
 *.pyc
-*.pyc
 src/__pycache__/client.cpython-38.pyc
