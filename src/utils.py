@@ -39,3 +39,11 @@ def split(text: str, separator: str, max_seps = 0):
         i += 1
     yield text
     # without comments it looks simpler
+
+
+def is_int(string: str) -> bool:
+    try: 
+        int(string)
+        return True
+    except ValueError:
+        return False
