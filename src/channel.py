@@ -1,17 +1,19 @@
 
+from typing import Optional, Dict
 import websockets
 
 class Channel:
-    def __init__(self, name: str, ws: websockets.client.connect, tags: dict) -> None: 
-        self.name = name
-        self.ws = ws
-        self.id = None
-        self.emote_only = None
-        self.followers_only = None
-        self.followers_only_min = None
-        self.unique_only = None
-        self.slow = None
-        self.subs_only = None
+    def __init__(self, name: str, ws: websockets.client.connect, tags: Dict[str, str]) -> None: 
+        self.name: str = name
+        self.ws: websockets.client.Connect = ws
+        self.id: int = None
+        self.emote_only: bool = False
+        self.followers_only: bool = False
+        self.followers_only_min: int = None
+        self.unique_only: bool = False
+        self.slow: int = 0
+        self.subs_only: bool = None
+        self.nameslist: Optional[list] = None
 
         for key in tags.keys():
             if key == 'room-id':
@@ -38,7 +40,7 @@ class Channel:
                 self.subs_only = True if tags[key] == '1' else False
 
 
-    def update(self, tags: dict) -> None:
+    def update(self, tags: Dict[str, str]) -> None:
         for key in tags.keys():
             if key == 'emote-only':
                 self.emote_only = True if tags[key] == '1' else False

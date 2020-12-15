@@ -1,18 +1,23 @@
 from channel import Channel
 from member import Member
-
+from typing import Dict
 class Message:
-    def __init__(self, channel: Channel, author: Member, content: str, tags: dict) -> None:
+    def __init__(self, 
+        channel: Channel, 
+        author: Member, 
+        content: str, 
+        tags: Dict[str, str]) -> None:
+
         self.channel = channel
         self.author = author
         self.content = content
-        self.id = tags['id']
-        self.emotes = {}
-        self.time = int(tags['tmi-sent-ts'])
-        self.is_replay = False
-        self.parent = None
-        self.emote_only: False
-        self.flags = None
+        self.id: str = tags['id']
+        self.emotes: Dict[str, list] = {}
+        self.time: int = int(tags['tmi-sent-ts'])
+        self.is_replay: bool = False
+        self.parent: ParentMessage = None
+        self.emote_only: bool = False
+        self.flags: str  = None
 
         for key in tags.keys():
             if key == 'emote_only':
@@ -34,7 +39,7 @@ class Message:
         return command
     
     @staticmethod
-    def emotes_to_dict(emotes: str) -> dict:
+    def emotes_to_dict(emotes: str) -> Dict[str, list]:
         result = {} # to return
         # all emoted separated by '/'
         for emote in emotes.split('/'):
@@ -53,19 +58,17 @@ class Message:
                 poss.append(int(first)) # append first position
                 poss.append(int(last)) # append last position
                 
-            result[emote] = poss # insert emote_id & positions into result
+            result[emote] = poss # insert emote_id: positions into result
         return result
-
-
 
     
 class ParentMessage():
-    def __init__(self, channel: Channel, tags: dict) -> None:
+    def __init__(self, channel: Channel, tags: Dict[str, str]) -> None:
         self.channel = channel
-        self.author_name = tags['reply-parent-user-login']
-        self.author_id = int(tags['reply-parent-user-id'])
-        self.content = self.replace(tags['reply-parent-msg-body'])
-        self.id = tags['reply-parent-msg-id']
+        self.author_name: str = tags['reply-parent-user-login']
+        self.author_id: int = int(tags['reply-parent-user-id'])
+        self.content: str = self.replace(tags['reply-parent-msg-body'])
+        self.id: str = tags['reply-parent-msg-id']
 
     async def delete(self) -> str:
         command = f'/delete {self.id}'
@@ -73,8 +76,8 @@ class ParentMessage():
         return command
 
     # some parent content will contains ' ', '\', ';'
-    # these will be repleced to        '\s','\\','\:'
-    # in this function we replaceing all back
+    # which will be replaced to        '\s','\\','\:'
+    # in this function we replacing all back
     @staticmethod
     def replace(text: str):
         text = list(text) # work with list will be easier

@@ -1,19 +1,22 @@
 from channel import Channel
-
+from typing import Dict
 class Member:
-    def __init__(self, channel: Channel, tags: dict) -> None:
+    def __init__(self, 
+        channel: Channel, 
+        tags: Dict[str, str]) -> None:
+
         self.channel = channel
-        self.id = int(tags['user-id'])
-        self.name = tags['display-name']
-        self.color = None
-        self.bits = 0
-        self.subscriber = 0
-        self.admin = False
-        self.broadcaster = False
-        self.mod = False
-        self.client_nonce = None
-        self.badges = {}
-        self.badges_info = {}
+        self.id: int = int(tags['user-id'])
+        self.name: str = tags['display-name']
+        self.color: str = None
+        self.bits: int = 0
+        self.subscriber: int = 0
+        self.admin: bool = False
+        self.broadcaster: bool = False
+        self.mod: bool = False
+        self.client_nonce: str = None
+        self.badges: Dict[str, str] = {}
+        self.badges_info: Dict[str, str] = {}
 
         for key in tags.keys():
             if key == 'badges':
@@ -86,7 +89,7 @@ class Member:
 
 
     @staticmethod
-    def badges_to_dict(badges: str) -> dict:
+    def badges_to_dict(badges: str) -> Dict[str, str]:
         result = {} # to return
         # every bage/value separated by ','
         for badge in badges.split(','):
