@@ -2,7 +2,7 @@
 import websockets
 
 class Channel:
-    def __init__(self, name: str, ws: websockets.client.connect, tags: dict):
+    def __init__(self, name: str, ws: websockets.client.connect, tags: dict) -> None: 
         self.name = name
         self.ws = ws
         self.id = None
@@ -38,7 +38,7 @@ class Channel:
                 self.subs_only = True if tags[key] == '1' else False
 
 
-    def update(self, tags: dict):
+    def update(self, tags: dict) -> None:
         for key in tags.keys():
             if key == 'emote-only':
                 self.emote_only = True if tags[key] == '1' else False
@@ -61,17 +61,17 @@ class Channel:
                 self.subs_only = True if tags[key] == '1' else False
 
             
-    async def send(self, msg: str):
+    async def send(self, msg: str) -> str:
         command = f'PRIVMSG #{self.name} :{msg}'
-        print('<', command)
         await self.ws.send(command + '\r\n')
+        return command
         
-    async def disconnect(self):
+    async def disconnect(self) -> str:
         command = f'PRIVMSG #{self.name} :/disconnect'
-        print('<', command)
         await self.ws.send(command + '\r\n')
+        return command
 
-    async def clear(self):
+    async def clear(self) -> str:
         command = f'PRIVMSG #{self.name} :/clear'
-        print('<', command)
         await self.ws.send(command + '\r\n')
+        return command

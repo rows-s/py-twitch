@@ -1,6 +1,7 @@
 from channel import Channel
+
 class Member:
-    def __init__(self, channel: Channel, tags: dict):
+    def __init__(self, channel: Channel, tags: dict) -> None:
         self.channel = channel
         self.id = int(tags['user-id'])
         self.name = tags['display-name']
@@ -36,43 +37,62 @@ class Member:
             elif badge == 'subscriber':
                 self.subscriber = int(self.badges[badge])
     
-    async def whisper(self, message: str):
-        await self.channel.send(f'/w {self.name} {message}')
+    async def whisper(self, message: str) -> str:
+        command = f'/w {self.name} {message}'
+        await self.channel.send(command)
+        return command
 
 
-    async def ban(self, reason: str =''):
-        await self.channel.send(f'/ban {self.name} {reason}')
+    async def ban(self, reason: str ='') -> str:
+        command = f'/ban {self.name} {reason}'
+        await self.channel.send(command)
+        return command
 
 
-    async def timeout(self, seconds: int):
-        await self.channel.send(f'/timeout {self.name} {seconds}')
+    async def timeout(self, seconds: int) -> str:
+        command = f'/timeout {self.name} {seconds}'
+        await self.channel.send(command)
+        return command
 
     
-    async def unban(self):
-        await self.channel.send(f'/unban {self.name}')
+    async def unban(self) -> str:
+        command = f'/unban {self.name}'
+        await self.channel.send(command)
+        return command
 
 
-    async def vip(self):
-        await self.channel.send(f'/vip {self.name}')
+    async def vip(self) -> str:
+        command = f'/vip {self.name}'
+        await self.channel.send(command)
+        return command
 
 
-    async def unvip(self):
-        await self.channel.send(f'/unvip {self.name}')
+    async def unvip(self) -> str:
+        command = f'/unvip {self.name}'
+        await self.channel.send(command)
+        return command
 
 
-    async def mod(self):
-        await self.channel.send(f'/mod {self.name}')
+    async def mod(self) -> str:
+        command = f'/mod {self.name}'
+        await self.channel.send(command)
+        return command
 
 
-    async def unmod(self):
-        await self.channel.send(f'/unmod {self.name}')
+    async def unmod(self) -> str:
+        command = f'/unmod {self.name}'
+        await self.channel.send(command)
+        return command
 
 
     @staticmethod
-    def badges_to_dict(badges: str):
-        result = {}
+    def badges_to_dict(badges: str) -> dict:
+        result = {} # to return
+        # every bage/value separated by ','
         for badge in badges.split(','):
+            # # we can get empety str, if so - skip
             if badge:
+                # every bage & value separated by '/'
                 key, value = badge.split('/', 1)
                 result[key] = value
         return result

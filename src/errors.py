@@ -1,5 +1,5 @@
-class FuncIsNotCorutine(Exception):
+class FunctionIsNotCorutine(Exception):
     pass
 
-class WrongFunctiomName(Exception):
+class UnknownEvent(Exception):
     pass
