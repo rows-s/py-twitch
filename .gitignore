@@ -2,3 +2,16 @@
 *.pyc
 src/__pycache__/client.cpython-38.pyc
 src/__pycache__
+src/.idea/vcs.xml
+src/.idea/src.iml
+src/.idea/modules.xml
+src/.idea/misc.xml
+src/.idea/workspace.xml
+src/.idea/inspectionProfiles/profiles_settings.xml
+src/.idea/dictionaries/rows.xml
+.idea/inspectionProfiles/profiles_settings.xml
+.idea/misc.xml
+.idea/modules.xml
+.idea/py-twitch.iml
+.idea/vcs.xml
+.idea/workspace.xml
