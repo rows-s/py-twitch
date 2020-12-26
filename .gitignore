@@ -16,3 +16,4 @@ src/.idea/dictionaries/rows.xml
 .idea/vcs.xml
 .idea/workspace.xml
 src/TMP.txt
+src/config.py
