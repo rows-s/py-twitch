@@ -1,4 +1,3 @@
-from abc import ABC
 from typing import Dict, Optional
 from utils import replace
 from member import Member

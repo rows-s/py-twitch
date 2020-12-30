@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Dict, List, Iterable, Any, Union
 
 
 def split(text: str, separator: str, max_seps=0):
@@ -114,8 +114,8 @@ def badges_to_dict(badges: str) -> Dict[str, str]:
 def replace(text: str):
     """
     some parent content will contains (space), (slash), (semicolon)
-    which will be replaced as (space) to (slash+s), (slach) to (slash+slach), (colon) to (slash+colon)
-    in this function we replacing all back \n
+    which will be replaced as (space) to (slash+s), (slach) to (slash+slach), (semicolon) to (slash+colon)
+    in this function we are replacing all back
     """
     text = list(text)  # work with list will be easier
     i = 0  # simple current index
@@ -132,4 +132,30 @@ def replace(text: str):
             # above we changing first letter and delete second
             # that's need to don't replace one letter twice
         i += 1
-    return ''.join(text)
+    return ''.join(text)  # return joined list
+
+
+def insert_params(url: str, limit: int, params: Dict[str, Union[Iterable[Any], Any]]):
+    if limit is not None: # choice `first` parameter
+        if limit > 100:  # we can't receive more than 100 results in one response
+            url += '&first=100'
+        elif limit > 0:  # if limited between 0-100 - receive all in one response
+            url += '&first=' + str(limit)
+            # else - standart `first` - 20
+
+    # loop for process all keys
+    for key in params:
+        # if value is str - just insert
+        if type(params[key]) == str:
+            value = params[key]
+            url += '&' + key + '=' + value
+        # if value is iterable - loop to insert all
+        elif hasattr(params[key], '__iter__'):
+            for value in params[key]:
+                url += '&' + key + '=' + str(value)
+        # else - must be `int` or `bool`, converting to `str`
+        else:
+            value = params[key]
+            url += '&' + key + '=' + str(value).lower()
+    return url
+

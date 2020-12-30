@@ -25,5 +25,17 @@ class UnknownUserNotice(Exception):
 class UnknownHostTarget(Exception):
     pass
 
+
 class UnknownCommand(Exception):
+    pass
+
+
+class HTTPError(Exception):
+    pass
+
+
+class InvalidToken(Exception):
+    pass
+
+class WrongIterObjects(Exception):
     pass
