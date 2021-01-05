@@ -1,9 +1,7 @@
-import traceback
 from typing import Coroutine, Iterable, Optional, Tuple, Union, Dict, List, Any
 from asyncio import get_event_loop
 from asyncio.coroutines import iscoroutinefunction
 from websockets import connect
-import aiohttp
 
 from utils import is_int, prefix_to_dict
 from message import Message
@@ -12,10 +10,6 @@ from user_events import *
 from abcs import State
 from channel import Channel
 from member import Member
-
-
-# our uri for connect to sever
-uri = 'wss://irc-ws.chat.twitch.tv:443'
 
 
 # class Client, it will create bots
@@ -34,11 +28,11 @@ class Client:
 
     def run(self, channels: Iterable[str], *, ws_params: Dict[str, Any] = None) -> None:
         """
-        this function starts event listener, use it if you want to start 'client' as single worker.\n
-        If you want start bot with any other async code - look 'start()'
+        this function starts event listener, use it if you want to start 'Client' as single worker.\n
+        If you want start 'Client' with any other async code - look 'start()'
 
         Args:
-            channels: Iterable[`str`]
+            channels: Iterable[str]
                 Iterable object with names of channel to join
             ws_params: Dict[str, Any]
                 Dict with arguments for websockets.connect
@@ -59,6 +53,7 @@ class Client:
                 Dict with arguments for websockets.connect
         """
         # creating websocket
+        uri = 'wss://irc-ws.chat.twitch.tv:443'
         if not ws_params: ws_params = {}
         self._ws = await connect(uri, **ws_params)
         # asking server to capability

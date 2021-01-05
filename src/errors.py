@@ -37,5 +37,14 @@ class HTTPError(Exception):
 class InvalidToken(Exception):
     pass
 
+
 class WrongIterObjects(Exception):
+    pass
+
+
+class ServerError(Exception):
+    pass
+
+
+class AccessError(Exception):
     pass
