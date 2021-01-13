@@ -2,13 +2,13 @@ import re
 
 import client
 import config
+import api
 from time import time
 
 bot = client.Client(config.token, config.nick)
 counter = 0
-
-
 room_update_counter = 0
+
 
 @bot.event
 async def on_room_update(channel, key, before, after):
@@ -147,13 +147,13 @@ async def on_message(message):
             print(f'user events - {user_event_counter}')
 
 
-with open('TMP.txt', encoding="utf8") as file:
+with open(r"D:\Users\I3rowser\Desktop\Популярные каналы - Twitch.htm", encoding="utf8") as file:
     text = file.read()
     regul = r'<a[^>]*tw-full-width tw-link tw-link--hover-underline-none ' \
             r'tw-link--inherit[^>]*href="https://www.twitch.tv/([^"]*)[^>]*>'
     result = re.findall(regul, text)
 
-print('!\nWe are joining {} of channels as bot'.format(len(result)))
+print(f'!\nWe are joining {len(result)} of channels as bot')
 start_time = time()
 result.insert(0, 'rows_s')
 bot.run(channels=result[:100])

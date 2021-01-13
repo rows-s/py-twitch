@@ -1,6 +1,6 @@
 
 from typing import List, Tuple, Union, Dict, Optional
-from websockets.client import connect
+from websockets import WebSocketClientProtocol
 
 from utils import badges_to_dict
 
@@ -8,11 +8,11 @@ from utils import badges_to_dict
 class Channel:
     def __init__(self, name: str,
                  mystate_tags: Dict[str, str],
-                 ws: connect,
+                 ws: WebSocketClientProtocol,
                  tags: Dict[str, str]) -> None:
 
         self.name: str = name
-        self.ws = ws
+        self.ws: WebSocketClientProtocol = ws
         self.id: int = int(tags['room-id'])
         self.slow: int = int(tags['slow'])
         self.rituals = int(tags['rituals'])

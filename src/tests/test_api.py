@@ -76,7 +76,7 @@ async def to_do():
 
         print('create_custom_rewards:\n    ', end='')
         try:
-            print(await api.create_custom_rewards({'title': 'Test', 'cost': 50000}, broadcaster_id=192827780))
+            print(await api.create_custom_rewards(**{'title': 'Test', 'cost': 50000}, broadcaster_id=192827780))
         except HTTPError as e:
             print(e)
         except StopAsyncIteration:
@@ -127,8 +127,12 @@ async def to_do2():
     async with Api() as api:
         await api.set_auth(config.auth)
         params = {'language': 'ru'}
-        async for stream in api.get_streams(101, **params):
+        async for stream in api.get_streams(100, **params):
             print(stream)
+        generator = api.get_streams(1, **params)
+        print('Try once:\n    ', await api.once(generator))
+        generator = api.get_bits_leaderboard(1)
+        print('Try once with no data:\n    ', await api.once(generator))
 
 bot.loop.run_until_complete(to_do2())
 

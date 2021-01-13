@@ -159,3 +159,18 @@ def insert_params(url: str, limit: int, params: Dict[str, Union[Iterable[Any], A
             url += '&' + key + '=' + str(value).lower()
     return url
 
+
+def normalize_ms(date: str):
+    if date.endswith('Z'):
+        date = date[:-1]
+    dot_index = date.find('.')
+    if dot_index != -1:
+        after_dot = len(date) - dot_index - 1
+        if after_dot > 6:
+            date = date[:dot_index+7]
+        else:
+            date += ('0' * (6 - after_dot))
+    else:
+        date = date + '.000000'
+    return date
+
