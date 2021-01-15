@@ -14,12 +14,10 @@ from utils import normalize_ms
 
 
 class EventSub:
-    """
-    Class to handle your webhooks verifications, notifications and revocations.
-    """
+    """ Class to handle your webhooks verifications, notifications and revocations """
 
     _notify_events: Dict[str, Tuple[str, any]] = {  # dict of
-        # 'event_type': ('matching_attribute_name', matching_class)
+        # 'notification_type': ('matching_attribute_name', matching_class)
         'channel.follow': ('on_follow', types.FollowEvent),
         'channel.subscribe': ('on_subscribe', types.SubscribeEvent),
         'channel.cheer': ('on_cheer', types.CheerEvent),
@@ -48,107 +46,112 @@ class EventSub:
         'on_reward_add', 'on_reward_update', 'on_reward_remove',  # rewards events
         'on_redemption_add', 'on_redemption_update',  # redemption events
         'on_authorization_revoke',  # authorization revoke
-        'on_verification', 'revocations',  # webhook-subscription events
+        'on_verification', 'custom_verification', 'revocations',  # webhook-subscription events
         'on_unknown_event'  # unknown event
     )
 
     def __init__(
             self,
             secret: str,
-            verify_signature: bool = True,
-            check_time_limit: bool = False,
-            duplicate_control: bool = False,
+            is_verify_signature: bool = True,
+            is_time_limit_control: bool = False,
+            is_duplicate_control: bool = False,
             *,
-            time_limit: int = 10 * 60,
-            duplicate_save_time: int = 10 * 60,
-            any_verify: bool = True,
+            time_limit: float = 10 * 60,
+            duplicate_save_period: float = 10 * 60,
+            is_any_verify: bool = True,
             loop: asyncio.AbstractEventLoop = None
     ) -> None:
         self._secret: str = secret
-        self.any_verify = any_verify
-        self.verify_signature: bool = verify_signature
-        self.check_time_limit: bool = check_time_limit
-        self.time_limit: timedelta = timedelta(seconds=time_limit)
-        self.duplicate_control: bool = duplicate_control
-        self.duplicate_save_period: timedelta = timedelta(seconds=duplicate_save_time)
-        self._duplicates: List[Tuple[str, datetime]] = []
         self.loop: asyncio.AbstractEventLoop = asyncio.get_event_loop() if loop is None else loop
+        # verifications
+        self.is_any_verify: bool = is_any_verify
+        # verify_signature
+        self.is_verify_signature: bool = is_verify_signature
+        # time limit
+        self.is_time_limit_control: bool = is_time_limit_control
+        self.time_limit: timedelta = timedelta(seconds=time_limit)
+        # duplicate control
+        self.is_duplicate_control: bool = is_duplicate_control
+        self.duplicate_save_period: timedelta = timedelta(seconds=duplicate_save_period)
+        self._duplicates: List[Tuple[str, datetime]] = []  # list with (duplicate_id, duplicate_time) !SORTED BY TIME!
 
-    async def handler(
+    async def handle(
             self,
             request: web.BaseRequest
     ) -> web.Response:
-        t0 = time()
-        req_type = request.headers.get('Twitch-Eventsub-Message-Type')
-        req_id = request.headers.get('Twitch-Eventsub-Message-Id')
-        req_time = request.headers.get('Twitch-Eventsub-Message-Timestamp')
-        if self.any_verify:
-            if self.verify_signature:
-                req_body = await request.text()
-                req_signature = request.headers.get('Twitch-Eventsub-Message-Signature')
-                if req_signature[7:] != self.calc_sign(req_id + req_time + req_body, key=self._secret):
+        handling_start_time = time()
+        request_type = request.headers.get('Twitch-Eventsub-Message-Type')
+        request_id = request.headers.get('Twitch-Eventsub-Message-Id')
+        request_time = request.headers.get('Twitch-Eventsub-Message-Timestamp')
+
+        if self.is_any_verify:
+            if self.is_verify_signature:
+                request_body = await request.text()
+                request_sha256 = request.headers.get('Twitch-Eventsub-Message-Signature')[7:]  # remove 'sha256='
+                text_to_sha256 = request_id + request_time + request_body
+                if request_sha256 != self.calc_sha256(text_to_sha256, key=self._secret):
                     return web.HTTPBadRequest()
 
-            if self.check_time_limit:
-                req_datetime = self.to_datatime(req_time, normalize=True)
-                if (datetime.utcnow() - req_datetime) > self.time_limit:
+            if self.is_time_limit_control:
+                request_datetime = self.str_to_datatime(request_time, normalize=True)
+                if (datetime.utcnow() - request_datetime) > self.time_limit:
                     return web.Response(status=200)
 
-            if self.duplicate_control:
-                for _, dupl_time in self._duplicates:  # loop for delete all out of range duplicates
-                    if datetime.utcnow() - dupl_time > self.duplicate_save_period:
-                        self._duplicates.pop()
-                        continue  # logic: dupls are sorted by time, so if first is not out of range - others neither,
-                    else:  # so if first is out of range - one more iteration, else - break the loop
-                        break
+            if self.is_duplicate_control:
+                self._delete_outrange_duplicates()
 
-                req_datetime = self.to_datatime(req_time, normalize=True)
-                if (req_id, req_datetime) in self._duplicates:  # more of dupl will close to current time
+                request_datetime = self.str_to_datatime(request_time, normalize=True)
+                if (request_id, request_datetime) in reversed(self._duplicates):
                     return web.Response(status=200)
 
-                index = len(self._duplicates)  # more of request will be latest or close to
-                for _, dupl_time in reversed(self._duplicates):
-                    if req_datetime > dupl_time:
-                        self._duplicates.insert(index, (req_id, req_datetime))
-                        break
-                else:
-                    self._duplicates.insert(0, (req_id, req_datetime))
+                self._save_duplicate(request_id, request_datetime)
 
         json = await request.json()
         wh_sub = types.WebhookSubcription(json['subscription'])
 
-        if req_type == 'webhook_callback_verification':  # if webhook verification
+        if request_type == 'webhook_callback_verification':
             json = await request.json()
+
+            if hasattr(self, 'custom_verification'):
+                is_verified = await self.custom_verification(wh_sub, json['challenge'])
+                if is_verified:
+                    return web.Response(text=json['challenge'])
+                else:
+                    return web.HTTPForbidden()
+
             if hasattr(self, 'on_verification'):
                 self._do_later(self.on_verification(wh_sub, json['challenge']))
-            print('is verify', time() - t0)
+            print('is verify', time() - handling_start_time)
             return web.Response(text=json['challenge'])
 
-        elif req_type == 'notification':  # if notification
+        elif request_type == 'notification':
             event_type = wh_sub.type  # type of current notification
-            attr_and_class = EventSub._notify_events.get(event_type)  # attr and class that match `event_type`
-            if attr_and_class is not None:  # if got tuple
-                event_attr, event_class = attr_and_class
-                if hasattr(self, event_attr):  # here `event_attr` is just str of name
-                    event_handler = getattr(self, event_attr)  # if `attr` exists - get the function
-                    raw_event = json['event']  # get raw event data
-                    raw_event['event_id'] = req_id  # add id of current event
-                    raw_event['event_time'] = req_time  # add time of current event
-                    event = event_class(raw_event)  # create `event` as object of matching class
-                    self._do_later(event_handler(wh_sub, event))  # send to do later
-                    print('_do_later', event_attr, time() - t0)
-                else:  # else - current `self` is not to handle current event
-                    print('not registred event', time() - t0)
-                return web.Response(status=200)
-            else:  # else - unknown event
+            try:
+                event_attr, event_class = EventSub._notify_events.get(event_type)
+            except TypeError:  # None is non-iterable
                 if hasattr(self, 'on_unknown_event'):
                     json['headers'] = request.headers  # add headers
                     self._do_later(self.on_unknown_event(json))
-                print('unknown event', time() - t0)
+                print('unknown event', time() - handling_start_time)
                 return web.Response(status=200)
-        elif req_type == 'revocation':
+            else:
+                if hasattr(self, event_attr):  # here `event_attr` is just str of name
+                    event_handler = getattr(self, event_attr)  # if `event_attr` exists - get the function
+                    raw_event = json['event']  # get raw event data
+                    raw_event['event_id'] = request_id  # add id of current event
+                    raw_event['event_time'] = request_time  # add time of current event
+                    event = event_class(raw_event)  # create `event` as object of matching class
+                    self._do_later(event_handler(wh_sub, event))  # send to do later
+                    print('_do_later', event_attr, time() - handling_start_time)
+                else:  # else - current `self` is not handler for current event
+                    print('not registred event', time() - handling_start_time)
+                return web.Response(status=200)
+
+        elif request_type == 'revocation':
             if hasattr(self, 'on_revocation'):
                 self._do_later(self.on_revocation(wh_sub))
+
         else:  # we don't wait nothing else except verification, notification and revocation
             return web.HTTPBadRequest()
 
@@ -161,8 +164,66 @@ class EventSub:
             raise UnknownEvent(f'{coro.__name__} is unknown name of event')
         return coro
 
+    def _delete_outrange_duplicates(self):
+        """
+        Deletes all out of range duplicates.
+
+        -------------------
+
+        Returns:
+        ==================
+            None
+        ------------------
+
+        Notes:
+        ==================
+            Logic: because duplicates are sorted by time, we know:
+                1) if first is not out of range - others neither
+                so we whole times check only first:
+                    if it out of range:
+                        delete and one more iteration
+                    else:
+                        others neither - stop loop
+        ------------------
+        """
+        while len(self._duplicates):
+            duplicate_time = self._duplicates[0][1]
+            if datetime.utcnow() - duplicate_time > self.duplicate_save_period:
+                self._duplicates.pop(0)
+                continue
+            else:
+                break
+
+    def _save_duplicate(self, request_id: str, request_datetime: datetime):
+        """
+        saves duplicate in position that matching  request's time
+
+        -------------
+
+        Args:
+        =============
+            request_id: `str`
+                id of request
+
+            request_datetime: :class:`datetime`
+                time of request
+        ------------
+
+        Returns:
+        ============
+            None
+        ------------
+        """
+        index = len(self._duplicates)  # iterator is reversed - so index to inserting is last
+        for _, duplicate_time in reversed(self._duplicates):  # more of request will be latest or close to
+            if request_datetime > duplicate_time:  # if later than current duplicate - insert and break, else- look next
+                self._duplicates.insert(index, (request_id, request_datetime))
+                break
+        else:  # if list is empty, or others is later then request - index is 0
+            self._duplicates.insert(0, (request_id, request_datetime))
+
     @staticmethod
-    def calc_sign(
+    def calc_sha256(
             text: str,
             key: str,
     ) -> str:
@@ -172,7 +233,7 @@ class EventSub:
         return signature
 
     @staticmethod
-    def to_datatime(date: str, normalize: bool = True) -> datetime:
+    def str_to_datatime(date: str, normalize: bool = True) -> datetime:
         if normalize:
             date = normalize_ms(date)
         return datetime.strptime(date, '%Y-%m-%dT%H:%M:%S.%f')

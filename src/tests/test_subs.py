@@ -10,15 +10,14 @@ import eventsub_events
 
 app = web.Application()
 webhook_handler = eventsub.EventSub(secret=config.secret,
-                                    verify_signature=True,
-                                    check_time_limit=True,
-                                    duplicate_control=True,
+                                    is_verify_signature=True,
+                                    is_time_limit_control=True,
+                                    is_duplicate_control=True,
                                     time_limit=1*60,
-                                    duplicate_save_time=1*60)
+                                    duplicate_save_period=1 * 60)
 
 @webhook_handler.event
-async def on_follow(wh_sub: eventsub_events.WebhookSubcription,
-                    event: eventsub_events.FollowEvent):
+async def on_follow(_, event: eventsub_events.FollowEvent):
     print(f'{event.user_name} has followed to {event.broadcaster_user_name} at {event.event_time}')
     print(f'id of event is {event.event_id}')
 
@@ -59,7 +58,7 @@ async def on_cleanup(app):
     pass
 
 
-app.add_routes([web.post('/twitch/events/subscriptions', webhook_handler.handler)])
+app.add_routes([web.post('/twitch/events/subscriptions', webhook_handler.handle)])
 # app.on_startup.append(on_startup)
 # app.on_cleanup.append(on_cleanup)
 # app.cleanup_ctx.append(context)
