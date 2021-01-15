@@ -1,7 +1,7 @@
 from typing import Dict, Optional
 from utils import replace
-from member import Member
-from channel import Channel
+from irc_member import Member
+from irc_channel import Channel
 from abcs import UserEvent
 
 

@@ -1,6 +1,6 @@
 from abc import ABC
-from channel import Channel
-from member import Member
+from irc_channel import Channel
+from irc_member import Member
 from utils import replace, emotes_to_dict, badges_to_dict
 from typing import Dict, List
 

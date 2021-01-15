@@ -4,12 +4,12 @@ from asyncio.coroutines import iscoroutinefunction
 from websockets import connect, WebSocketClientProtocol
 
 from utils import is_int, prefix_to_dict
-from message import Message
+from irc_message import Message
 from errors import *
-from user_events import *
+from irc_user_events import *
 from abcs import State
-from channel import Channel
-from member import Member
+from irc_channel import Channel
+from irc_member import Member
 
 
 # class Client, it will create bots

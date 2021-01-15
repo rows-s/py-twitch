@@ -1,5 +1,5 @@
-from channel import Channel
-from member import Member
+from irc_channel import Channel
+from irc_member import Member
 from typing import Dict, List, Optional
 from utils import emotes_to_dict, replace
 

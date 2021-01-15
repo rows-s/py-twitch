@@ -1,135 +1,163 @@
 import aiohttp
 
+from aiohttp.client_exceptions import ContentTypeError
 from errors import HTTPError, InvalidToken, ServerError, AccessError
 
-from typing import Dict, Union, Iterable, List, Optional, AsyncGenerator
+from typing import Dict, Union, Iterable, List, Optional, AsyncGenerator, Any
 
-_Bool = Union[bool, str]  # types of params and datas
-_Int = Union[int, str]
-_IntIter = Union[Iterable[Union[int, str]], int, str]
-_StrIter = Union[Iterable[str], str]
-_Data = Dict[str, Union[str, int, bool]]
-_Params = Dict[str, Union[Iterable[Union[int, str]], int, str, bool]]
+__all__ = (
+    'Api',
+)
 
 
 class Api:
     """
-    This class gives you ability to easy use twtich-API\n
-    Before using Authorization-Token should be set, use set_auth(auth) or `create(auth)` methods
-    (`create(auth)` returns initialized object)
+    This class gives you ability to easy use twtich-API. \n
+    Before using, Authorization-Token must be set, use set_auth(auth) or `create(auth)` methods
+    ( `create(auth)` returns initialized object)
+
+    ----------------
 
     Methods:
     ================
-        create(auth: str):
-            returns created and initialized object (sets Authorization-Token)
-
         set_auth(auth: str):
-            sets `auth`(Authorization-Token) in current object, also set Client-Id and scopes of `auth`
+            sets `auth` (Authorization-Token) in current object, also set :attr:`client_id` and `scopes` of `auth`
 
-        once(generator: AsyncGenerator)
+        @staticmethod
+        create(auth: str):
+            returns created and initialized object (sets Authorization-Token via :func:`set_auth`)
+
+        @staticmethod
+        once(generator: AsyncGenerator):
             This method gives you simple way to get only one result from any async generator in one code-row.\n
 
         others:
             all twitch-API requests as methods
+    -----------------
 
-    Fields:
+    Attributes:
     ==================
         self.scopes: List[str]
             scopes of your Authorization-Token, untill auth is set - empty list
 
         self.client_id: str
             client_id of current setted Authorization-Token
+    -----------------
     """
+    _session: aiohttp.ClientSession = None
 
     def __init__(self):
-        self.scopes = []
-        self._headers = {}
-        self._session = aiohttp.ClientSession()
-        self._auth = None
-        self.client_id = None
+        self.scopes: List[str] = []
+        self._headers: Dict[str, str] = {}
+        self._auth: str = ''
+        self.client_id: str = ''
+        if Api._session is None:  # we don't create a session without at least one Api-object
+            Api._session = aiohttp.ClientSession()
 
+    #################################
+    # INITIALIZATION'S THINGS
+    #
     @staticmethod
     async def create(auth: str):
         """
-        |Coroutine|\n
-        if you want to create and initialize object in one row, use that\n
-        This method creates object and calls `set_auth` method for the object.
+        |Coroutine|
+        =================
+        if you want to create and initialize object in one row, use this.\n
+        The method creates object and calls `set_auth` method for the object.
+
+        -----------------
 
         Args:
-        ===============
-            auth:  `str`
-                with your Authorization-Token
-
+        =================
+            auth:  :class:`str`
+                your Authorization-Token
+        -----------------
+        
         Returns:
         =================
-            `Api`
+            :class:`Api`
                 created and initialized object
+        -----------------
         """
 
         api = Api()
         await api.set_auth(auth)
         return api
 
-    async def set_auth(self, auth: str):
+    async def set_auth(self, auth: str) -> None:
         """
-        |Coroutine|\n
+        |Coroutine|
+        ====================
         sets `auth` in current object, also set Client-Id and scopes of `auth`
+
+        --------------------
 
         Args:
         ====================
-            auth:
-                `str` with your Authorization-Token
+            auth: `str`
+                your Authorization-Token
+        --------------------
 
         Raises:
         ================
-            InvalidToken:
-                if `auth` is invalid, passes `dict` with json of response.
-                , passes `dict` with json of response.
+            :class:`InvalidToken`:
+                if `auth` is invalid, passes `dict` with json of response. passes `dict` with json of response.
 
-            ServerError:
-                if response contains 500 as status-code, passes `dict` with json of response.\n
+            :class:`ServerError`:
+                if response contains 5XX as status-code, passes `dict` with json of response.\n
                 from twitch: 'Internal Server Error: Something bad happened on our side'\n
                 , passes `dict` with json of response.
 
-            HTTPError:
-                if status-code of response is not 200, 401 or 500, passes `dict` with json of response.
+            :class:`HTTPError`:
+                if status-code of response is not 2XX, 4XX or 5XX, passes `dict` with json of response.
+        -----------------
         """
 
-        headers = {'Authorization': 'Bearer ' + auth}
+        self._headers = {'Authorization': 'Bearer ' + auth}
         url = 'https://id.twitch.tv/oauth2/validate'  # url to check auth
-        async with self._session.get(url, headers=headers) as response:
+        async with Api._session.get(url, headers=self._headers) as response:
             json = await response.json()
-            if response.status == 401:  # 401 - invalid token
+            if 399 < response.status < 500:  # 4XX - invalid token
                 raise InvalidToken(json)
-            elif response.status == 500:  # 500 - server has a problem
+            elif 499 < response.status < 600:  # 5XX - server has a problem
                 raise ServerError(json)
-            elif response.status != 200:
+            elif not (199 < response.status < 300):  # if not 2XX - HTTP Error
                 raise HTTPError(json)
             else:
                 self._auth = auth
                 self.client_id = json['client_id']
-                headers['Client-Id'] = json['client_id']
-                self._headers = headers
                 self.scopes = json['scopes']
-                await self._session.close()
-                self._session = aiohttp.ClientSession(headers=self._headers)
+                self._headers['Client-Id'] = json['client_id']
+    #
+    # end of INITIALIZATION'S THINGS
+    #################################
 
-    async def start_commercial(self,
-                               broadcaster_id: str,
-                               length: _Int
-                               ) -> dict:
+    #################################
+    # TWITCH API REQUESTS
+    #
+    async def start_commercial(
+            self,
+            broadcaster_id: str,
+            length: int
+    ) -> dict:
         """
-        |Coroutine|\n
+        |Coroutine|
+        ================
         Starts a commercial on a specified channel.\n
         REQUIRED scope: 'channel:edit:commercial'
+
+        ----------------
 
         Args:
         ================
             broadcaster_id: REQUIRED `str`
-                 ID of the channel requesting a commercial, Minimum: 1 Maximum: 1
+                 ID of the channel requesting a commercial \n
+                 Minimum: 1 Maximum: 1
 
-            length: REQUIRED Optional[str, int]
-                Desired length of the commercial in seconds. Valid options are 30, 60, 90, 120, 150, 180.
+            length: `int`
+                Desired length of the commercial in seconds. \n
+                Valid options are 30, 60, 90, 120, 150, 180.
+        ----------------
 
         Returns:
         ================
@@ -143,11 +171,13 @@ class Api:
                 'retry_after': `int`
                     Seconds until the next commercial can be served on this channel
             }
+        ----------------
 
         Raises:
         ================
-            HTTPError:
-                if status-code of response is not 200, passes `dict` with json of response.
+            :class:`HTTPError`:
+                if status-code of response is not 2XX, passes `dict` with json of response.
+        ----------------
         """
 
         data = {}
@@ -162,20 +192,24 @@ class Api:
         response = await self._http_post(url, data, params)
         return response['data'][0]
 
-    async def get_extension_analytics(self,
-                                      limit: int,
-                                      extension_id: str = None,
-                                      started_at: str = None,
-                                      ended_at: str = None,
-                                      type: str = None
-                                      ) -> dict:
+    async def get_extension_analytics(
+            self,
+            limit: int,
+            extension_id: str = None,
+            started_at: str = None,
+            ended_at: str = None,
+            type: str = None
+    ) -> AsyncGenerator[dict, None]:
         """
-        |Async Generator|\n
+        |Async Generator|
+        ================
         Yields URL that extension developers can use to download analytics reports (CSV files) for their extensions.
         The URL is valid for 5 minutes.
         If you specify a future date, the response will be “Report Not Found For Date Range.”
         If you leave both started_at and ended_at blank, the API returns the most recent date of data.\n
         REQUIRED scope: 'analytics:read:extensions'
+
+        ----------------
 
         Args:
         ================
@@ -187,7 +221,7 @@ class Api:
                 the returned URL points to an analytics report for just the specified extension.
 
             started_at:  `str`
-                Starting date/time for returned reports, in RFC3339 format with the hours, minutes,
+                Starting date/time for returned reports,  in RFC3339 format with the hours, minutes,
                 and seconds zeroed out and the UTC timezone: YYYY-MM-DDT00:00:00Z.
                 This must be on or after January 31, 2018. If this is provided, ended_at also must be specified.
                 If started_at is earlier than the default start date,
@@ -205,6 +239,7 @@ class Api:
                 Type of analytics report that is returned. If this is specified, the response includes one URL,
                 for the specified report type.  Limit: 1. Valid values: "overview_v1", "overview_v2".
                 Default: all report types for the authenticated user’s Extensions.
+        ----------------
 
         Yields:
         ================
@@ -228,14 +263,16 @@ class Api:
                         Report end date/time.
                 }
             }
+        ----------------
 
         Raises:
         ================
-            HTTPError:
-                if status-code is not 200, passes `dict` with json of response.
+            :class:`HTTPError`:
+                if status-code is not 2XX, passes `dict` with json of response.
 
-            AccessError:
+            :class:`AccessError`:
                 if the Authorization-Token hasn't required scope
+        ----------------
         """
 
         params = {}
@@ -321,7 +358,7 @@ class Api:
         Raises:
         ================
             HTTPError:
-                if status-code is not 200, passes `dict` with json of response.
+                if status-code is not 2XX, passes `dict` with json of response.
 
             AccessError:
                 if the Authorization-Token hasn't required scope
@@ -343,16 +380,20 @@ class Api:
         async for game in self._to_be_continue(url, limit, params):
             yield game
 
-    async def get_bits_leaderboard(self,
-                                   limit: int,
-                                   period: str = None,
-                                   started_at: str = None,
-                                   user_id: str = None
-                                   ) -> dict:
+    async def get_bits_leaderboard(
+            self,
+            limit: int,
+            period: str = None,
+            started_at: str = None,
+            user_id: str = None
+    ) -> AsyncGenerator[dict, None]:
         """
-        |Async Generator|\n
+        |Async Generator|
+        ================
         Yields ranked Bits leaderboard information for an authorized broadcaster.
         REQUIRED scope: 'bits:read'
+
+        ----------------
 
         Args:
         ================
@@ -376,6 +417,7 @@ class Api:
                 ID of the user whose results are returned; i.e., the person who paid for the Bits.
                 As long as count is greater than 1, the returned data includes additional users,
                 with Bits amounts above and below the user specified by user_id.
+        ----------------
 
         Yields:
         ================
@@ -392,11 +434,13 @@ class Api:
                 'user_name': `str`
                     Display name corresponding to user_id.
             }
+        ----------------
 
         Raises:
         ================
             HTTPError:
-                if status-code is not 200, passes `dict` with json of response.
+                if status-code is not 2XX, passes `dict` with json of response.
+        ----------------
         """
 
         params = {}
@@ -471,7 +515,7 @@ class Api:
         Raises:
         ================
             HTTPError:
-                if status-code is not 200, passes `dict` with json of response.
+                if status-code is not 2XX, passes `dict` with json of response.
         """
 
         params = {}
@@ -485,7 +529,7 @@ class Api:
     async def get_extension_transactions(self,
                                          limit: int,
                                          extension_id: str,
-                                         transaction_id: _StrIter = None
+                                         transaction_id: Union[Iterable[str], str] = None
                                          ) -> dict:
         """
         |Async Generator|\n
@@ -550,7 +594,7 @@ class Api:
         Raises:
         ================
             HTTPError:
-                if status-code is not 200, passes `dict` with json of response.
+                if status-code is not 2XX, passes `dict` with json of response.
         """
         params = {}
         if extension_id is not None:
@@ -566,18 +610,18 @@ class Api:
     async def create_custom_rewards(self,
                                     broadcaster_id: str,
                                     title: str,
-                                    cost: _Int,
+                                    cost: int,
                                     prompt: str = None,
-                                    is_enabled: _Bool = None,
-                                    max_per_stream: _Int = None,
+                                    is_enabled: bool = None,
+                                    max_per_stream: int = None,
                                     background_color: str = None,
-                                    is_user_input_required: _Bool = None,
-                                    max_per_user_per_stream: _Int = None,
-                                    global_cooldown_seconds: _Int = None,
-                                    is_max_per_stream_enabled: _Bool = None,
-                                    is_global_cooldown_enabled: _Bool = None,
-                                    is_max_per_user_per_stream_enabled: _Bool = None,
-                                    should_redemptions_skip_request_queue: _Bool = None
+                                    is_user_input_required: bool = None,
+                                    max_per_user_per_stream: int = None,
+                                    global_cooldown_seconds: int = None,
+                                    is_max_per_stream_enabled: bool = None,
+                                    is_global_cooldown_enabled: bool = None,
+                                    is_max_per_user_per_stream_enabled: bool = None,
+                                    should_redemptions_skip_request_queue: bool = None
                                     ) -> dict:
         """
         |Coroutine|\n
@@ -724,7 +768,7 @@ class Api:
         Raises:
         ================
             HTTPError:
-                if status-code is not 200, passes `dict` with json of response.
+                if status-code is not 2XX, passes `dict` with json of response.
 
             AccessError:
                 if the Authorization-Token hasn't required scope
@@ -810,8 +854,8 @@ class Api:
     async def get_custom_reward(self,
                                 limit: int,
                                 broadcaster_id: str,
-                                reward_id: _StrIter = None,
-                                only_manageable_rewards: _Bool = None
+                                reward_id: Union[Iterable[str], str] = None,
+                                only_manageable_rewards: bool = None
                                 ) -> dict:
         """
         |Async Generator|\n
@@ -928,7 +972,7 @@ class Api:
         Raises:
         ================
             HTTPError:
-                if status-code is not 200, passes `dict` with json of response.
+                if status-code is not 2XX, passes `dict` with json of response.
 
             AccessError:
                 if the Authorization-Token hasn't required scope
@@ -949,9 +993,9 @@ class Api:
 
     async def get_custom_reward_redemption(self,
                                            limit: int,
-                                           broadcaster_id: _Int,
+                                           broadcaster_id: int,
                                            reward_id: str,
-                                           redemption_id: _StrIter = None,
+                                           redemption_id: Union[Iterable[str], str] = None,
                                            status: str = None,
                                            sort: str = None
                                            ) -> dict:
@@ -1031,7 +1075,7 @@ class Api:
         Raises:
         ================
             HTTPError:
-                if status-code is not 200, passes `dict` with json of response.
+                if status-code is not 2XX, passes `dict` with json of response.
 
             AccessError:
                 if the Authorization-Token hasn't required scope
@@ -1056,22 +1100,22 @@ class Api:
             yield reward
 
     async def update_custom_reward(self,
-                                   broadcaster_id: _Int,
+                                   broadcaster_id: int,
                                    reward_id: str,
                                    title: str = None,
-                                   cost: _Int = None,
+                                   cost: int = None,
                                    prompt: str = None,
-                                   is_paused: _Bool = None,
-                                   is_enabled: _Bool = None,
-                                   max_per_stream: _Int = None,
+                                   is_paused: bool = None,
+                                   is_enabled: bool = None,
+                                   max_per_stream: int = None,
                                    background_color: str = None,
-                                   is_user_input_required: _Bool = None,
-                                   max_per_user_per_stream: _Int = None,
-                                   global_cooldown_seconds: _Int = None,
-                                   is_max_per_stream_enabled: _Bool = None,
-                                   is_global_cooldown_enabled: _Bool = None,
-                                   is_max_per_user_per_stream_enabled: _Bool = None,
-                                   should_redemptions_skip_request_queue: _Bool = None
+                                   is_user_input_required: bool = None,
+                                   max_per_user_per_stream: int = None,
+                                   global_cooldown_seconds: int = None,
+                                   is_max_per_stream_enabled: bool = None,
+                                   is_global_cooldown_enabled: bool = None,
+                                   is_max_per_user_per_stream_enabled: bool = None,
+                                   should_redemptions_skip_request_queue: bool = None
                                    ) -> dict:
         """
         |Coroutine|\n
@@ -1224,7 +1268,7 @@ class Api:
         Raises:
         ================
             HTTPError:
-                if status-code is not 200, passes `dict` with json of response.
+                if status-code is not 2XX, passes `dict` with json of response.
 
             AccessError:
                 if the Authorization-Token hasn't required scope
@@ -1278,9 +1322,9 @@ class Api:
         return response['data'][0]
 
     async def update_redemption_status(self,
-                                       broadcaster_id: _Int,
+                                       broadcaster_id: int,
                                        reward_id: str,
-                                       redemption_id: _StrIter,
+                                       redemption_id: Union[Iterable[str], str],
                                        status: str
                                        ) -> dict:
         """
@@ -1349,7 +1393,7 @@ class Api:
         Raises:
         ================
             HTTPError:
-                if status-code is not 200, passes `dict` with json of response.
+                if status-code is not 2XX, passes `dict` with json of response.
 
             AccessError:
                 if the Authorization-Token hasn't required scope
@@ -1372,8 +1416,8 @@ class Api:
         return response['data'][0]
 
     async def create_clip(self,
-                          broadcaster_id: _Int,
-                          has_delay: _Bool = None
+                          broadcaster_id: int,
+                          has_delay: bool = None
                           ) -> dict:
         """
         |Coroutine|\n
@@ -1409,7 +1453,7 @@ class Api:
         Raises:
         ================
             HTTPError:
-                if status-code is not 200, passes `dict` with json of response.
+                if status-code is not 2XX, passes `dict` with json of response.
 
             AccessError:
                 if the Authorization-Token hasn't required scope
@@ -1429,9 +1473,9 @@ class Api:
 
     async def get_clips(self,
                         limit: int,
-                        broadcaster_id: _Int = None,
-                        game_id: _Int = None,
-                        clip_id: _StrIter = None,
+                        broadcaster_id: int = None,
+                        game_id: int = None,
+                        clip_id: Union[Iterable[str], str] = None,
                         started_at: str = None,
                         ended_at: str = None
                         ) -> dict:
@@ -1515,7 +1559,7 @@ class Api:
         Raises:
         ================
             HTTPError:
-                if status-code is not 200, passes `dict` with json of response.
+                if status-code is not 2XX, passes `dict` with json of response.
         """
 
         params = {}
@@ -1536,7 +1580,7 @@ class Api:
             yield clip
 
     async def create_entitlement_grants_upload_url(self,
-                                                   manifest_id: _Int,
+                                                   manifest_id: int,
                                                    type: str):
         """
         |Coroutine|\n
@@ -1563,7 +1607,7 @@ class Api:
         Raises:
         ================
             HTTPError:
-                if status-code is not 200, passes `dict` with json of response.
+                if status-code is not 2XX, passes `dict` with json of response.
         """
 
         data = {}
@@ -1579,8 +1623,8 @@ class Api:
 
     async def get_code_status(self,
                               limit: int,
-                              code: _StrIter,
-                              user_id: _Int
+                              code: Union[Iterable[str], str],
+                              user_id: int
                               ) -> dict:
         """
         |Async Generator|\n
@@ -1622,7 +1666,7 @@ class Api:
         Raises:
         ================
             HTTPError:
-                if status-code is not 200, passes `dict` with json of response.
+                if status-code is not 2XX, passes `dict` with json of response.
 
         Notes:
         ================
@@ -1670,8 +1714,8 @@ class Api:
     async def get_drops_entitlements(self,
                                      limit: int,
                                      entitlement_id: str = None,
-                                     user_id: _Int = None,
-                                     game_id: _Int = None
+                                     user_id: int = None,
+                                     game_id: int = None
                                      ) -> dict:
         """
         |Async Generator|\n
@@ -1715,7 +1759,7 @@ class Api:
         Raises:
         ================
             HTTPError:
-                if status-code is not 200, passes `dict` with json of response.
+                if status-code is not 2XX, passes `dict` with json of response.
 
         Notes:
         ================
@@ -1738,8 +1782,8 @@ class Api:
             yield code_status
 
     async def redeem_code(self,
-                          code: _StrIter = None,
-                          user_id: _Int = None
+                          code: Union[Iterable[str], str] = None,
+                          user_id: int = None
                           ) -> List[dict]:
         """
         |Coroutine|\n
@@ -1782,7 +1826,7 @@ class Api:
         Raises:
         ================
             HTTPError:
-                if status-code is not 200, passes `dict` with json of response.
+                if status-code is not 2XX, passes `dict` with json of response.
 
         Notes:
         ================
@@ -1854,7 +1898,7 @@ class Api:
         Raises:
         ================
             HTTPError:
-                if status-code is not 200, passes `dict` with json of response.
+                if status-code is not 2XX, passes `dict` with json of response.
         """
 
         params = {}
@@ -1866,8 +1910,8 @@ class Api:
 
     async def get_games(self,
                         limit: int,
-                        game_id: _StrIter = None,
-                        name: _StrIter = None
+                        game_id: Union[Iterable[str], str] = None,
+                        name: Union[Iterable[str], str] = None
                         ) -> dict:
         """
         |Async Generator|\n
@@ -1903,7 +1947,7 @@ class Api:
         Raises:
         ================
             HTTPError:
-                if status-code is not 200, passes `dict` with json of response.
+                if status-code is not 2XX, passes `dict` with json of response.
         """
 
         params = {}
@@ -1919,7 +1963,7 @@ class Api:
     async def get_hype_train_events(self,
                                     limit: int,
                                     broadcaster_id: str = None,
-                                    event_id: _StrIter = None
+                                    event_id: Union[Iterable[str], str] = None
                                     ) -> dict:
         """
         |Async Generator|\n
@@ -2018,7 +2062,7 @@ class Api:
         Raises:
         ================
             HTTPError:
-                if status-code is not 200, passes `dict` with json of response.
+                if status-code is not 2XX, passes `dict` with json of response.
 
             AccessError:
                 if the Authorization-Token hasn't required scope
@@ -2037,10 +2081,10 @@ class Api:
             yield event
 
     # async def check_automod_status(self,
-    #                                broadcaster_id: _Int = None,
-    #                                msg_id: _StrIter = None,
-    #                                msg_text: _StrIter = None,
-    #                                user_id: _IntIter = None):
+    #                                broadcaster_id: int = None,
+    #                                msg_id: Union[Iterable[str], str] = None,
+    #                                msg_text: Union[Iterable[str], str] = None,
+    #                                user_id: intIter = None):
     #     scope = 'moderation:read'
     #     if scope not in self.scopes:
     #         raise AccessError(f'Current auth-token hasn\'t required scope: `{scope}`')
@@ -2055,7 +2099,7 @@ class Api:
     async def get_banned_events(self,
                                 limit: int,
                                 broadcaster_id: str = None,
-                                user_id: _StrIter = None
+                                user_id: Union[Iterable[str], str] = None
                                 ) -> dict:
         """
         |Async Generator|\n
@@ -2110,7 +2154,7 @@ class Api:
         Raises:
         ================
             HTTPError:
-                if status-code is not 200, passes `dict` with json of response.
+                if status-code is not 2XX, passes `dict` with json of response.
 
             AccessError:
                 if the Authorization-Token hasn't required scope
@@ -2131,7 +2175,7 @@ class Api:
     async def get_banned_users(self,
                                limit: int,
                                broadcaster_id: str = None,
-                               user_id: _StrIter = None
+                               user_id: Union[Iterable[str], str] = None
                                ) -> dict:
         """
         |Async Generator|\n
@@ -2166,7 +2210,7 @@ class Api:
         Raises:
         ================
             HTTPError:
-                if status-code is not 200, passes `dict` with json of response.
+                if status-code is not 2XX, passes `dict` with json of response.
 
             AccessError:
                 if the Authorization-Token hasn't required scope
@@ -2187,7 +2231,7 @@ class Api:
     async def get_moderators(self,
                              limit: int,
                              broadcaster_id: str = None,
-                             user_id: _StrIter = None
+                             user_id: Union[Iterable[str], str] = None
                              ) -> dict:
         """
         |Async Generator|\n
@@ -2219,7 +2263,7 @@ class Api:
         Raises:
         ================
             HTTPError:
-                if status-code is not 200, passes `dict` with json of response.
+                if status-code is not 2XX, passes `dict` with json of response.
 
             AccessError:
                 if the Authorization-Token hasn't required scope
@@ -2240,7 +2284,7 @@ class Api:
     async def get_moderator_events(self,
                                    limit: int,
                                    broadcaster_id: str = None,
-                                   user_id: _StrIter = None
+                                   user_id: Union[Iterable[str], str] = None
                                    ) -> dict:
         """
         |Async Generator|\n
@@ -2295,7 +2339,7 @@ class Api:
         Raises:
         ================
             HTTPError:
-                if status-code is not 200, passes `dict` with json of response.
+                if status-code is not 2XX, passes `dict` with json of response.
 
             AccessError:
                 if the Authorization-Token hasn't required scope
@@ -2343,7 +2387,7 @@ class Api:
         Raises:
         ================
             HTTPError:
-                if status-code is not 200, passes `dict` with json of response.
+                if status-code is not 2XX, passes `dict` with json of response.
         """
 
         params = {}
@@ -2409,7 +2453,7 @@ class Api:
         Raises:
         ================
             HTTPError:
-                if status-code is not 200, passes `dict` with json of response.
+                if status-code is not 2XX, passes `dict` with json of response.
         """
 
         params = {}
@@ -2440,7 +2484,7 @@ class Api:
         Raises:
         ================
             HTTPError:
-                if status-code is not 200, passes `dict` with json of response.
+                if status-code is not 2XX, passes `dict` with json of response.
 
             AccessError:
                 if the Authorization-Token hasn't required scope
@@ -2455,13 +2499,14 @@ class Api:
         stream_key = await self._http_get(url, params)
         return stream_key['data'][0]['stream_key']
 
-    async def get_streams(self,
-                          limit: int,
-                          game_id: _StrIter = None,
-                          language: _StrIter = None,
-                          user_id: _StrIter = None,
-                          user_login: _StrIter = None
-                          ) -> dict:
+    async def get_streams(
+            self,
+            limit: int,
+            game_id: Union[Iterable[str], str] = None,
+            language: Union[Iterable[str], str] = None,
+            user_id: Union[Iterable[str], str] = None,
+            user_login: Union[Iterable[str], str] = None
+    ) -> AsyncGenerator[dict, None]:
         """
         |Async Generator|\n
         Yields  information about active streams.
@@ -2532,7 +2577,7 @@ class Api:
         Raises:
         ================
             HTTPError:
-                if status-code is not 200, passes `dict` with json of response.
+                if status-code is not 2XX, passes `dict` with json of response.
         """
         params = {}
         if game_id is not None:
@@ -2585,7 +2630,7 @@ class Api:
         Raises:
         ================
             HTTPError:
-                if status-code is not 200, passes `dict` with json of response.
+                if status-code is not 2XX, passes `dict` with json of response.
 
             AccessError:
                 if the Authorization-Token hasn't required scope
@@ -2658,7 +2703,7 @@ class Api:
         Raises:
         ================
             HTTPError:
-                if status-code is not 200, passes `dict` with json of response.
+                if status-code is not 2XX, passes `dict` with json of response.
 
             AccessError:
                 if the Authorization-Token hasn't required scope
@@ -2722,7 +2767,7 @@ class Api:
         Raises:
         ================
             HTTPError:
-                if status-code is not 200, passes `dict` with json of response.
+                if status-code is not 2XX, passes `dict` with json of response.
         """
 
         params = {}
@@ -2734,8 +2779,8 @@ class Api:
         return info['data'][0]
 
     async def modify_channel_information(self,
-                                         broadcaster_id: _Int = None,
-                                         game_id: _Int = None,
+                                         broadcaster_id: int = None,
+                                         game_id: int = None,
                                          broadcaster_language: str = None,
                                          title: str = None
                                          ) -> None:
@@ -2791,8 +2836,8 @@ class Api:
 
     async def get_broadcaster_subscriptions(self,
                                             limit: int,
-                                            broadcaster_id: _Int = None,
-                                            user_id: _StrIter = None
+                                            broadcaster_id: int = None,
+                                            user_id: Union[Iterable[str], str] = None
                                             ) -> dict:
         """
         |Async Generator|\n
@@ -2840,7 +2885,7 @@ class Api:
         Raises:
         ================
             HTTPError:
-                if status-code is not 200, passes `dict` with json of response.
+                if status-code is not 2XX, passes `dict` with json of response.
 
             AccessError:
                 if the Authorization-Token hasn't required scope
@@ -2858,7 +2903,7 @@ class Api:
         async for subscription in self._to_be_continue(url, limit, params):
             yield subscription
 
-    async def get_all_stream_tags(self, limit: int, tag_id: _StrIter = None) -> dict:
+    async def get_all_stream_tags(self, limit: int, tag_id: Union[Iterable[str], str] = None) -> dict:
         """
         |Async Generator|\n
         Yields stream tags defined by Twitch, optionally filtered by tag ID(s).\n
@@ -2902,7 +2947,7 @@ class Api:
         Raises:
         ================
             HTTPError:
-                if status-code is not 200, passes `dict` with json of response.
+                if status-code is not 2XX, passes `dict` with json of response.
         """
 
         params = {}
@@ -2957,7 +3002,7 @@ class Api:
         Raises:
         ================
             HTTPError:
-                if status-code is not 200, passes `dict` with json of response.
+                if status-code is not 2XX, passes `dict` with json of response.
         """
 
         params = {}
@@ -2969,8 +3014,8 @@ class Api:
             yield tag
 
     async def replace_stream_tags(self,
-                                  broadcaster_id: _Int = None,
-                                  tag_ids: _StrIter = None
+                                  broadcaster_id: int = None,
+                                  tag_ids: Union[Iterable[str], str] = None
                                   ) -> None:
         """
         |Coroutine|\n
@@ -2999,7 +3044,7 @@ class Api:
         Raises:
         ================
             HTTPError:
-                if status-code is not 200, passes `dict` with json of response.
+                if status-code is not 2XX, passes `dict` with json of response.
 
             AccessError:
                 if the Authorization-Token hasn't required scope
@@ -3042,55 +3087,33 @@ class Api:
         respone = await self._http_delete(url, params)
         return None
 
-    @staticmethod
-    async def once(generator: AsyncGenerator) -> Optional[dict]:
-        """
-        The method gives you simple way to get only one result from any async generator in one code-row.\n
-        Gets initialized async generator (object of async generator).
-
-        Examples:
-        ===================
-            1st:
-                api = Api.create(token) \n
-                top_stream = await api.once(api.get_streams(1))
-            2nd:
-                api = Api.create(token) \n
-                generator_obj = api.get_streams(1) \n
-                top_stream = await api.once(generator_obj)
-            both of examples do the same thing, \n
-            2nd is here for more visual that the `generator` as argument gets 'object of async generator',
-            not 'async generator'
-
-        Args:
-        =================
-            generator:
-                Object of async generator
-
-        Returns:
-        ==================
-            Dict:
-                if get result from the `generator`
-
-            None:
-                if the `generator` returned nothing(if raised StopAsyncIteration)
-        """
-
-        try:
-            return await generator.__anext__()
-        except StopAsyncIteration:
-            return None
+    #################################
+    # REQUESTS THINGS
+    #################################
 
     async def _to_be_continue(self, url: str, limit: int, params: dict):
         """
-        |Async Generator|\n
+        |Async Generator|
+        ================
         Method implements simple request, limit and cursor handler
+        Handles cursor if exists and limits count of yields
+
+        ----------------
+
         Args:
-            url: `str` URL for request
-            limit: `int` value of max count of Yields
-            params: `dict` params to insert in the URL
+        ================
+            url: `str`
+                URL for request
+            limit: `int`
+                value of max count of Yields
+            params: `dict`
+                params to insert in the URL
+        ----------------
 
         Yields:
+        ================
             dict: data of response that method got from request
+        ----------------
         """
 
         counter = 0  # counter of iterations
@@ -3111,77 +3134,154 @@ class Api:
             else:  # else - no more data - stop async iteration
                 return
 
+    @staticmethod
+    async def once(generator: AsyncGenerator) -> Optional[dict]:
+        """
+        The method gives you simple way to get only one result from any async generator in one code-row.\n
+        Gets initialized async generator (object of async generator).
+
+        ----------------
+
+        Examples::
+        ===================
+            1st:
+                api = Api.create(token) \n
+                top_stream = await api.once(api.get_streams(limit=1))
+
+            2nd:
+                api = Api.create(token) \n
+                generator_obj = api.get_streams(limit=1) \n
+                top_stream = await api.once(generator_obj)
+
+            both of examples do the same thing, \n
+            2nd is here for more visual that the `generator` as argument is 'object of async generator',
+            not 'async generator'
+        ----------------
+
+        Args:
+        =================
+            generator:
+                Object of async generator
+        ----------------
+
+        Returns:
+        ==================
+            Dict:
+                if get result from the `generator`
+
+            None:
+                if the `generator` returned nothing(if raised StopAsyncIteration)
+        ----------------
+        """
+
+        try:
+            return await generator.__anext__()
+        except StopAsyncIteration:
+            return None
+
     def _check_scope(self, scope: str):
         """
         Raises `AccessError` if current token hasn't required scope
-        Args:
-            scope: scope to check
 
-        Returns: None
+        ----------------
+
+        Args:
+        ================
+            scope: `str`
+                scope to check
+        ----------------
+
+        Returns:
+        ================
+            `None`:
+                Just `None`...
+        ----------------
 
         Raises:
+        ================
             AccessError: if the object hasn't required scope
-
+        ----------------
         """
         if scope not in self.scopes:
             raise AccessError(f'Current auth-token has\'t required scope: `{scope}`')
 
-    # we need many of http requests, so for clear code - put them in functions
+    #################################
+    # end of 'REQUESTS THINGS'
+    #################################
+
+    #################################
+    # HTTP REQUESTS
+    #################################
+
     async def _http_get(self, url: str, params: dict):
-        async with self._session.get(url, params=params) as response:
-            if response.status != 200:
+        async with self._session.get(url, params=params, headers=self._headers) as response:
+            if not (199 < response.status < 300):  # if not 2XX
                 raise HTTPError(await response.json())
             return await response.json()
 
     async def _http_post(self, url: str, data: dict, params: dict):
-        async with self._session.post(url, json=data, params=params) as response:
-            if response.status != 200:
-                print(response.status)
+        async with self._session.post(url, json=data, params=params, headers=self._headers) as response:
+            if not (199 < response.status < 300):  # if not 2XX
                 raise HTTPError(await response.json())
             return await response.json()
 
     async def _http_put(self, url: str, data: dict, params: dict):
-        async with self._session.put(url, json=data, params=params) as response:
-            if response.status != 200:
-                if response.status == 204:
-                    return None
+        async with self._session.put(url, json=data, params=params, headers=self._headers) as response:
+            if not (199 < response.status < 300):  # if not 2XX
                 raise HTTPError(await response.json())
             return await response.json()
 
     async def _http_patch(self, url: str, data: dict, params: dict):
-        async with self._session.patch(url, json=data, params=params) as response:
-            if response.status != 200:
-                if response.status == 204:
-                    return None
+        async with self._session.patch(url, json=data, params=params, headers=self._headers) as response:
+            if not (199 < response.status < 300):  # if not 2XX
                 raise HTTPError(await response.json())
             return await response.json()
 
     async def _http_delete(self, url: str, params: dict):
-        async with self._session.delete(url, params=params) as response:
-            if response.status != 204:  # here is 204(No data) instead of 200, cuz `delete` returns nothing
+        async with self._session.delete(url, params=params, headers=self._headers) as response:
+            if not (199 < response.status < 300):  # if not 2XX
                 raise HTTPError(await response.json())
-            return None  # so we return None
+            try:
+                return await response.json()
+            except ContentTypeError:
+                return None
+
+    #################################
+    # end of HTTP REQUESTS
+    #################################
+
+    #################################
+    # METHODS FOR PREPARE DATA
+    #################################
 
     @staticmethod
-    def _insert_first(params: dict, limit: int, max_first: int):
+    def _insert_first(
+            params: dict,
+            limit: int,
+            max_first: int
+    ) -> dict:
         """
-        insert `first` param in `dict` from Args
+        inserts 'first' param in `params`
+
+        ----------------
 
         Args:
         ================
             params: `dict`
-                into which would be inserted `count`
+                into that 'first' would be inserted
 
             limit: `int`
-                value of limit that we got from developer
+                value of limit, limit of yields
 
             max_first: `int`
-                max value of `first` for current request
+                max value of 'first' for current request
+        ----------------
 
         Returns:
         ================
             `dict`:
                 the same `dict` that we got in Args
+        ----------------
         """
 
         if limit > 0:
@@ -3190,26 +3290,35 @@ class Api:
         return params
 
     @staticmethod
-    def _insert_count(params: dict, limit: int, max_count: int) -> dict:
+    def _insert_count(
+            params: dict,
+            limit: int,
+            max_count: int
+    ) -> dict:
         """
+        inserts 'count' param in `params`
         `count` as opposed to `first` is global limit.
-        If `first` is limit of results from every step, then `count` is limit of all results(only one step).
+        If 'first' is limit of results for every step, then 'count' is limit of all results(only one step).
+
+        ----------------
 
         Args:
         ================
             params: `dict`
-                into which would be inserted `count`
+                into that 'count' would be inserted
 
             limit: `int`
-                value of limit that we got from developer
+                value of limit, limit of yields
 
             max_count: `int`
-                max value of `count` for current request
+                max value of 'count' for current request
+        ----------------
 
         Returns:
         ================
             `dict`:
                 the same `dict` that we got in Args
+        ----------------
         """
 
         if limit > 0:
@@ -3220,37 +3329,38 @@ class Api:
         return params
 
     @staticmethod
-    def _mod_to_list(param) -> list:
+    def _mod_to_list(obj: Any) -> list:
         """
         The method converts `param` to `list`\n
-        Works as: if any of Iterable - convert to `list`, except - str, if str put it in list,
-        others - convert to str and put in `list`
+        Works as: \n
+        if any of Iterable - convert to `list`, except - `str`, if `str` put it in `list`,
+        others - convert to `str` and put in `list`
+
+        ----------------
 
         Args:
         =====================
-            param:
-                some variable to modify to list
+            param: `Any`
+                some variable to convert in `list`
+        ----------------
 
         Returns:
         =====================
             `list` :
                 final list with `param`
+        ----------------
         """
 
-        if type(param) is str:  # if `str` - put in `list`
-            result = [param]
-        elif hasattr(param, '__iter__'):  # else - if Iterable - converting to `list`
-            result = list(param)
-        else:  # we don't wait other types, but if so - convert to `str`
-            result = [str(param)]
-        return result
+        if type(obj) is str:  # if `str` - put in `list`
+            return [obj]
+        elif hasattr(obj, '__iter__'):  # else - if Iterable - converting to `list`
+            return list(obj)
+        else:  # we don't wait other types, but if so - convert to `str` and put in `list`
+            return [str(obj)]
+    #
+    # end of METHODS FOR PREPARE DATA
+    #################################
 
-    async def close(self):
-        await self._session.close()
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *excinfo):
-        await self.close()
-
+    @staticmethod
+    async def close():
+        await Api._session.close()

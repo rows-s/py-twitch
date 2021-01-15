@@ -87,38 +87,32 @@ class EventSub:
                 req_body = await request.text()
                 req_signature = request.headers.get('Twitch-Eventsub-Message-Signature')
                 if req_signature[7:] != self.calc_sign(req_id + req_time + req_body, key=self._secret):
-                    print('bad sign', time() - t0)
                     return web.HTTPBadRequest()
 
             if self.check_time_limit:
                 req_datetime = self.to_datatime(req_time, normalize=True)
-                if datetime.utcnow() - req_datetime > self.time_limit:
-                    print('bad time', time() - t0)
+                if (datetime.utcnow() - req_datetime) > self.time_limit:
                     return web.Response(status=200)
 
             if self.duplicate_control:
-                for dupl_id, dupl_time in self._duplicates:  # loop for delete all out of range duplicates
+                for _, dupl_time in self._duplicates:  # loop for delete all out of range duplicates
                     if datetime.utcnow() - dupl_time > self.duplicate_save_period:
                         self._duplicates.pop()
                         continue  # logic: dupls are sorted by time, so if first is not out of range - others neither,
-                    break  # so if first is out of range - one more iteration, else - break the loop
+                    else:  # so if first is out of range - one more iteration, else - break the loop
+                        break
 
-                # we use reversed list, cuz in more of cases dupl will be in the end, so `current_indx` must be latest
-                # `current_indx` is index of current request in the list sorted by time
-                current_indx = len(self._duplicates)
-                found_current_indx = False
                 req_datetime = self.to_datatime(req_time, normalize=True)
-                for dupl_id, dupl_time in reversed(self._duplicates):  # loop for find equal duplicate
-                    if dupl_id == req_id:  # if have dupl - return 200-status (stop current handling)
-                        print('is dupl', time() - t0)
-                        return web.Response(status=200)
-                    if not found_current_indx:  # if we've "found current indx" we don't need to check anymore
-                        if req_datetime > dupl_time:  # if current request is later than `dupl_time` - save index
-                            found_current_indx = True  # and mark that we found it
-                        else:  # else - keep looking with next index
-                            current_indx -= 1  # decrement the index (cuz the iteration is reversed)
-                else:  # if duplicate has been not found - save in `self._duplicates` with matching index
-                    self._duplicates.insert(current_indx, (req_id, req_datetime))
+                if (req_id, req_datetime) in self._duplicates:  # more of dupl will close to current time
+                    return web.Response(status=200)
+
+                index = len(self._duplicates)  # more of request will be latest or close to
+                for _, dupl_time in reversed(self._duplicates):
+                    if req_datetime > dupl_time:
+                        self._duplicates.insert(index, (req_id, req_datetime))
+                        break
+                else:
+                    self._duplicates.insert(0, (req_id, req_datetime))
 
         json = await request.json()
         wh_sub = types.WebhookSubcription(json['subscription'])

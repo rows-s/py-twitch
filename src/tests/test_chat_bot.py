@@ -1,11 +1,11 @@
 import re
 
-import client
+import irc_client
 import config
 import api
 from time import time
 
-bot = client.Client(config.token, config.nick)
+bot = irc_client.Client(config.token, config.nick)
 counter = 0
 room_update_counter = 0
 

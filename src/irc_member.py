@@ -1,5 +1,5 @@
 from typing import Dict, Optional
-from channel import Channel
+from irc_channel import Channel
 from utils import badges_to_dict
 
 

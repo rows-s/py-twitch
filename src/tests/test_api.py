@@ -1,14 +1,14 @@
 from time import time
 
-import client
-import config
-from api import Api
+from .. import irc_client
+from .. import config
+from ..api import Api
 import asyncio
 import re
 
 from errors import HTTPError
 
-bot = client.Client(config.token, config.nick)
+bot = irc_client.Client(config.token, config.nick)
 # api = Api()
 
 
@@ -125,14 +125,14 @@ async def to_do():
 
 async def to_do2():
     async with Api() as api:
-        await api.set_auth(config.auth)
+        await api.create(config.auth)
         params = {'language': 'ru'}
         async for stream in api.get_streams(100, **params):
             print(stream)
         generator = api.get_streams(1, **params)
         print('Try once:\n    ', await api.once(generator))
-        generator = api.get_bits_leaderboard(1)
-        print('Try once with no data:\n    ', await api.once(generator))
+        # generator = api.get_bits_leaderboard(1)
+        # print('Try once with no data:\n    ', await api.once(generator))
 
 bot.loop.run_until_complete(to_do2())
 
