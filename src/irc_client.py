@@ -7,7 +7,7 @@ from utils import is_int, prefix_to_dict
 from irc_message import Message
 from errors import *
 from irc_user_events import *
-from abcs import State
+from abcs import StateABC
 from irc_channel import Channel
 from irc_member import Member
 
@@ -399,7 +399,7 @@ class Client:
     def _do_later(self, coro: Awaitable):
         self.loop.create_task(coro)
 
-    class GlobalState(State):
+    class GlobalState(StateABC):
         def __init__(self, tags):
             super().__init__(tags)
             self.color = tags['color']

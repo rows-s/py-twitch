@@ -5,10 +5,10 @@ from time import time
 from aiohttp import web
 from hashlib import sha256
 from datetime import datetime, timedelta
-from typing import Coroutine, Dict, Awaitable, Tuple, List
+from typing import Coroutine, Dict, Awaitable, Tuple, List, Iterable
 from asyncio import iscoroutinefunction
 
-import eventsub_events as types
+from eventsub_events import *
 from errors import UnknownEvent, FunctionIsNotCorutine
 from utils import normalize_ms
 
@@ -17,29 +17,29 @@ class EventSub:
     """ Class to handle your webhooks verifications, notifications and revocations """
 
     _notify_events: Dict[str, Tuple[str, any]] = {  # dict of
-        # 'notification_type': ('matching_attribute_name', matching_class)
-        'channel.follow': ('on_follow', types.FollowEvent),
-        'channel.subscribe': ('on_subscribe', types.SubscribeEvent),
-        'channel.cheer': ('on_cheer', types.CheerEvent),
-        'channel.ban': ('on_ban', types.BanEvent),
-        'channel.unban': ('on_unban', types.UnbanEvent),
-        'stream.online': ('on_stream_online', types.StreamOnlineEvent),
-        'stream.offline': ('on_stream_offline', types.StreamOfflineEvent),
-        'user.update': ('on_user_update', types.UserUpdateEvent),
-        'channel.update': ('on_channel_update', types.ChannelUpdateEvent),
-        'channel.hype_train.begin': ('on_hypetrain_begin', types.HypetrainBeginEvent),
-        'channel.hype_train.progress': ('on_hypetrain_progress', types.HypetrainProgressEvent),
-        'channel.hype_train.end': ('on_hypetrain_end', types.HypetrainEndEvent),
-        'channel.channel_points_custom_reward.add': ('on_reward_add', types.RewardAddEvent),
-        'channel.channel_points_custom_reward.update': ('on_reward_update', types.RewardUpdateEvent),
-        'channel.channel_points_custom_reward.remove': ('on_reward_remove', types.RewardRemoveEvent),
-        'channel.channel_points_custom_reward_redemption.add': ('on_redemption_add', types.RedemptionAddEvent),
-        'channel.channel_points_custom_reward_redemption.update': ('on_redemption_update', types.RedemptionUpdateEvent),
-        'user.authorization.revoke': ('on_authorization_revoke', types.AuthorizationRevokeEvent),
+        # 'notification_type': ('handler_name', event_class)
+        'channel.follow': ('on_follow', FollowEvent),
+        'channel.subscribe': ('on_subscribe', SubscribeEvent),
+        'channel.cheer': ('on_cheer', CheerEvent),
+        'channel.ban': ('on_ban', BanEvent),
+        'channel.unban': ('on_unban', UnbanEvent),
+        'stream.online': ('on_stream_online', StreamOnlineEvent),
+        'stream.offline': ('on_stream_offline', StreamOfflineEvent),
+        'user.update': ('on_user_update', UserUpdateEvent),
+        'channel.update': ('on_channel_update', ChannelUpdateEvent),
+        'channel.hype_train.begin': ('on_hypetrain_begin', HypetrainBeginEvent),
+        'channel.hype_train.progress': ('on_hypetrain_progress', HypetrainProgressEvent),
+        'channel.hype_train.end': ('on_hypetrain_end', HypetrainEndEvent),
+        'channel.channel_points_custom_reward.add': ('on_reward_add', RewardAddEvent),
+        'channel.channel_points_custom_reward.update': ('on_reward_update', RewardUpdateEvent),
+        'channel.channel_points_custom_reward.remove': ('on_reward_remove', RewardRemoveEvent),
+        'channel.channel_points_custom_reward_redemption.add': ('on_redemption_add', RedemptionAddEvent),
+        'channel.channel_points_custom_reward_redemption.update': ('on_redemption_update', RedemptionUpdateEvent),
+        'user.authorization.revoke': ('on_authorization_revoke', AuthorizationRevokeEvent),
     }
 
     _event_coro_names: Tuple[str] = (
-        'on_follow', 'on_subscribe', 'on_cheer', 'on_ban', 'on_unban',  # user based events
+        'on_follow', 'on_subscribe', 'on_cheer', 'on_ban', 'on_unban',  # broadcaster and user based events
         'on_stream_online', 'on_stream_offline',  # stram events
         'on_user_update', 'on_channel_update',  # update events
         'on_hypetrain_begin', 'on_hypetrain_progress', 'on_hypetrain_end',  # Hype Train events
@@ -108,7 +108,7 @@ class EventSub:
                 self._save_duplicate(request_id, request_datetime)
 
         json = await request.json()
-        wh_sub = types.WebhookSubcription(json['subscription'])
+        wh_sub = WebhookSubcription(json['subscription'])
 
         if request_type == 'webhook_callback_verification':
             json = await request.json()
@@ -136,13 +136,13 @@ class EventSub:
                 print('unknown event', time() - handling_start_time)
                 return web.Response(status=200)
             else:
-                if hasattr(self, event_attr):  # here `event_attr` is just str of name
+                if hasattr(self, event_attr):  # here `event_attr` is just `str` of name
                     event_handler = getattr(self, event_attr)  # if `event_attr` exists - get the function
                     raw_event = json['event']  # get raw event data
                     raw_event['event_id'] = request_id  # add id of current event
                     raw_event['event_time'] = request_time  # add time of current event
                     event = event_class(raw_event)  # create `event` as object of matching class
-                    self._do_later(event_handler(wh_sub, event))  # send to do later
+                    self._do_later(event_handler(wh_sub, event))  # call handler
                     print('_do_later', event_attr, time() - handling_start_time)
                 else:  # else - current `self` is not handler for current event
                     print('not registred event', time() - handling_start_time)
@@ -164,6 +164,20 @@ class EventSub:
             raise UnknownEvent(f'{coro.__name__} is unknown name of event')
         return coro
 
+    def events(
+            self,
+            coro: Coroutine,
+            handler_names: Iterable[str]
+    ) -> Coroutine:
+        if not iscoroutinefunction(coro):
+            raise FunctionIsNotCorutine(coro.__name__)
+        for handler_name in handler_names:
+            if handler_name in EventSub._event_coro_names:
+                setattr(self, handler_name, coro)
+            else:
+                raise UnknownEvent(f'{handler_name} is unknown name of event')
+        return coro
+
     def _delete_outrange_duplicates(self):
         """
         Deletes all out of range duplicates.
@@ -174,19 +188,15 @@ class EventSub:
         ==================
             None
         ------------------
-
-        Notes:
-        ==================
-            Logic: because duplicates are sorted by time, we know:
-                1) if first is not out of range - others neither
-                so we whole times check only first:
-                    if it out of range:
-                        delete and one more iteration
-                    else:
-                        others neither - stop loop
-        ------------------
         """
-        while len(self._duplicates):
+        # Logic: because duplicates are sorted by time, we know:
+        #     1) if first is not out of range - others neither
+        #     so we whole times check only first:
+        #         if first out of range:
+        #             remove and do one more iteration
+        #         else:
+        #             is in range, others neither -> stop loop
+        while self._duplicates:
             duplicate_time = self._duplicates[0][1]
             if datetime.utcnow() - duplicate_time > self.duplicate_save_period:
                 self._duplicates.pop(0)
@@ -227,6 +237,25 @@ class EventSub:
             text: str,
             key: str,
     ) -> str:
+        """
+        Calculates sha256 hash of `text` with `key`
+
+        -------------
+
+        Args:
+        ============
+            text: `str`
+                text to hash
+            key: `str`
+                key to hash
+        ------------
+
+        Returns:
+        ============
+            `str`:
+                calculated sha256 hash
+        -----------
+        """
         text_bytes = bytes(text, 'utf-8')
         key_bytes = bytes(key, 'utf-8')
         signature = hmac.new(key_bytes, text_bytes, sha256).hexdigest()
@@ -239,4 +268,5 @@ class EventSub:
         return datetime.strptime(date, '%Y-%m-%dT%H:%M:%S.%f')
 
     def _do_later(self, func: Awaitable):
+        """ creates task for event loop from attribute 'self.loop' """
         self.loop.create_task(func)

@@ -29,7 +29,7 @@ async def on_room_join(channel):
 
 async def to_do():
     async with Api() as api:
-        await api.set_auth(config.auth)
+        await api.set_token(config.auth)
         print('Start commercial:\n    ', end='')
         try:
             print(await api.start_commercial(broadcaster_id=192827780, length=60))

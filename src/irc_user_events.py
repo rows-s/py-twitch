@@ -1,18 +1,39 @@
-from typing import Dict, Optional
-from utils import replace
+from abc import ABC
+from typing import Dict, Optional, List
+
+from utils import replace, emotes_to_dict
 from irc_member import Member
 from irc_channel import Channel
-from abcs import UserEvent
+
+
+class UserEvent(ABC):
+    """ Base class for all IRC user events """
+    def __init__(
+            self,
+            author: Member,
+            channel: Channel,
+            tags: Dict[str, str],
+            content: str
+    ) -> None:
+        self.author: Member = author
+        self.channel: Channel = channel
+        self.system_msg: str = replace(tags['system-msg'])
+        self.emotes: Dict[str, List[int]] = emotes_to_dict(tags['emotes'])
+        self.flags: str = tags['flags']
+        self.id: str = tags['id']
+        self.event_type: str = tags['msg-id']
+        self.time: int = int(tags['tmi-sent-ts'])
+        self.content = content
 
 
 class Sub(UserEvent):
-    def __init__(self,
-                 author: Member,
-                 channel: Channel,
-                 tags: Dict[str, str],
-                 content: str
-                 ) -> None:
-
+    def __init__(
+            self,
+            author: Member,
+            channel: Channel,
+            tags: Dict[str, str],
+            content: str
+    ) -> None:
         super().__init__(author, channel, tags, content)
         self.comulative_months: int = int(tags['msg-param-cumulative-months'])
         self.months_duration: int = int(tags['msg-param-multimonth-duration'])

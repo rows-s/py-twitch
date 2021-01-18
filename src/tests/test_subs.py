@@ -24,7 +24,7 @@ async def on_follow(_, event: eventsub_events.FollowEvent):
 
 async def context(app):
     async with Api() as api:
-        await api.set_auth(config.app_token)
+        await api.set_token(config.app_token)
         async for streams in api.get_streams(12):
             print(streams)
         async for event in api.get_eventsub_subscriptions(12):
