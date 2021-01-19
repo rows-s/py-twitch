@@ -6,10 +6,13 @@ from utils import badges_to_dict
 
 
 class Channel:
-    def __init__(self, name: str,
-                 mystate_tags: Dict[str, str],
-                 ws: WebSocketClientProtocol,
-                 tags: Dict[str, str]) -> None:
+    def __init__(
+        self, 
+        name: str,
+        mystate_tags: Dict[str, str],
+        ws: WebSocketClientProtocol,
+        tags: Dict[str, str]
+    ) -> None:
 
         self.name: str = name
         self.ws: WebSocketClientProtocol = ws

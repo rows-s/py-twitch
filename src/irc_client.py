@@ -14,7 +14,25 @@ from irc_member import Member
 
 # class Client, it will create bots
 class Client:
-    events = ('on_message', 'on_room_update', 'on_login', 'on_room_join', 'on_join', 'on_left', 'on_clear_user',
+    _user_events: Dict[str, Tuple(str, Any)] ={
+        'sub': ('on_sub', Sub),
+        'resub': ('on_sub', Sub),
+        'subgift': ('on_sub_gift', SubGift),
+        'anonsubgift': ('on_sub_gift', SubGift),
+        'rewardgift': ('on_reward_gift', RewardGift),
+        'submysterygift': ('on_sub_mistery_gift', SubMisteryGift),
+        'primepaidupgrade': ('on_prime_paid_upgrate', PrimePaidUpgrade),
+        'giftpaidupgrate': ('on_gift_paid_upgrade', GiftPaidUpgrade),
+        'anongiftpaidupgrate': ('on_gift_paid_upgrade', GiftPaidUpgrade),
+        'standardpayforward': ('on_standard_pay_forward', StandardPayForward),
+        'communitypayforward': ('on_community_pay_forward', CommunityPayForward),
+        'bitsbadgetier': ('on_bits_badge_tier', BitsBadgeTier)
+        'raid': ('on_raid', Raid),
+        'unraid': ('on_unraid', UnRaid),
+        'ritual': ('on_ritual', Ritual)
+    }
+
+    _events = ('on_message', 'on_room_update', 'on_login', 'on_room_join', 'on_join', 'on_left', 'on_clear_user',
               'on_clear_chat', 'on_clear_message', 'on_start_host', 'on_stop_host', 'on_notice', 'on_user_event')
 
     def __init__(self, token: str, login: str) -> None:
@@ -27,11 +45,15 @@ class Client:
         self.global_state: Optional[Client.GlobalState] = None
         self._local_states: Dict[str, Dict[str, str]] = {}
         self._delayed_msgs: Dict[str, List[str]] = {}
-        self._disconnected_id: List[int] = []
 
-    def run(self, channels: Iterable[str], *, ws_params: Dict[str, Any] = None) -> None:
+    def run(
+        self, 
+        channels: Iterable[str], 
+        *, 
+        ws_params: Dict[str, Any] = None
+    ) -> None:
         """
-        this function starts event listener, use it if you want to start 'Client' as single worker.\n
+        the method starts event listener, use it if you want to start 'Client' as single worker.\n
         If you want start 'Client' with any other async code - look 'start()'
 
         Args:
@@ -40,13 +62,12 @@ class Client:
             ws_params: Dict[str, Any]
                 Dict with arguments for websockets.connect
         """
-        self.loop.create_task(self.start(channels, ws_params=ws_params))
-        self.loop.run_forever()
+        self.loop.run_until_complete(self.start(channels, ws_params=ws_params))
 
     async def start(self, channels: Iterable[str], *, ws_params: Dict = None) -> None:
         """
-        |coro|
-        this function starts event listener. \n
+        |Coroutine|
+        starts event listener. \n
         If you won't combine this with any other async code - you can use 'run()'.
 
         Args:
@@ -57,10 +78,10 @@ class Client:
         """
 
         uri = 'wss://irc-ws.chat.twitch.tv:443'
-        if not ws_params:
+        if ws_params is None:
             ws_params = {}
         self._ws = await connect(uri, **ws_params)
-        # asking server to capability
+        # capability
         await self._send('CAP REQ :twitch.tv/membership')
         await self._send('CAP REQ :twitch.tv/commands')
         await self._send('CAP REQ :twitch.tv/tags')
@@ -70,52 +91,47 @@ class Client:
         # joining the channels
         for channel in channels:
             self._do_later(self._send(f'JOIN #{channel.lower()}'))
-
-        # loop to receive, split and handle messages we got
+        # handling loop
         while True:
             received_msgs = await self._ws.recv()
             for received_msg in received_msgs.split('\r\n'):
-                # sometimes we'll receive more then 1 msg from server and
-                # if so - i like to create tasks and don't call them
-                # before we finish current loop
                 self._do_later(self._handle_message(received_msg))
 
     async def _handle_message(self, msg: str) -> None:
-        # if we got empty msg - skip
+        # if empty message
         if len(msg) == 0:
             return
-        # sometimes (about once in 5 minutes) we'll receive PING
-        # that means server is checking we still alive
-        # we must send PONG to server for make it doesn't close the connection
+        # if connection checking
         if msg.startswith('PING'):
             self._do_later(self._send('PONG :tmi.twitch.tv'))
             return
-        # parse the message that we got into tags, command and text
+        # selecting parts
         tags, command, text = await self._parse_message(msg)
-        # some system info will have integer as command-type
-        if is_int(command[1]):  # if command is some integer
-            if command[1] == '353':  # if 353 - it's namelist of channel
-                channel_name = command[4][1:].lower()  # channel name
-                id = self._channels_names.get(channel_name)  # id of current channel
-                if id is not None:  # if we got id - channel is exist, so just append names_list of this channel
-                    self._channels[id].nameslist.extend(text.split(' '))
-                else:  # esle - channel isn't exist - putting msg to delayed handle
+        # if system message
+        if is_int(command[1]):
+            # part of namelist of a channel
+            if command[1] == '353':  
+                channel_name = command[4][1:].lower() 
+                try:
+                    id = self._channels_names[channel_name]
+                except KeyError:
                     self._delayed_msgs.setdefault(channel_name, []).append(msg)
+                else:
+                    self._channels[id].nameslist.extend(text.split(' '))
+            # others
             elif command[1] not in ['001', '002', '003', '004', '375', '372', '376', '366']:
                 raise UnknownIntCommand(msg)
             return
-
-        # messages from users in a channel will contains 'PRIVMSG'
+        # if message in a channel
         elif command[1] == 'PRIVMSG':
-            if hasattr(self, 'on_message'):  # if event registered
-                channel_id = int(tags['room-id'])  # getting channel id
-                channel = self._channels[channel_id]  # getting channel by id
-                author = Member(channel, tags)  # creating Member
-                message = Message(channel, author, text, tags)  # creating Message
-                self._do_later(self.on_message(message))  # call event
+            if hasattr(self, 'on_message'):
+                channel_id = int(tags['room-id'])
+                channel = self._channels[channel_id]
+                author = Member(channel, tags) 
+                message = Message(channel, author, text, tags)
+                self._do_later(self.on_message(message))
             return
-
-        # When someone JOIN a channel
+        # if a joining
         elif command[1] == 'JOIN':
             if hasattr(self, 'on_join'):
                 user_name = command[0].split('!', 1)[0]
@@ -124,8 +140,7 @@ class Client:
                 if id is not None:
                     self._do_later(self.on_join(self._channels[id], user_name))
             return
-
-        # When some one LEFT a channel
+        # if a leaving
         elif command[1] == 'PART':
             if hasattr(self, 'on_left'):
                 user_name = command[0].split('!', 1)[0]
@@ -133,29 +148,29 @@ class Client:
                 id = self._channels_names[channel_name]
                 self._do_later(self.on_left(self._channels[id], user_name))
             return
-
-        # on NOTICE
+        # if a NOTICE
         elif command[1] == 'NOTICE':
             if tags['msg-id'] == 'msg_room_not_found':
                 print(f'Channel {command[2]} is not found!')
             elif hasattr(self, 'on_notice'):
                 notice_id = tags['msg-id']
                 channel_name = command[2][1:]
-                id = self._channels_names.get(channel_name)
-                if id is None:  # if we recive this before ROOMSTATE put this message to delayed handle
+                try:
+                    id = self._channels_names[channel_name]
+                except KeyError:
                     self._delayed_msgs.setdefault(channel_name, []).append(msg)
-                    return  # and return cuz we haven't channel
-                self._do_later(self.on_notice(self._channels[id], notice_id, text))
+                else:
+                    self._do_later(self.on_notice(self._channels[id], notice_id, text))
             return
 
-        # user_events - Sub, sub-gift, ritual, raid...
+        # if a user event
         elif command[1] == 'USERNOTICE':
             if hasattr(self, 'on_user_event'):
                 channel = self._channels.get(int(tags['room-id']))
-                if channel is None:  # if we recieve this before ROOMSTATE put this message to delayed handle
-                    channel_name = command[2][1:]  # getting name of channel
+                if channel is None:
+                    channel_name = command[2][1:]
                     self._delayed_msgs.setdefault(channel_name, []).append(msg)
-                    return  # and return cuz we haven't channel
+                    return
 
                 author = Member(channel, tags)
                 event_type = tags['msg-id']
@@ -388,7 +403,7 @@ class Client:
         """
         if not iscoroutinefunction(coro):  # func must be coroutine ( use async def ...(): pass )
             raise FunctionIsNotCorutine(coro.__name__)
-        if coro.__name__ in Client.events:  # if we know event we got
+        if coro.__name__ in Client._events:  # if we know event we got
             setattr(self, coro.__name__, coro)
             return coro  # return coro
         else:
