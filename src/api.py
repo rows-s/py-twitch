@@ -3869,11 +3869,10 @@ class Api:
             try:
                 pagination = response.get('pagination')
                 cursor = pagination['cursor']
-            except TypeError:
+            except KeyError:
                 return  # if can't get cursor -> no more data -> StopAsyncIteration
             else:
                 params['after'] = cursor  # add `after`(cursor) param or change it
-
 
     @staticmethod
     async def once(generator: AsyncGenerator) -> Optional[dict]:

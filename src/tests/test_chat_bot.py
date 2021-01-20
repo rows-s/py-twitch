@@ -11,11 +11,11 @@ room_update_counter = 0
 
 
 @bot.event
-async def on_room_update(channel, key, before, after):
+async def on_room_update(channel, before, after):
     global counter, room_update_counter
     counter += 1
     room_update_counter += 1
-    print(f'ROOMSTATE in #{channel.name} with {key} set {after} after {before}')
+    print(f'ROOMSTATE in #{channel.name}')
 
 
 @bot.event
@@ -73,7 +73,7 @@ async def on_clear_chat(channel):
 
 clear_message_counter = 0
 @bot.event
-async def on_clear_message(channel, user_name, text, message_id):
+async def on_message_delete(channel, user_name, text, message_id):
     global counter, clear_message_counter
     counter += 1
     clear_message_counter += 1
@@ -147,7 +147,7 @@ async def on_message(message):
             print(f'user events - {user_event_counter}')
 
 
-with open(r"D:\Users\I3rowser\Desktop\Популярные каналы - Twitch.htm", encoding="utf8") as file:
+with open(r"D:\Users\I3rowser\Desktop\to distribute\py-twitch\src\TMP.txt", encoding="utf8") as file:
     text = file.read()
     regul = r'<a[^>]*tw-full-width tw-link tw-link--hover-underline-none ' \
             r'tw-link--inherit[^>]*href="https://www.twitch.tv/([^"]*)[^>]*>'

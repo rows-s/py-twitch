@@ -14,7 +14,7 @@ class UnknownIntCommand(Exception):
     pass
 
 
-class WrongMessageStruct(Exception):
+class InvalidMessageStruct(Exception):
     pass
 
 

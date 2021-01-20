@@ -1,3 +1,4 @@
+from copy import copy
 from typing import Coroutine, Iterable, Optional, Tuple, Union, Dict, List, Any, Awaitable
 from asyncio import get_event_loop
 from asyncio.coroutines import iscoroutinefunction
@@ -12,37 +13,63 @@ from irc_channel import Channel
 from irc_member import Member
 
 
+__all__ = ['Client']
+
+
 # class Client, it will create bots
 class Client:
-    _user_events: Dict[str, Tuple(str, Any)] ={
+    _user_events_types: Dict[str, Tuple[str, Any]] = {
         'sub': ('on_sub', Sub),
         'resub': ('on_sub', Sub),
         'subgift': ('on_sub_gift', SubGift),
         'anonsubgift': ('on_sub_gift', SubGift),
         'rewardgift': ('on_reward_gift', RewardGift),
-        'submysterygift': ('on_sub_mistery_gift', SubMisteryGift),
+        'submysterygift': ('on_sub_mistery_gift', SubMysteryGift),
         'primepaidupgrade': ('on_prime_paid_upgrate', PrimePaidUpgrade),
         'giftpaidupgrate': ('on_gift_paid_upgrade', GiftPaidUpgrade),
         'anongiftpaidupgrate': ('on_gift_paid_upgrade', GiftPaidUpgrade),
         'standardpayforward': ('on_standard_pay_forward', StandardPayForward),
         'communitypayforward': ('on_community_pay_forward', CommunityPayForward),
-        'bitsbadgetier': ('on_bits_badge_tier', BitsBadgeTier)
+        'bitsbadgetier': ('on_bits_badge_tier', BitsBadgeTier),
         'raid': ('on_raid', Raid),
         'unraid': ('on_unraid', UnRaid),
         'ritual': ('on_ritual', Ritual)
     }
 
-    _events = ('on_message', 'on_room_update', 'on_login', 'on_room_join', 'on_join', 'on_left', 'on_clear_user',
-              'on_clear_chat', 'on_clear_message', 'on_start_host', 'on_stop_host', 'on_notice', 'on_user_event')
+    _events_names = (
+        'on_message',  # PRIVMSG
+        'on_room_update', 'on_room_join',  # ROOMSTATE
+        'on_login',  # GLOBALUSERSTATE
+        'on_join',  # JOIN
+        'on_left',  # PART
+        'on_clear_user', 'on_clear_chat',  # CLEARCHAT
+        'on_message_delete',  # CLEARMSG
+        'on_start_host', 'on_stop_host',  # HOSTTARGET
+        'on_notice',  # NOTICE
+        'on_user_event'  # USERNOTICE
+    )
 
-    def __init__(self, token: str, login: str) -> None:
+    _user_events_names = (
+        'on_sub', 'on_sub_gift', 'on_reward_gift', 'on_sub_mistery_gift',  # subs
+        'on_prime_paid_upgrate', 'on_gift_paid_upgrade',  # upgrades
+        'on_standard_pay_forward', 'on_community_pay_forward',  # payments forward
+        'on_bits_badge_tier',  # bits badges tier
+        'on_raid', 'on_unraid',  # raids
+        'on_ritual'  # rituals
+    )
+
+    def __init__(
+            self,
+            token: str,
+            login: str
+    ) -> None:
         self.token = token
         self.login = login
+        self.loop = get_event_loop()
+        self.global_state: Optional[Client.GlobalState] = None
         self._channels: Dict[int, Channel] = {}  # dict of id_channel: Channel
         self._channels_names: Dict[str, int] = {}  # dict of name_channel : id_channel
         self._ws: Optional[WebSocketClientProtocol] = None
-        self.loop = get_event_loop()
-        self.global_state: Optional[Client.GlobalState] = None
         self._local_states: Dict[str, Dict[str, str]] = {}
         self._delayed_msgs: Dict[str, List[str]] = {}
 
@@ -64,7 +91,12 @@ class Client:
         """
         self.loop.run_until_complete(self.start(channels, ws_params=ws_params))
 
-    async def start(self, channels: Iterable[str], *, ws_params: Dict = None) -> None:
+    async def start(
+            self,
+            channels: Iterable[str],
+            *,
+            ws_params: Dict = None
+    ) -> None:
         """
         |Coroutine|
         starts event listener. \n
@@ -88,7 +120,7 @@ class Client:
         # loging
         await self._send(f'PASS {self.token}')
         await self._send(f'NICK {self.login}')
-        # joining the channels
+        # joining channels
         for channel in channels:
             self._do_later(self._send(f'JOIN #{channel.lower()}'))
         # handling loop
@@ -113,15 +145,16 @@ class Client:
             if command[1] == '353':  
                 channel_name = command[4][1:].lower() 
                 try:
-                    id = self._channels_names[channel_name]
+                    channel_id = self._channels_names[channel_name]
                 except KeyError:
                     self._delayed_msgs.setdefault(channel_name, []).append(msg)
                 else:
-                    self._channels[id].nameslist.extend(text.split(' '))
+                    names: list = text.split(' ')
+                    channel = self._channels[channel_id]
+                    channel.nameslist.extend(names)
             # others
             elif command[1] not in ['001', '002', '003', '004', '375', '372', '376', '366']:
                 raise UnknownIntCommand(msg)
-            return
         # if message in a channel
         elif command[1] == 'PRIVMSG':
             if hasattr(self, 'on_message'):
@@ -129,248 +162,231 @@ class Client:
                 channel = self._channels[channel_id]
                 author = Member(channel, tags) 
                 message = Message(channel, author, text, tags)
-                self._do_later(self.on_message(message))
-            return
+                self._do_later(
+                    self.on_message(message)
+                )
         # if a joining
         elif command[1] == 'JOIN':
             if hasattr(self, 'on_join'):
-                user_name = command[0].split('!', 1)[0]
                 channel_name = command[2][1:]
-                id = self._channels_names.get(channel_name)
-                if id is not None:
-                    self._do_later(self.on_join(self._channels[id], user_name))
-            return
+                try:
+                    channel_id = self._channels_names[channel_name]
+                    channel = self._channels[channel_id]
+                except KeyError:
+                    self._delayed_msgs.setdefault(channel_name, []).append(msg)
+                else:
+                    user_name = command[0].split('!', 1)[0]
+                    self._do_later(
+                        self.on_join(channel, user_name)
+                    )
         # if a leaving
         elif command[1] == 'PART':
             if hasattr(self, 'on_left'):
                 user_name = command[0].split('!', 1)[0]
                 channel_name = command[2][1:]
-                id = self._channels_names[channel_name]
-                self._do_later(self.on_left(self._channels[id], user_name))
-            return
+                channel_id = self._channels_names[channel_name]
+                channel = self._channels[channel_id]
+                self._do_later(
+                    self.on_left(channel, user_name)
+                )
         # if a NOTICE
         elif command[1] == 'NOTICE':
-            if tags['msg-id'] == 'msg_room_not_found':
+            notice_id = tags['msg-id']
+            if notice_id == 'msg_room_not_found':
                 print(f'Channel {command[2]} is not found!')
             elif hasattr(self, 'on_notice'):
-                notice_id = tags['msg-id']
                 channel_name = command[2][1:]
                 try:
-                    id = self._channels_names[channel_name]
+                    channel_id = self._channels_names[channel_name]
                 except KeyError:
                     self._delayed_msgs.setdefault(channel_name, []).append(msg)
                 else:
-                    self._do_later(self.on_notice(self._channels[id], notice_id, text))
-            return
-
+                    channel = self._channels[channel_id]
+                    self._do_later(
+                        self.on_notice(channel, notice_id, text)
+                    )
         # if a user event
         elif command[1] == 'USERNOTICE':
             if hasattr(self, 'on_user_event'):
-                channel = self._channels.get(int(tags['room-id']))
-                if channel is None:
+                channel_id = int(tags['room-id'])
+                try:
+                    channel = self._channels[channel_id]
+                # if doesn't exist
+                except KeyError:
                     channel_name = command[2][1:]
                     self._delayed_msgs.setdefault(channel_name, []).append(msg)
                     return
-
+                # main variables
                 author = Member(channel, tags)
                 event_type = tags['msg-id']
                 # choosing event type
-                if event_type == 'sub' or event_type == 'resub':
-                    event = Sub(author, channel, tags, text)
-                    self._do_later(self.on_user_event(event))
-
-                elif event_type == 'subgift' or event_type == 'anonsubgift':
-                    event = SubGift(author, channel, tags, text)
-                    self._do_later(self.on_user_event(event))
-
-                elif event_type == 'giftpaidupgrade' or event_type == 'anongiftpaidupgrade':
-                    event = GiftPaidUpgrade(author, channel, tags, text)
-                    self._do_later(self.on_user_event(event))
-
-                elif event_type == 'ritual':
-                    event = Ritual(author, channel, tags, text)
-                    self._do_later(self.on_user_event(event))
-
-                elif event_type == 'bitsbadgetier':
-                    event = BitsBadgeTier(author, channel, tags, text)
-                    self._do_later(self.on_user_event(event))
-
-                elif event_type == 'raid':
-                    print('raid'.upper(), '\nmsg is', msg, 'tags =', tags)
-                    event = Raid(author, channel, tags, text)
-                    self._do_later(self.on_user_event(event))
-
-                elif event_type == 'unraid':
-                    print('unraid'.upper(), '\nmsg is', msg, 'tags =', tags)
-                    event = UnRaid(author, channel, tags, text)
-                    self._do_later(self.on_user_event(event))
-
-                elif event_type == 'submysterygift':
-                    event = SubMysteryGift(author, channel, tags, text)
-                    self._do_later(self.on_user_event(event))
-
-                elif event_type == 'rewardgift':
-                    event = RewardGift(author, channel, tags, text)
-                    self._do_later(self.on_user_event(event))
-
-                elif event_type == 'communitypayforward':
-                    event = CommunityPayForward(author, channel, tags, text)
-                    self._do_later(self.on_user_event(event))
-
-                elif event_type == 'primepaidupgrade':
-                    event = PrimePaidUpgrade(author, channel, tags, text)
-                    self._do_later(self.on_user_event(event))
-
-                elif event_type == 'standardpayforward':
-                    event = StandardPayForward(author, channel, tags, text)
-                    self._do_later(self.on_user_event(event))
+                try:
+                    event_attr, event_class = Client._user_events_types[event_type]
+                # if unknown event
+                except KeyError:
+                    if hasattr(self, 'on_unknown_user_event'):
+                        pass
+                # if known event
                 else:
-                    raise UnknownUserNotice(event_type, msg)
-
+                    # if has specified event handler
+                    if hasattr(self, event_attr):
+                        event_handler = getattr(self, event_attr)
+                        event = event_class(author, channel, tags, text)
+                        self._do_later(event_handler(event))
+                    # else -> if has global handler
+                    elif hasattr(self, 'on_user_event'):
+                        event = event_class(author, channel, tags, text)
+                        self._do_later(
+                            self.on_user_event(event)
+                        )
+        # if `clear chat` or `clear user`
         elif command[1] == 'CLEARCHAT':
+            # ob clear user
             if text is not None and hasattr(self, 'on_clear_user'):
                 channel_name = command[2][1:]
-                id = self._channels_names[channel_name]
+                channel_id = self._channels_names[channel_name]
                 user_name = text
                 ban_duration = tags.get('ban-duration')
                 if ban_duration is not None:
                     ban_duration = int(ban_duration)
-                self._do_later(self.on_clear_user(self._channels[id],
-                                                  user_name,
-                                                  ban_duration))
-
+                self._do_later(
+                    self.on_clear_user(self._channels[channel_id], user_name, ban_duration)
+                )
+            # on clear chat
             elif text is None and hasattr(self, 'on_clear_chat'):
                 channel_name = command[2][1:]
-                id = self._channels_names[channel_name]
-                self._do_later(self.on_clear_chat(self._channels[id]))
+                channel_id = self._channels_names[channel_name]
+                self._do_later(
+                    self.on_clear_chat(self._channels[channel_id])
+                )
             return
-
+        # if message delete
         elif command[1] == 'CLEARMSG':
-            if hasattr(self, 'on_clear_message'):
+            if hasattr(self, 'on_message_delete'):
                 channel_name = command[2][1:]
-                id = self._channels_names[channel_name]
+                channel_id = self._channels_names[channel_name]
+                channel = self._channels[channel_id]
                 user_name = tags['login']
                 message_id = tags['target-msg-id']
-                self._do_later(self.on_clear_message(self._channels[id],
-                                                     user_name,
-                                                     text,
-                                                     message_id))
-
+                self._do_later(
+                    self.on_message_delete(channel, user_name, text, message_id)
+                )
+        # if host start or stop
         elif command[1] == 'HOSTTARGET':
-            viewers = text.split(' ')
-            # we may get (<channel> [<number-of-viewers>]) if channel start host
-            if viewers[0] != '-' and hasattr(self, 'on_start_host'):
+            if hasattr(self, 'on_start_host') or \
+               hasattr(self, 'on_stop_host'):
                 channel_name = command[2][1:]
-
-                id = self._channels_names.get(channel_name)
-                if id is None:  # if we recive this before ROOMSTATE put this message to delayed handle
+                try:
+                    channel_id = self._channels_names[channel_name]
+                    channel = self._channels[channel_id]
+                # if doesn't exist
+                except KeyError:
                     self._delayed_msgs.setdefault(channel_name, []).append(msg)
                     return
-
-                hoster = viewers[0]  # name of hoster
-                viewers = 0 if (viewers[1] == '-') else int(viewers[1])  # count of viewers
-
-                self._do_later(self.on_start_host(self._channels[id],
-                                                  viewers,
-                                                  hoster))
-
-            # we may get (- [<number-of-viewers>]) if channel stop host
-            elif viewers[0] == '-' and hasattr(self, 'on_stop_host'):
-                channel_name = command[2][1:]
-                id = self._channels_names[channel_name]
-                viewers = int(viewers[1])
-                self._do_later(self.on_stop_host(self._channels[id],
-                                                 viewers))
-            else:
-                raise UnknownHostTarget(msg)
-            return
-
+                hoster, viewers_count = text.split(' ')
+                # start
+                if hoster != '-' and hasattr(self, 'on_start_host'):
+                    self._do_later(
+                        self.on_start_host(channel, int(viewers_count), hoster)
+                    )
+                # stop
+                elif hoster == '-' and hasattr(self, 'on_stop_host'):
+                    self._do_later(
+                        self.on_stop_host(channel, int(viewers_count[1]))
+                    )
+                else:
+                    raise UnknownHostTarget(msg)
+        # if reconnecting request
         elif command[1] == 'RECONNECT':
             for channel in self._channels_names:
                 self._do_later(self._send(f'JOIN #{channel.lower()}'))
-                print("!\n\nWE GOT RECONNECT command!\n\n!")
-
-        # or we get info about channel we joined,
-        # or about updates in that channel
+        # if room joined or room updated
         elif command[1] == 'ROOMSTATE':
-            id = int(tags['room-id'])  # id of channel
-
-            if len(tags) == 7:  # if we get 7 tags, it's info
-                channel_name = command[2][1:]  # channel_name of channel
-                mystate_tags = self._local_states.pop(channel_name)  # getting mystate and delete it
+            channel_id = int(tags['room-id'])
+            room_info_length = 7  # room join
+            room_update_length = 2  # room_update
+            # if room join
+            if len(tags) == room_info_length:
+                channel_name = command[2][1:]
+                mystate_tags = self._local_states.pop(channel_name)
                 # create channel
-                self._channels[id] = Channel(channel_name, mystate_tags, self._ws, tags)
-                self._channels_names[channel_name] = id  # save pair of name_chnl : id_chnl
-
-                delayed_msgs = self._delayed_msgs.pop(channel_name, [])  # get list of delayed msgs
-                while delayed_msgs:  # while list is not empety
-                    msg = delayed_msgs.pop()  # delete one msg from list
-                    self._do_later(self._handle_message(msg))  # and put it to handle
-
-                if hasattr(self, 'on_room_join'):  # if event is registered
-                    self._do_later(self.on_room_join(self._channels[id]))  # call event
-
-            elif len(tags) == 2:  # if we get 2 tags, it's update of room
-                tags.pop('room-id')  # dellete channel id to tags contains only one tag
-                key, value = tags.popitem()  # getting 'key' and new 'value'
-
-                if hasattr(self, 'on_room_update'):  # if event is registered
-                    before = self._channels[id].get(key)  # getting before
-                    self._channels[id].update(key, value)  # update
-                    after = self._channels[id].get(key)  # getting after
-                    self._do_later(self.on_room_update(self._channels[id],
-                                                       key,
-                                                       before,
-                                                       after))
-
-                else:  # if event isn't registered - just update
-                    self._channels[id].update(key, value)
+                self._channels[channel_id] = Channel(channel_name, mystate_tags, self._ws, tags)
+                self._channels_names[channel_name] = channel_id
+                # do later delayed messages
+                delayed_msgs = self._delayed_msgs.pop(channel_name, [])
+                while delayed_msgs:
+                    msg = delayed_msgs.pop(0)
+                    self._do_later(self._handle_message(msg))
+                # event handle
+                if hasattr(self, 'on_room_join'):
+                    self._do_later(
+                        self.on_room_join(self._channels[channel_id])
+                    )
+            # if room update
+            elif len(tags) == room_update_length:
+                tags.pop('room-id')  # need to only one key for the next row
+                key, value = tags.popitem()
+                # event handle
+                if hasattr(self, 'on_room_update'):
+                    channel = self._channels[channel_id]
+                    # before
+                    before = copy(channel)
+                    before.nameslist = copy(channel.nameslist)
+                    # update
+                    channel.update(key, value)
+                    # after
+                    after = copy(channel)
+                    after.nameslist = copy(channel.nameslist)
+                    self._do_later(
+                        self.on_room_update(self._channels[channel_id], before,  after)
+                    )
+                # if hasn't handler
+                else:
+                    channel = self._channels[channel_id]
+                    channel.update(key, value)
+            # if anything else
             else:
-                raise UnknownRoomState(msg)  # we can't get anything else
-            return
-
-        # we receive USERSTATE after we joined a channel, it contains our local state for the channel
+                raise UnknownRoomState(msg)  # we must not recive others ROOMSTATEs
+        # if our local state
         elif command[1] == 'USERSTATE':
             channel_name = command[2][1:]
             self._local_states[channel_name] = tags
-            return
-
-        # 'GLOBALUSERSTATE' means it's message with info about us( about our bot )
+        # if our global state
         elif command[1] == 'GLOBALUSERSTATE':
             self.global_state = Client.GlobalState(tags)
             if hasattr(self, 'on_login'):  # if even registered - call it
                 self._do_later(self.on_login())
-            return
         elif command[1] == 'CAP':
             return
         else:
             raise UnknownCommand(msg)
 
     @staticmethod
-    async def _parse_message(msg: str) -> Tuple[Dict[str, str], List[str], Optional[str]]:
-        text = None
-        
-        # we may don't receive tags, if so we won't have space before colon
-        if msg.startswith(':'):
-            parts = msg.split(':', 2)
-        # if we receive tags, they startswith '@', so we have to split by ' :'
-        # because tags may contain ':' but can't contain ' :' (space+colon)
-        elif msg.startswith('@'):
-            parts = msg.split(' :', 2)
+    async def _parse_message(message: str) -> Tuple[Dict[str, str], List[str], Optional[str]]:
+        # if hasn't tags
+        if message.startswith(':'):
+            raw_parts = message.split(':', 2)
+        # if has tags
+        elif message.startswith('@'):
+            raw_parts = message.split(' :', 2)
         else:
-            raise WrongMessageStruct(msg)
-        # create dict = <tag_name>: <value>
-        # if we received tags, we deleting '@' in parts[0][1:]
-        tags = prefix_to_dict(parts[0][1:])
-        command = parts[1].split(' ')
-        # we may don't receive text, if so - text is None
-        if len(parts) == 3:
-            text = parts[2]
+            raise InvalidMessageStruct(message)
+        # raws
+        if len(raw_parts) == 3:
+            raw_tags, raw_command, text = raw_parts
+        elif len(raw_parts) == 2:
+            raw_tags, raw_command = raw_parts
+            text = None
+        else:
+            raise InvalidMessageStruct(message)
+        # tags
+        tags = prefix_to_dict(raw_tags[1:])  # remove @ in the start
+        # command
+        command = raw_command.split(' ')
         return tags, command, text
 
-    async def _send(self, command: str) -> str:
+    async def _send(self, command: str):
         await self._ws.send(command + '\r\n')
-        return command
 
     async def send_msg(self, channel: Union[int, str, Channel], text: str):
         if type(channel) == Channel:
@@ -378,7 +394,7 @@ class Client:
         elif type(channel) == int:
             channel = self._channels[channel].name
         command = f'PRIVMSG #{channel} :{text}'
-        self._do_later(self._send(command))
+        await self._send(command)
 
     async def join(self, channel: str):
         self._do_later(self._send(f'JOIN #{channel.lower()}'))
@@ -398,17 +414,23 @@ class Client:
                 if object is not Coroutine
 
         Returns:
-            Coroutine
-                object we got in coro argument, use for multiple decorate
+            Coroutine:
+                the object we got in coro argument (for multiple decorate)
         """
+
         if not iscoroutinefunction(coro):  # func must be coroutine ( use async def ...(): pass )
             raise FunctionIsNotCorutine(coro.__name__)
-        if coro.__name__ in Client._events:  # if we know event we got
+        # if event
+        if coro.__name__ in Client._events_names:
             setattr(self, coro.__name__, coro)
-            return coro  # return coro
+            return coro
+        # if user event
+        elif coro.__name__ in Client._user_events_names:
+            setattr(self, coro.__name__, coro)
+            return coro
+        # if unknown
         else:
-            # what for a developer will register unknown event?
-            # better tell him/her about
+            # what for a developer will register unknown event? better tell him/her about
             raise UnknownEvent(coro.__name__)
     
     def _do_later(self, coro: Awaitable):
@@ -421,5 +443,3 @@ class Client:
             self.name = tags['display-name']
             self.emotes = tuple(map(int, tags['emote-sets'].split(',')))
             self.id = int(tags['user-id'])
-
-__all__ = [Client]

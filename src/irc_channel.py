@@ -16,7 +16,7 @@ class Channel:
 
         self.name: str = name
         self.ws: WebSocketClientProtocol = ws
-        self.id: int = int(tags['room-id'])
+        self.id: str = tags['room-id']
         self.slow: int = int(tags['slow'])
         self.rituals = int(tags['rituals'])
         self.emote_only:  bool = True if tags['emote-only'] == '1' else False
@@ -64,28 +64,6 @@ class Channel:
 
         elif key == 'subs-only':
             self.subs_only = True if value == '1' else False
-
-    def get(self, key: str) -> Union[bool, int, Tuple[bool, Optional[int]]]:
-        """
-        Return value by key
-        params: 'key' - 'key' form tags
-        return:
-        bool for 'emote-only', 'r9k'(unique-only), 'subs-only'
-        int  for 'slow', 'rituals'
-        tuple[bool, Optional[int]] for 'followers-only'
-        """
-        if key == 'emote-only':
-            return self.emote_only
-        elif key == 'followers-only':
-            return self.followers_only, self.followers_only_min
-        elif key == 'r9k':
-            return self.unique_only
-        elif key == 'slow':
-            return self.slow
-        elif key == 'subs-only':
-            return self.subs_only
-        elif key == 'rituals':
-            return self.rituals
 
     class LocalState:
         def __init__(self, tags: Dict[str, str]) -> None:
