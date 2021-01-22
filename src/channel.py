@@ -1,11 +1,17 @@
 
+<<<<<<< Updated upstream:src/channel.py
 from typing import List, Tuple, Union, Dict, Optional
 from websockets.client import connect
+=======
+from typing import List, Dict, Tuple
+from websockets import WebSocketClientProtocol
+>>>>>>> Stashed changes:src/irc_channel.py
 
-from utils import badges_to_dict
+from utils import parse_badge
 
 
 class Channel:
+<<<<<<< Updated upstream:src/channel.py
     def __init__(self, name: str,
                  mystate_tags: Dict[str, str],
                  ws: connect,
@@ -14,13 +20,26 @@ class Channel:
         self.name: str = name
         self.ws = ws
         self.id: int = int(tags['room-id'])
+=======
+    def __init__(
+        self, 
+        name: str,
+        my_state_tags: Dict[str, str],
+        ws: WebSocketClientProtocol,
+        tags: Dict[str, str]
+    ) -> None:
+
+        self.name: str = name
+        self._ws: WebSocketClientProtocol = ws
+        self.id: str = tags['room-id']
+>>>>>>> Stashed changes:src/irc_channel.py
         self.slow: int = int(tags['slow'])
         self.rituals = int(tags['rituals'])
         self.emote_only:  bool = True if tags['emote-only'] == '1' else False
         self.unique_only: bool = True if tags['r9k'] == '1' else False 
         self.subs_only:   bool = True if tags['subs-only'] == '1' else False
-        self.mystate: Channel.LocalState = self.LocalState(mystate_tags)
-        self.nameslist: List[str] = []
+        self.my_state: Channel.LocalState = self.LocalState(my_state_tags)
+        self.nameslist: Tuple[str] = []
 
         value = int(tags['followers-only'])
         self.followers_only = bool(value+1)
@@ -28,18 +47,16 @@ class Channel:
 
     async def send(self, conntent: str) -> str:
         command = f'PRIVMSG #{self.name} :{conntent}'
-        await self.ws.send(command + '\r\n')
+        await self._ws.send(command + '\r\n')
         return command
 
-    async def disconnect(self) -> str:
+    async def disconnect(self):
         command = f'PRIVMSG #{self.name} :/disconnect'
-        await self.ws.send(command + '\r\n')
-        return command
+        await self._ws.send(command + '\r\n')
 
-    async def clear(self) -> str:
+    async def clear(self):
         command = f'PRIVMSG #{self.name} :/clear'
-        await self.ws.send(command + '\r\n')
-        return command
+        await self._ws.send(command + '\r\n')
 
     def update(self, key: str, value: str) -> None:
         if key == 'emote-only':
@@ -47,7 +64,7 @@ class Channel:
 
         elif key == 'followers-only':
             value = int(value)
-            self.followers_only = bool(value+1)
+            self.followers_only = bool(value+1)  # -1 is off
             if value > 0:
                 self.followers_only_min = value
             else:
@@ -86,8 +103,8 @@ class Channel:
 
     class LocalState:
         def __init__(self, tags: Dict[str, str]) -> None:
-            self.badges: Dict[str, str] = badges_to_dict(tags['badges'])
-            self.badges_info: Dict[str, str] = badges_to_dict(tags['badge-info'])
+            self.badges: Dict[str, str] = parse_badge(tags['badges'])
+            self.badges_info: Dict[str, str] = parse_badge(tags['badge-info'])
             self.bits: int = int(self.badges['bits']) if 'bits' in self.badges else 0
             self.subscriber: int = int(self.badges['subscriber']) if 'subscriber' in self.badges else 0
             self.admin: bool = True if 'admin' in self.badges else False

@@ -1,7 +1,14 @@
+<<<<<<< Updated upstream:src/Message.py
 from channel import Channel
 from member import Member
 from typing import Dict, List, Optional
 from utils import emotes_to_dict, replace
+=======
+from irc_channel import Channel
+from irc_member import Member
+from typing import Dict, List, Optional, Tuple
+from utils import parse_raw_emotes, replace_slashes
+>>>>>>> Stashed changes:src/irc_message.py
 
 
 class Message:
@@ -17,7 +24,7 @@ class Message:
         self.id: str = tags['id']
         self.flags: str = tags['flags']
         self.time: int = int(tags['tmi-sent-ts'])
-        self.emotes: Dict[str, List[int]] = emotes_to_dict(tags['emotes'])
+        self.emotes: Dict[str, List[Tuple[int, int]]] = parse_raw_emotes(tags['emotes'])
         self.emote_only: bool = True if ('emote-only' in tags) else False
         self.bits = int(tags['bits']) if 'bits' in tags else 0
         if 'reply-parent-display-name' in tags:
@@ -35,7 +42,7 @@ class Message:
             self.channel: Channel = channel
             self.author_name: str = tags['reply-parent-user-login']
             self.author_id: int = int(tags['reply-parent-user-id'])
-            self.content: str = replace(tags['reply-parent-msg-body'])
+            self.content: str = replace_slashes(tags['reply-parent-msg-body'])
             self.id: str = tags['reply-parent-msg-id']
 
         async def delete(self) -> str:

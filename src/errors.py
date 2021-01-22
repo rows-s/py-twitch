@@ -26,4 +26,36 @@ class UnknownHostTarget(Exception):
     pass
 
 class UnknownCommand(Exception):
+<<<<<<< Updated upstream
     pass
+=======
+    pass
+
+
+class HTTPError(Exception):
+    pass
+
+
+class InvalidToken(Exception):
+    pass
+
+
+class WrongIterObjects(Exception):
+    pass
+
+
+class ServerError(Exception):
+    pass
+
+
+class AccessError(Exception):
+    pass
+
+
+class TooEarlyMessage(Exception):
+    pass
+
+
+class InvalidChannelName(Exception):
+    pass
+>>>>>>> Stashed changes

@@ -1,6 +1,11 @@
 from typing import Dict, Optional
+<<<<<<< Updated upstream:src/member.py
 from channel import Channel
 from utils import badges_to_dict
+=======
+from irc_channel import Channel
+from utils import parse_badge
+>>>>>>> Stashed changes:src/irc_member.py
 
 
 class Member:
@@ -13,8 +18,8 @@ class Member:
         self.name: str = tags['display-name']
         self.color: str = tags['color']
 
-        self.badges: Dict[str, str] = badges_to_dict(tags['badges'])
-        self.badges_info: Dict[str, str] = badges_to_dict(tags['badge-info'])
+        self.badges: Dict[str, str] = parse_badge(tags['badges'])
+        self.badges_info: Dict[str, str] = parse_badge(tags['badge-info'])
 
         self.admin = True if 'admin' in self.badges else False
         self.mod = True if 'moderator' in self.badges else False

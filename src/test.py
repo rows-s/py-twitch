@@ -1,21 +1,47 @@
+import asyncio
 import re
 
 import client
 import config
+<<<<<<< Updated upstream:src/test.py
 from time import time
 
 bot = client.Client(config.token, config.nick)
+=======
+from api import Api
+from time import time
+
+from irc_channel import Channel
+
+bot = irc_client.Client(config.token, config.nick)
+>>>>>>> Stashed changes:src/tests/test_chat_bot.py
 counter = 0
 
 
 room_update_counter = 0
 
 @bot.event
+<<<<<<< Updated upstream:src/test.py
 async def on_room_update(channel, key, before, after):
     global counter, room_update_counter
     counter += 1
     room_update_counter += 1
     print(f'ROOMSTATE in #{channel.name} with {key} set {after} after {before}')
+=======
+async def on_room_update(channel, before: Channel, after: Channel):
+    global counter, room_update_counter
+    counter += 1
+    room_update_counter += 1
+    print(f'ROOMSTATE in #{channel.name}')
+    before_attrs = before.__dir__()
+    after_attrs = after.__dir__()
+    for before_attr, after_attr in zip(before_attrs, after_attrs):
+        before_value = getattr(before, before_attr)
+        after_value = getattr(after, after_attr)
+        if before_value != after_value:
+            print(f'>>>> {before_attr}/{after_attr} get new value {before_value} after {after_value}')
+            break
+>>>>>>> Stashed changes:src/tests/test_chat_bot.py
 
 
 @bot.event
@@ -146,7 +172,9 @@ async def on_message(message):
             print(f'notices - {notice_counter}')
             print(f'user events - {user_event_counter}')
 
+start_time = time()
 
+<<<<<<< Updated upstream:src/test.py
 with open('TMP.txt', encoding="utf8") as file:
     text = file.read()
     regul = r'<a[^>]*tw-full-width tw-link tw-link--hover-underline-none ' \
@@ -157,3 +185,25 @@ print('!\nWe are joining {} of channels as bot'.format(len(result)))
 start_time = time()
 result.insert(0, 'rows_s')
 bot.run(channels=result[:100])
+=======
+
+async def start():
+    api = await Api.create(config.app_token2)
+    channels_ids = []
+    channels_logins = []
+    async for channel in api.get_streams(99):
+        channels_ids.append(channel['user_id'])
+    async for user in api.get_users(99, user_id=channels_ids):
+        channels_logins.append(user['login'])
+    del api
+    await Api.close()
+    channels_logins.append('rows_s')
+    asyncio.get_event_loop().create_task(
+        bot.start(channels=channels_logins, ws_params=config.ws_params)
+    )
+    print(f'!\nWe are joining {len(channels_logins)} of channels as bot')
+
+
+asyncio.get_event_loop().create_task(start())
+asyncio.get_event_loop().run_forever()
+>>>>>>> Stashed changes:src/tests/test_chat_bot.py

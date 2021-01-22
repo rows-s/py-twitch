@@ -4,6 +4,10 @@ from member import Member
 from utils import replace, emotes_to_dict, badges_to_dict
 from typing import Dict, List
 
+<<<<<<< Updated upstream
+=======
+from utils import parse_badge
+>>>>>>> Stashed changes
 
 class UserEvent(ABC):
     def __init__(self,
@@ -26,5 +30,5 @@ class UserEvent(ABC):
 
 class State(ABC):
     def __init__(self, tags: Dict[str, str]):
-        self.badges = badges_to_dict(tags['badges'])
-        self.badges_info = badges_to_dict(tags['badge-info'])
+        self.badges = parse_badge(tags['badges'])
+        self.badges_info = parse_badge(tags['badge-info'])
