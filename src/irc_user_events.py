@@ -1,7 +1,7 @@
 from abc import ABC
 from typing import Dict, Optional, List
 
-from utils import replace, emotes_to_dict
+from utils import replace, parse_raw_emotes
 from irc_member import Member
 from irc_channel import Channel
 
@@ -18,7 +18,7 @@ class UserEvent(ABC):
         self.author: Member = author
         self.channel: Channel = channel
         self.system_msg: str = replace(tags['system-msg'])
-        self.emotes: Dict[str, List[int]] = emotes_to_dict(tags['emotes'])
+        self.emotes: Dict[str, List[int]] = parse_raw_emotes(tags['emotes'])
         self.flags: str = tags['flags']
         self.id: str = tags['id']
         self.event_type: str = tags['msg-id']

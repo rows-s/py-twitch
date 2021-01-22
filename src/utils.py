@@ -51,7 +51,7 @@ def is_int(string: str) -> bool:
         return False
 
 
-def prefix_to_dict(prefix: str) -> Dict[str, str]:
+def parse_raw_tags(prefix: str) -> Dict[str, str]:
     tags = {}  # we'll return tags
     i = 0  # simple current index of <tag_name> searching
     last = 0  # position of end of last tag-value
@@ -76,7 +76,7 @@ def prefix_to_dict(prefix: str) -> Dict[str, str]:
     return tags
 
 
-def emotes_to_dict(emotes: str) -> Dict[str, List[int]]:
+def parse_raw_emotes(emotes: str) -> Dict[str, List[int]]:
     result = {}  # to return
     # all emoted separated by '/'
     for emote in emotes.split('/'):
@@ -99,7 +99,7 @@ def emotes_to_dict(emotes: str) -> Dict[str, List[int]]:
     return result
 
 
-def badges_to_dict(badges: str) -> Dict[str, str]:
+def parse_raw_badges(badges: str) -> Dict[str, str]:
     result = {}  # to return
     # every bage/value separated by ','
     for badge in badges.split(','):

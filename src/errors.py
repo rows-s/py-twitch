@@ -48,3 +48,11 @@ class ServerError(Exception):
 
 class AccessError(Exception):
     pass
+
+
+class TooEarlyMessage(Exception):
+    pass
+
+
+class InvalidChannelName(Exception):
+    pass

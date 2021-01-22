@@ -130,7 +130,7 @@ async def on_message(message):
     global unhost_counter, notice_counter, user_event_counter
     counter += 1
     message_counter += 1
-    if message.author.id == bot.global_state.id:
+    if str(message.author.id) == bot.global_state.id:
         if message.content == '!stop':
             print(f'!!!!Stoped!!!! handled {counter} various events after {time()-start_time} seconds')
             print(f'messages - {message_counter}')
@@ -156,4 +156,5 @@ with open(r"D:\Users\I3rowser\Desktop\to distribute\py-twitch\src\TMP.txt", enco
 print(f'!\nWe are joining {len(result)} of channels as bot')
 start_time = time()
 result.insert(0, 'rows_s')
-bot.run(channels=result[:100])
+# bot.run(channels=result[:100])
+bot.run(channels=['rows_s', 'pitsxs'])

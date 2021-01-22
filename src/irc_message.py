@@ -1,7 +1,7 @@
 from irc_channel import Channel
 from irc_member import Member
 from typing import Dict, List, Optional
-from utils import emotes_to_dict, replace
+from utils import parse_raw_emotes, replace
 
 
 class Message:
@@ -17,7 +17,7 @@ class Message:
         self.id: str = tags['id']
         self.flags: str = tags['flags']
         self.time: int = int(tags['tmi-sent-ts'])
-        self.emotes: Dict[str, List[int]] = emotes_to_dict(tags['emotes'])
+        self.emotes: Dict[str, List[int]] = parse_raw_emotes(tags['emotes'])
         self.emote_only: bool = True if ('emote-only' in tags) else False
         self.bits = int(tags['bits']) if 'bits' in tags else 0
         if 'reply-parent-display-name' in tags:
