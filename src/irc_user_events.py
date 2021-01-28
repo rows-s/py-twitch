@@ -1,7 +1,7 @@
 from abc import ABC
 from typing import Dict, Optional, List
 
-from utils import replace, parse_raw_emotes
+from utils import replace_slashes, parse_raw_emotes
 from irc_member import Member
 from irc_channel import Channel
 
@@ -17,7 +17,7 @@ class UserEvent(ABC):
     ) -> None:
         self.author: Member = author
         self.channel: Channel = channel
-        self.system_msg: str = replace(tags['system-msg'])
+        self.system_msg: str = replace_slashes(tags['system-msg'])
         self.emotes: Dict[str, List[int]] = parse_raw_emotes(tags['emotes'])
         self.flags: str = tags['flags']
         self.id: str = tags['id']
@@ -35,7 +35,10 @@ class Sub(UserEvent):
             content: str
     ) -> None:
         super().__init__(author, channel, tags, content)
-        self.comulative_months: int = int(tags['msg-param-cumulative-months'])
+        self.comulative_months = tags.get('msg-param-cumulative-months')
+        if self.comulative_months is not None:
+            self.comulative_months = int(self.comulative_months)
+        self.comulative_months: int = int(tags.get('msg-param-cumulative-months'))
         self.months_duration: int = int(tags['msg-param-multimonth-duration'])
         self.months_tenure: int = int(tags['msg-param-multimonth-tenure'])
         self.share_streak: bool = bool(int(tags['msg-param-should-share-streak']))
@@ -45,7 +48,7 @@ class Sub(UserEvent):
             self.streak = None
         self.gifted: bool = True if (tags['msg-param-was-gifted'] == 'true') else False
         self.plan: str = tags['msg-param-sub-plan']
-        self.plan_name: str = replace(tags['msg-param-sub-plan-name'])
+        self.plan_name: str = replace_slashes(tags['msg-param-sub-plan-name'])
 
 
 class SubGift(UserEvent):
@@ -56,12 +59,12 @@ class SubGift(UserEvent):
                  content: str
                  ) -> None:
         super().__init__(author, channel, tags, content)
-        self.gift_id: str = replace(tags['msg-param-origin-id'])
+        self.gift_id: str = replace_slashes(tags['msg-param-origin-id'])
         self.gift_months = int(tags['msg-param-gift-months'])
         self.months: int = int(tags['msg-param-months'])
         self.recipient_name: Optional[str] = tags['msg-param-recipient-display-name']
         self.recipient_id: Optional[str] = tags['msg-param-recipient-id']
-        self.plan_name: str = replace(tags['msg-param-sub-plan-name'])
+        self.plan_name: str = replace_slashes(tags['msg-param-sub-plan-name'])
         self.plan: str = tags['msg-param-sub-plan']
 
 
@@ -128,7 +131,7 @@ class SubMysteryGift(UserEvent):
                  ) -> None:
         super().__init__(author, channel, tags, content)
         self.gift_count: int = int(tags['msg-param-mass-gift-count'])
-        self.gift_id: str = replace(tags['msg-param-origin-id'])
+        self.gift_id: str = replace_slashes(tags['msg-param-origin-id'])
         self.plan: str = tags['msg-param-sub-plan']
 
         self.sender_count: Optional[int] = tags.get('msg-param-sender-count')

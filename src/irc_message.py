@@ -1,7 +1,7 @@
 from irc_channel import Channel
 from irc_member import Member
 from typing import Dict, List, Optional
-from utils import parse_raw_emotes, replace
+from utils import parse_raw_emotes, replace_slashes
 
 
 class Message:
@@ -35,7 +35,7 @@ class Message:
             self.channel: Channel = channel
             self.author_name: str = tags['reply-parent-user-login']
             self.author_id: int = int(tags['reply-parent-user-id'])
-            self.content: str = replace(tags['reply-parent-msg-body'])
+            self.content: str = replace_slashes(tags['reply-parent-msg-body'])
             self.id: str = tags['reply-parent-msg-id']
 
         async def delete(self) -> str:

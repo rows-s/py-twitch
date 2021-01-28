@@ -111,7 +111,7 @@ def parse_raw_badges(badges: str) -> Dict[str, str]:
     return result
 
 
-def replace(text: str):
+def replace_slashes(text: str):
     """
     some parent content will contains (space), (slash), (semicolon)
     which will be replaced as (space) to (slash+s), (slach) to (slash+slach), (semicolon) to (slash+colon)

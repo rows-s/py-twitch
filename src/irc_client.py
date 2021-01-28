@@ -204,6 +204,10 @@ class Client:
                     self._do_later(self.on_login())
             # if reconnect request
             elif command_type == 'RECONNECT':
+                print('\n\nRECONNECT\nWhat the fuck!?\n\n')
+                print('tags=', tags, '\n',
+                      'command =', command, '\n',
+                      'text =', text)
                 channels_names = self._channels_by_name.keys()
                 for channel_name in channels_names:
                     self._do_later(self._send(f'JOIN #{channel_name.lower()}'))
