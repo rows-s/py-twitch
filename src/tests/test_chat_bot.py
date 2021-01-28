@@ -1,21 +1,25 @@
+import asyncio
 import re
+from random import choice
 
-import irc_client
-import config
-import api
+from irc_client import Client
+from config import token, nick, app_token2
+from api import Api
 from time import time
 
-bot = irc_client.Client(config.token, config.nick)
+from irc_channel import Channel
+
+bot = Client(token, nick)
 counter = 0
 room_update_counter = 0
 
 
 @bot.event
-async def on_room_update(channel, before, after):
+async def on_channel_update(before, after):
     global counter, room_update_counter
     counter += 1
     room_update_counter += 1
-    print(f'ROOMSTATE in #{channel.name}')
+    print(f'ROOMSTATE in #{before.name}')
 
 
 @bot.event
@@ -30,7 +34,7 @@ async def on_login():
 
 room_join_counter = 0
 @bot.event
-async def on_room_join(channel):
+async def on_self_join(channel):
     global counter, room_join_counter
     counter += 1
     room_join_counter += 1
@@ -132,7 +136,7 @@ async def on_message(message):
     message_counter += 1
     if str(message.author.id) == bot.global_state.id:
         if message.content == '!stop':
-            print(f'!!!!Stoped!!!! handled {counter} various events after {time()-start_time} seconds')
+            print(f'!!!!handled {counter} various events after {time()-start_time} seconds')
             print(f'messages - {message_counter}')
             print(f'room updates - {room_update_counter}')
             print(f'room joins - {room_join_counter}')
@@ -145,16 +149,52 @@ async def on_message(message):
             print(f'unhosts - {unhost_counter}')
             print(f'notices - {notice_counter}')
             print(f'user events - {user_event_counter}')
+            await message.channel.send(f'{counter} after {time()-start_time}')
+        elif message.content == '!delays':
+            content = ''
+            for channel_name in bot._delayed_irc_parts:
+                content = channel_name + '\n'
+                for parts in bot._delayed_irc_parts[channel_name]:
+                    command = parts[1]
+                    content += '>>>>' + command[1] + '\n'
+            else:
+                if len(bot._delayed_irc_parts) == 0:
+                    content = 'Just 0'
+            await message.channel.send(content)
+        elif message.content == '!disconnect':
+            channels = list(bot._channels_by_name.values())
+            channel = choice(channels)
+            await message.channel.send(f'have chosen {channel.name}')
+            await channel.disconnect()
 
 
-with open(r"D:\Users\I3rowser\Desktop\to distribute\py-twitch\src\TMP.txt", encoding="utf8") as file:
-    text = file.read()
-    regul = r'<a[^>]*tw-full-width tw-link tw-link--hover-underline-none ' \
-            r'tw-link--inherit[^>]*href="https://www.twitch.tv/([^"]*)[^>]*>'
-    result = re.findall(regul, text)
+# with open(r"D:\Users\I3rowser\Desktop\to distribute\py-twitch\src\TMP.txt", encoding="utf8") as file:
+#     text = file.read()
+#     regul = r'<a[^>]*tw-full-width tw-link tw-link--hover-underline-none ' \
+#             r'tw-link--inherit[^>]*href="https://www.twitch.tv/([^"]*)[^>]*>'
+#     result = re.findall(regul, text)
+#
+# print(f'!\nWe are joining {len(result)} of channels as bot')
 
-print(f'!\nWe are joining {len(result)} of channels as bot')
-start_time = time()
-result.insert(0, 'rows_s')
+# result.insert(0, 'rows_s')
 # bot.run(channels=result[:100])
-bot.run(channels=['rows_s', 'pitsxs'])
+async def begin():
+    do = input('processing type: ')
+    if do.lower() == 'global':
+        api = await Api.create(app_token2)
+        ids = []
+        async for stream in api.get_streams(99):
+            ids.append(stream['user_id'])
+        logins = []
+        async for user in api.get_users(99, user_id=ids):
+            logins.append(user['login'])
+        logins.append('rows_s')
+        del api
+        await Api.close()
+    else:
+        logins = ['rows_s', 'pitsxs']
+    asyncio.get_event_loop().create_task(bot.start(logins))
+start_time = time()
+# bot.run(channels=['rows_s', 'pitsxs'])
+asyncio.get_event_loop().create_task(begin())
+asyncio.get_event_loop().run_forever()

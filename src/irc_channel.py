@@ -12,7 +12,6 @@ class Channel:
         ws: WebSocketClientProtocol,
         tags: Dict[str, str]
     ) -> None:
-
         self.name: str = name
         self.ws: WebSocketClientProtocol = ws
         self.id: str = tags['room-id']
@@ -22,11 +21,11 @@ class Channel:
         self.unique_only: bool = True if tags['r9k'] == '1' else False 
         self.subs_only:   bool = True if tags['subs-only'] == '1' else False
         self.my_state: Optional[LocalState] = None
-        self.nameslist: Tuple[str] = ()
-
-        value = int(tags['followers-only'])
-        self.followers_only = bool(value+1)
-        self.followers_only_min = value if value >= 0 else None
+        self.nameslist: Union[Tuple[str], List[str]] = []
+        # follower only state
+        followers_only_value = int(tags['followers-only'])
+        self.followers_only = bool(followers_only_value+1)  # -1 - is off, otherwise - is on
+        self.followers_only_min = followers_only_value if followers_only_value >= 0 else None
 
     async def send(self, conntent: str) -> str:
         command = f'PRIVMSG #{self.name} :{conntent}'

@@ -50,7 +50,7 @@ class AccessError(Exception):
     pass
 
 
-class TooEarlyMessage(Exception):
+class ChannelNotExists(Exception):
     pass
 
 
