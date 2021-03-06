@@ -25,7 +25,7 @@ async def on_channel_update(before, after):
 @bot.event
 async def on_login():
     print(f'We have started! With\n'
-          f'Name = {bot.global_state.name}\n'
+          f'Name = {bot.global_state.display_name}\n'
           f'Color = {bot.global_state.color}\n'
           f'Id = {bot.global_state.id}\n'
           f'Badges = {bot.global_state.badges}\n'
@@ -149,7 +149,7 @@ async def on_message(message):
             print(f'unhosts - {unhost_counter}')
             print(f'notices - {notice_counter}')
             print(f'user events - {user_event_counter}')
-            await message.channel.send(f'{counter} after {time()-start_time}')
+            await message.channel.send_message(f'{counter} after {time() - start_time}')
         elif message.content == '!delays':
             content = ''
             for channel_name in bot._delayed_irc_parts:
@@ -160,11 +160,11 @@ async def on_message(message):
             else:
                 if len(bot._delayed_irc_parts) == 0:
                     content = 'Just 0'
-            await message.channel.send(content)
+            await message.channel.send_message(content)
         elif message.content == '!disconnect':
-            channels = list(bot._channels_by_name.values())
+            channels = list(bot._channels_by_login.values())
             channel = choice(channels)
-            await message.channel.send(f'have chosen {channel.name}')
+            await message.channel.send_message(f'have chosen {channel.name}')
             await channel.disconnect()
 
 

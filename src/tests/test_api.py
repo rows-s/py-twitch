@@ -15,7 +15,7 @@ bot = irc_client.Client(config.token, config.nick)
 @bot.event
 async def on_login():
     print(f'We have started! With\n'
-          f'Name = {bot.global_state.name}\n'
+          f'Name = {bot.global_state.display_name}\n'
           f'Color = {bot.global_state.color}\n'
           f'Id = {bot.global_state.id}\n'
           f'Badges = {bot.global_state.badges}\n'

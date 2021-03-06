@@ -469,7 +469,6 @@
 # web.run_app(app, port=9028)
 
 
-
 # secret = b'k787mojuorcyvwvz5421zvo9eya3m6'
 # ID = '1c017831-7838-42dd-a8d3-e6a97d47d332'
 # time = '2021-01-09T13:11:22Z'
@@ -575,189 +574,292 @@
 #     print(text)
 # print(len(final_result))
 
+# import config
+# from api import Api
+# import asyncio
+# import errors
+# from utils import normalize_ms
+# import random
+# import string
+# import time
+# api = Api()
+#
+#
+# async def check():
+#     print('\n===================\n')
+#     try:
+#         async for event in api.get_eventsub_subscriptions(100):
+#             for key in event:
+#                 print(f'{key}: {event[key]}')
+#             print(event)
+#     except Exception as e:
+#         print(e)
+#         await Api.close()
+#         quit(0)
+#
+#
+#
+# async def delete():
+#     print('\n===================\n')
+#     async for event in api.get_eventsub_subscriptions(100):
+#         event_id = event['id']
+#         await api.delete_eventsub_subscription(event_id)
+#         print(f'Deleted - {event_id}')
+#
+#
+# async def create():
+#     stream = api.get_streams(1)
+#     print(stream)
+#     async for stream in api.get_streams(1):
+#         print(stream)
+#     top_streamer = await api.once(api.get_streams(1))
+#     top_streamer = top_streamer['id']
+#     callback = 'https://3927597a0532.ngrok.io/twitch/events/subscriptions'
+#     url = 'https://api.twitch.tv/helix/eventsub/subscriptions'
+#     json = {
+#         'type': 'channel.follow',
+#         'version': '1',
+#         'condition': {
+#             'broadcaster_user_id': '192827780'
+#         },
+#         'transport': {
+#             'method': 'webhook',
+#             'callback': callback,
+#             'secret': config.secret
+#         }
+#     }
+#     try:
+#         response = await api._http_post(url, json, {})
+#     except errors.HTTPError as res:
+#         response = res.args[0]
+#     print('\n===================\n')
+#     for some in response:
+#         print(some, response[some], sep=' : ')
+#     print('ID:', top_streamer)
+#
+#
+# async def somain():
+#     await api.set_token(config.app_token)
+#     create_str = lambda: (''.join(random.choices(string.ascii_uppercase, k=10)),
+#                           ''.join(random.choices(string.ascii_uppercase, k=5)))
+#     many_strs = None
+#
+#     while True:
+#         do = input('\n>>>>\n    ')
+#         if do == 'checkall':
+#             await check()
+#         elif do == 'deleteall':
+#             await delete()
+#         elif do == 'createone':
+#             await create()
+#         elif do == 'stop':
+#             await Api.close()
+#             break
+#
+#         elif do == 'normdate':
+#             print(normalize_ms('2021-01-13T13:26:02'))
+#             print(normalize_ms('2021-01-13T13:26:02Z'))
+#             print(normalize_ms('2021-01-13T13:26:02.123456Z'))
+#             print(normalize_ms('2021-01-13T13:26:02.12345612312Z'))
+#             print(normalize_ms('2021-01-13T13:26:02.1234Z'))
+#         elif do == 'except':
+#             try:
+#                 a, b = None
+#             except Exception as e:
+#                 print(type(e), e)
+#         elif do == 'testpop':
+#             some_list = [0, 1, 2, 3, 4, 5, 6, 7, 8]
+#             while len(some_list):
+#                 print(some_list)
+#                 some_list.pop(0)
+#             print(some_list)
+#
+#             some_list = [0, 1, 2, 3, 4, 5, 6, 7, 8]
+#             for i in some_list:
+#                 print(some_list, i)
+#                 some_list.pop(0)
+#             print(some_list)
+#         elif do == 'none':
+#             try:
+#                 None[0]
+#             except Exception as e:
+#                 print(type(e), e)
+#         elif do == 'strIndexError':
+#             try:
+#                 a = 'asf'[2:4]
+#                 print(a)
+#                 print('abc'.split('c'))
+#             except Exception as e:
+#                 print(type(e), e)
+#         elif do.startswith('tryVSif'):
+#             try:
+#                 multiplier = float(do.split()[1])
+#             except (IndexError, ValueError):
+#                 multiplier = 2
+#             default = 10
+#             multed = default * multiplier
+#             long = {str(i): i**i for i in range(0, default)}
+#             excepts = 0
+#             dones = 0
+#             t0 = time.time()
+#             for _ in range(100000):
+#                 i = random.randint(0, multed-1)
+#                 try:
+#                     tmp = long[str(i)]
+#                 except KeyError:
+#                     excepts += 1
+#                 else:
+#                     dones += 1
+#             print('try in loop', time.time()-t0, dones, excepts)
+#             excepts = 0
+#             dones = 0
+#             t0 = time.time()
+#
+#             for _ in range(100000):
+#                 i = random.randint(0, multed-1)
+#                 tmp = long.get(str(i))
+#                 if tmp is None:
+#                     excepts += 1
+#                 else:
+#                     dones += 1
+#             print('if in loop', time.time()-t0, dones, excepts)
+#         elif do == 'replace':
+#             def replace_slashes(text: str):
+#                 """
+#                 some parent content will contains (space), (slash), (semicolon)
+#                 which will be replaced as (space) to (slash+s), (slach) to (slash+slach), (semicolon) to (slash+colon)
+#                 in this function we are replacing all back
+#                 """
+#                 text = list(text)  # work with list will be easier
+#                 i = 0  # simple current index
+#                 while i < len(text):
+#                     if text[i] == '\\':
+#                         if text[i + 1] == 's':  # if '\s' replace to ' '
+#                             text[i] = ' '
+#                             text.pop(i + 1)
+#                         elif text[i + 1] == ':':  # if '\:' replace to ';'
+#                             text[i] = ';'
+#                             text.pop(i + 1)
+#                         elif text[i + 1] == '\\':  # if '\\' replace to '\'
+#                             text.pop(i + 1)
+#                         # above we change first letter and delete second
+#                         # That's needed do not replace one letter twice
+#                     i += 1
+#                 return ''.join(text)  # return joined list
+#             main = ''.join(random.choices(['\\', ' ', ';', '!', 's', ':'], k=2000))
+#             for i in range(0, 2000, 100):
+#                 print(main[i: i+100])
+#             # main = r'\\ ;..\.z; ;\'
+#             not_main = r'\\\\\s\:..\\.z\:\s\:\\'
+#             print(not_main.replace('\\s', ' ').replace('\\:', ';').replace('\\\\', '\\'))
+#
+#
+#
+# # exc = r'([\d]{4})-([\d]{2})-([\d]{2})T([\d]{2}):([\d]{2}):([\d]{2}).([\d]{6})'
+#
+# asyncio.get_event_loop().run_until_complete(somain())
 
-import config
-from api import Api
-import asyncio
-import errors
-from utils import normalize_ms
-import random
-import string
-import time
-api = Api()
+# class Base:
+#     def __init__(self):
+#         self.hello = 'hello'
+#
+#
+# def bh():
+#     print(self.hello)
+#
+#
+# b = Base()
+# setattr(b, 'bh', bh)
+# b.bh()
 
+# class Base:
+#     def __init__(self):
+#         self.hello = 1
+#
+#     def send(self):
+#         print(self.hello)
+#
+#
+# class Bb:
+#     def __init__(self, callback):
+#         self.call = callback
+#
+#
+# a = Base()
+# b = Bb(a.send)
+# b.call()
+# a.hello = 2
+# b = Bb(a.send)
+# b.call()
 
-async def check():
-    print('\n===================\n')
-    try:
-        async for event in api.get_eventsub_subscriptions(100):
-            for key in event:
-                print(f'{key}: {event[key]}')
-            print(event)
-    except Exception as e:
-        print(e)
-        await Api.close()
-        quit(0)
-
-
-
-async def delete():
-    print('\n===================\n')
-    async for event in api.get_eventsub_subscriptions(100):
-        event_id = event['id']
-        await api.delete_eventsub_subscription(event_id)
-        print(f'Deleted - {event_id}')
-
-
-async def create():
-    stream = api.get_streams(1)
-    print(stream)
-    async for stream in api.get_streams(1):
-        print(stream)
-    top_streamer = await api.once(api.get_streams(1))
-    top_streamer = top_streamer['id']
-    callback = 'https://3927597a0532.ngrok.io/twitch/events/subscriptions'
-    url = 'https://api.twitch.tv/helix/eventsub/subscriptions'
-    json = {
-        'type': 'channel.follow',
-        'version': '1',
-        'condition': {
-            'broadcaster_user_id': '192827780'
-        },
-        'transport': {
-            'method': 'webhook',
-            'callback': callback,
-            'secret': config.secret
-        }
-    }
-    try:
-        response = await api._http_post(url, json, {})
-    except errors.HTTPError as res:
-        response = res.args[0]
-    print('\n===================\n')
-    for some in response:
-        print(some, response[some], sep=' : ')
-    print('ID:', top_streamer)
-
-
-async def somain():
-    await api.set_token(config.app_token)
-    create_str = lambda: (''.join(random.choices(string.ascii_uppercase, k=10)),
-                          ''.join(random.choices(string.ascii_uppercase, k=5)))
-    many_strs = None
-
-    while True:
-        do = input('\n>>>>\n    ')
-        if do == 'checkall':
-            await check()
-        elif do == 'deleteall':
-            await delete()
-        elif do == 'createone':
-            await create()
-        elif do == 'stop':
-            await Api.close()
-            break
-
-        elif do == 'normdate':
-            print(normalize_ms('2021-01-13T13:26:02'))
-            print(normalize_ms('2021-01-13T13:26:02Z'))
-            print(normalize_ms('2021-01-13T13:26:02.123456Z'))
-            print(normalize_ms('2021-01-13T13:26:02.12345612312Z'))
-            print(normalize_ms('2021-01-13T13:26:02.1234Z'))
-        elif do == 'except':
-            try:
-                a, b = None
-            except Exception as e:
-                print(type(e), e)
-        elif do == 'testpop':
-            some_list = [0, 1, 2, 3, 4, 5, 6, 7, 8]
-            while len(some_list):
-                print(some_list)
-                some_list.pop(0)
-            print(some_list)
-
-            some_list = [0, 1, 2, 3, 4, 5, 6, 7, 8]
-            for i in some_list:
-                print(some_list, i)
-                some_list.pop(0)
-            print(some_list)
-        elif do == 'none':
-            try:
-                None[0]
-            except Exception as e:
-                print(type(e), e)
-        elif do == 'strIndexError':
-            try:
-                a = 'asf'[2:4]
-                print(a)
-                print('abc'.split('c'))
-            except Exception as e:
-                print(type(e), e)
-        elif do.startswith('tryVSif'):
-            try:
-                multiplier = float(do.split()[1])
-            except (IndexError, ValueError):
-                multiplier = 2
-            default = 10
-            multed = default * multiplier
-            long = {str(i): i**i for i in range(0, default)}
-            excepts = 0
-            dones = 0
-            t0 = time.time()
-            for _ in range(100000):
-                i = random.randint(0, multed-1)
-                try:
-                    tmp = long[str(i)]
-                except KeyError:
-                    excepts += 1
-                else:
-                    dones += 1
-            print('try in loop', time.time()-t0, dones, excepts)
-            excepts = 0
-            dones = 0
-            t0 = time.time()
-
-            for _ in range(100000):
-                i = random.randint(0, multed-1)
-                tmp = long.get(str(i))
-                if tmp is None:
-                    excepts += 1
-                else:
-                    dones += 1
-            print('if in loop', time.time()-t0, dones, excepts)
-        elif do == 'replace':
-            def replace_slashes(text: str):
-                """
-                some parent content will contains (space), (slash), (semicolon)
-                which will be replaced as (space) to (slash+s), (slach) to (slash+slach), (semicolon) to (slash+colon)
-                in this function we are replacing all back
-                """
-                text = list(text)  # work with list will be easier
-                i = 0  # simple current index
-                while i < len(text):
-                    if text[i] == '\\':
-                        if text[i + 1] == 's':  # if '\s' replace to ' '
-                            text[i] = ' '
-                            text.pop(i + 1)
-                        elif text[i + 1] == ':':  # if '\:' replace to ';'
-                            text[i] = ';'
-                            text.pop(i + 1)
-                        elif text[i + 1] == '\\':  # if '\\' replace to '\'
-                            text.pop(i + 1)
-                        # above we change first letter and delete second
-                        # That's needed do not replace one letter twice
-                    i += 1
-                return ''.join(text)  # return joined list
-            main = ''.join(random.choices(['\\', ' ', ';', '!', 's', ':'], k=2000))
-            for i in range(0, 2000, 100):
-                print(main[i: i+100])
-            # main = r'\\ ;..\.z; ;\'
-            not_main = r'\\\\\s\:..\\.z\:\s\:\\'
-            print(not_main.replace('\\s', ' ').replace('\\:', ';').replace('\\\\', '\\'))
-
-
-
-# exc = r'([\d]{4})-([\d]{2})-([\d]{2})T([\d]{2}):([\d]{2}):([\d]{2}).([\d]{6})'
-
-asyncio.get_event_loop().run_until_complete(somain())
-
+# import random
+# import asyncio
+# from irc_client import Client
+# from irc_channel import Channel
+# from time import time
+#
+# tags = {'emote-only': '0', 'followers-only': '15', 'r9k': '0', 'rituals': '0',
+#         'room-id': '192827780', 'slow': '0', 'subs-only': '0'}
+# command = ['tmi.twitch.tv', 'ROOMSTATE', '#rows_s']
+#
+# class Client1(Client):
+#     def _handle_roomstate1(self, tags: dict, command: list):
+#         def handle_new_channel(tags, command):
+#             channel_login = command[-1][1:]
+#             # create channel
+#             channel = Channel(channel_login, self.send_message, tags)
+#             # insert my_state if exists
+#             my_state = self._local_states.pop(channel_login, None)
+#             if my_state is not None:
+#                 channel.my_state = my_state
+#             # insert nameslist if exists
+#             nameslist = self._channels_nameslists.pop(channel_login, None)
+#             if type(nameslist) == tuple:
+#                 channel.nameslist = nameslist
+#             # save channel
+#             self._unprepared_channels[channel_login] = channel
+#             # save if ready
+#             if self._is_channel_ready(channel_login):
+#                 self._save_channel(channel_login)
+#
+#         if len(tags) == 7:  # new channel
+#             handle_new_channel(tags, command)
+#         elif len(tags) == 2:  # channel update
+#             self.handle_channel_update(tags, command)
+#
+#         def _handle_roomstate(self, tags: dict, command: list):
+#             if len(tags) == 7:  # new channel
+#                 self.handle_new_channel(tags, command)
+#             elif len(tags) == 2:  # channel update
+#                 self.handle_channel_update(tags, command)
+#
+#         def handle_new_channel(self, tags, command):
+#             channel_login = command[-1][1:]
+#             # create channel
+#             channel = Channel(channel_login, self.send_message, tags)
+#             # insert my_state if exists
+#             my_state = self._local_states.pop(channel_login, None)
+#             if my_state is not None:
+#                 channel.my_state = my_state
+#             # insert nameslist if exists
+#             nameslist = self._channels_nameslists.pop(channel_login, None)
+#             if type(nameslist) == tuple:
+#                 channel.nameslist = nameslist
+#             # save channel
+#             self._unprepared_channels[channel_login] = channel
+#             # save if ready
+#             if self._is_channel_ready(channel_login):
+#                 self._save_channel(channel_login)
+#
+# async def start():
+#     a = Client1()
+#     t0 = time()
+#     for _ in range(1000000):
+#         a._handle_roomstate1(tags, command)
+#     print(time()-t0)
+#     t0 = time()
+#     for _ in range(1000000):
+#         a._handle_roomstate(tags, command)
+#     print(time()-t0)
+#
+# asyncio.get_event_loop().run_until_complete(start())

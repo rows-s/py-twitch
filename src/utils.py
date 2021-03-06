@@ -1,46 +1,4 @@
-from typing import Dict, List, Iterable, Any, Union
-
-
-def split(text: str, separator: str, max_seps=0):
-    """
-    Function splits text every separator
-    Arguments:
-    text - str to split
-    separator - str by that text will be splitted
-    max_seps - max count of seporation (n - seporation = n+1 parts of text)
-    """
-    # get len of separator
-    sep_len = len(separator)
-    # if len is 0, it must be Exception
-    # but better we just return whole string
-    if sep_len == 0:
-        yield text
-        return
-        # counter counts times we separated string
-    counter = 0
-    # i - just index of letter in str
-    i = 0
-    # simple loop, for check whole string
-    while i + sep_len <= len(text):
-        # look for separator in text
-        if text[i:i + sep_len] == separator:
-            # after find, yield all before separator
-            yield text[:i]
-            counter += 1
-            # if counts of times we separated parts equals max(from args)
-            # we need to stop this generator, and yield rest text
-            if counter == max_seps:
-                yield text[i + sep_len:]
-                return
-            # if we continue we need to delete previous part and separator from text
-            text = text[i + sep_len:]
-            # we've deleted previous part, 
-            # so we need to continue searching from 0th index 
-            i = 0
-        # just increase the index
-        i += 1
-    yield text
-    # without comments it looks simpler
+from typing import Dict, List, Tuple
 
 
 def is_int(string: str) -> bool:
@@ -51,74 +9,63 @@ def is_int(string: str) -> bool:
         return False
 
 
-def parse_raw_tags(prefix: str) -> Dict[str, str]:
+def parse_raw_tags(raw_tags: str) -> Dict[str, str]:
     tags = {}  # we'll return tags
-    i = 0  # simple current index of <tag_name> searching
-    last = 0  # position of end of last tag-value
-    while i < len(prefix):
-        # if we found '=' - all before is <tag_name>
-        if prefix[i] == '=':
-            key = prefix[last:i]
-            j = i + 1  # simple current index of <tag_value> searching
-            while j < len(prefix):
-                # if we found ';' - all between '='(i) and ';'(j) is value
-                if prefix[j] == ';':
-                    value = prefix[i + 1:j]
-                    tags[key] = value
-                    i = last = j + 1
+    key_i = 0
+    previous_tag_end = 0
+    while key_i < len(raw_tags):
+        if raw_tags[key_i] == '=':
+            value_i = key_i + 1
+            while value_i < len(raw_tags):
+                if raw_tags[value_i] == ';':
+                    tag_key = raw_tags[previous_tag_end:key_i]  # all between (';' || 0) and ('=') is `tag_key`
+                    tag_value = raw_tags[key_i + 1:value_i]  # all between ('=') and (';') is `tag_value`
+                    tags[tag_key] = tag_value
+                    key_i = previous_tag_end = value_i + 1  # increment is needed so that `tag_key` does not contain ';'
                     break
-                j += 1
-            # last tag has not ';' in end, so just take all
-            else:
-                value = prefix[i + 1:]
-                tags[key] = value
-        i += 1
+                value_i += 1
+            else:  # last tag has not ';' in end, so just take all
+                tag_key = raw_tags[previous_tag_end:key_i]
+                tag_value = raw_tags[key_i + 1:]
+                tags[tag_key] = tag_value
+        key_i += 1
     return tags
 
 
-def parse_raw_emotes(emotes: str) -> Dict[str, List[int]]:
-    result = {}  # to return
-    # all emoted separated by '/'
-    for emote in emotes.split('/'):
-        # we can get empty str-'', if so return
-        if not emote:
-            return result
-        # emote_id and emote_positions separated by ':'
-        emote, positions = emote.split(':')
-        poss = []  # final positions list
-        # all pair of positions separated by ','
-        positions = positions.split(',')
-        # loop to handle all positions of current emote
-        for pos in positions:
-            # every positions looks like '2-4', so...
-            first, last = pos.split('-')
-            poss.append(int(first))  # append first position
-            poss.append(int(last))  # append last position
-
-        result[emote] = poss  # insert emote_id: positions into result
-    return result
+def parse_raw_emotes(emotes: str) -> Dict[str, List[Tuple[int, int]]]:
+    if not emotes:
+        return {}
+    result = {}
+    # for example: emotes = 'emote1:0-1,2-3,4-5,8-9/emote2:6-7'
+    for emote in emotes.split('/'):  # emote = 'emote1:0-1,2-3,4-5,8-9'
+        positions = []  # positions of current emote_id
+        emote_id, raw_positions = emote.split(':', 1)  # emote_id = 'emote1', raw_positions = '0-1,2-3,4-5,8-9'
+        for raw_position in raw_positions.split(','):  # raw_position = '0-1' # splited = ['0-1', '2-3', '4-5', '8-9']
+            start, end = raw_position.split('-')  # start = '0', end = '1'
+            positions.append((int(start), int(end)))  # positions = [(0, 1)]
+        result[emote_id] = positions  # result = {'emote1': [(0, 1), (2, 3), (4, 5), (8, 9)]}
+    return result  # result = {'emote1': [(0, 1), (2, 3), (4, 5), (8, 9)], 'emote2': [(6, 7)]}
 
 
 def parse_raw_badges(badges: str) -> Dict[str, str]:
-    result = {}  # to return
-    # every bage/value separated by ','
-    for badge in badges.split(','):
-        # # we can get empety str, if so - skip
-        if badge:
-            # every bage & value separated by '/'
-            key, value = badge.split('/', 1)
-            result[key] = value
-    return result
+    if not badges:
+        return {}
+    result = {}
+    # for exampe: badges = 'predictions/KEENY\sDEYY,vip/1'
+    for badge in badges.split(','):  # badge = 'predictions/KEENY\\sDEYY' from ['predictions/KEENY\sDEYY', 'vip/1']
+        key, value = badge.split('/', 1)  # key = 'predictions', value = 'KEENY\sDEYY'
+        result[key] = replace_slashes(value)  # result = {'predictions': 'KEENY DEYY'}
+    return result  # result = {'predictions': 'KEENY DEYY', 'vip': '1'}
 
 
 def replace_slashes(text: str):
     """
     some parent content will contains (space), (slash), (semicolon)
-    which will be replaced as (space) to (slash+s), (slach) to (slash+slach), (semicolon) to (slash+colon)
+    which will be replaced as (space) to (slash+s), (slash) to (slash+slach), (semicolon) to (slash+colon)
     in this function we are replacing all back
     """
-    text = list(text)  # work with list will be easier
-    i = 0  # simple current index
+    text = list(text)  # some symbols be removed
+    i = 0
     while i < len(text):
         if text[i] == '\\':
             if text[i + 1] == 's':  # if '\s' replace to ' '
@@ -129,35 +76,11 @@ def replace_slashes(text: str):
                 text.pop(i + 1)
             elif text[i + 1] == '\\':  # if '\\' replace to '\'
                 text.pop(i + 1)
-            # above we changing first letter and delete second
-            # that's need to don't replace one letter twice
+            # above we change the first symbol and remove the second for not replace one letter twice
+            # example: original: '\s', we get: '\\s', after 1st iteration -> '\s', `i` at 2nd iteration points 's'
+            # otherwise: at 2nd iteration '\s' would be replaced to ' '
         i += 1
-    return ''.join(text)  # return joined list
-
-
-def insert_params(url: str, limit: int, params: Dict[str, Union[Iterable[Any], Any]]):
-    if limit is not None: # choice `first` parameter
-        if limit > 100:  # we can't receive more than 100 results in one response
-            url += '&first=100'
-        elif limit > 0:  # if limited between 0-100 - receive all in one response
-            url += '&first=' + str(limit)
-            # else - standart `first` - 20
-
-    # loop for process all keys
-    for key in params:
-        # if value is str - just insert
-        if type(params[key]) == str:
-            value = params[key]
-            url += '&' + key + '=' + value
-        # if value is iterable - loop to insert all
-        elif hasattr(params[key], '__iter__'):
-            for value in params[key]:
-                url += '&' + key + '=' + str(value)
-        # else - must be `int` or `bool`, converting to `str`
-        else:
-            value = params[key]
-            url += '&' + key + '=' + str(value).lower()
-    return url
+    return ''.join(text)  # return str
 
 
 def normalize_ms(date: str):
