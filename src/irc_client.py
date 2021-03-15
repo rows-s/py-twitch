@@ -1,3 +1,4 @@
+import asyncio
 from copy import copy
 from asyncio import iscoroutinefunction, get_event_loop, AbstractEventLoop
 from websockets import connect, WebSocketClientProtocol, ConnectionClosedError
@@ -65,6 +66,8 @@ class Client:
 
     def __init__(
             self,
+            token: str,
+            login: str,
             *,
             should_restart: bool = True,
             whisper_channel_login: str = None
@@ -75,6 +78,8 @@ class Client:
         self._channels_by_login: Dict[str, Channel] = {}  # dict of channel_login : Channel
         self._unprepared_channels: Dict[str, Channel] = {}  # unprepared channels by login
         # unprotected
+        self.token: str = token
+        self.login: str = login
         self.loop: AbstractEventLoop = get_event_loop()
         self.should_restart: bool = should_restart
         self.whisper_channel_login: Optional[str] = whisper_channel_login
@@ -109,6 +114,16 @@ class Client:
             self,
             channel_login: str
     ) -> Optional[Channel]:
+        """
+        returns channel with given login if exists, else raises ChannelNotExists
+
+        Args:
+            channel_login: `str`
+                login of channel that want to be received
+
+        Returns:
+            Channel
+        """
         try:
             return self._channels_by_login[channel_login]
         except KeyError:
@@ -119,121 +134,111 @@ class Client:
 
     def run(
             self,
-            token: str,
-            login: str,
-            channels: Iterable[str],
-            *,
-            ws_params: Dict = None
+            channels: Iterable[str]
     ) -> None:
         """
-        the method starts event listener, use this if you want to start 'Client' as a single worker.\n
-        If you want start 'Client' with any other async code - look 'start()'
+        the method starts event listener, use this if you want to start 'Client' as a single worker.
+
+        Notes:
+            If you want to start 'Client' with any other async code - look 'start()'
 
         Args:
-            token: `str`
-                token of your aplication/account
-            login: `str`
-                login of your aplication/account
             channels: Iterable[`str`]
                 Iterable object with logins of channel to join
-            ws_params: Dict[`str`, Any]
-                Dict with arguments for websockets.connect
         """
         self.loop.run_until_complete(
-            self.start(token, login, channels, ws_params=ws_params)
+            self.start(channels)
         )
+
+    async def connect_irc(
+            self,
+            channels: Iterable
+    ) -> None:
+        uri: str = 'wss://irc-ws.chat.twitch.tv:443'
+        self._websocket = await connect(uri)
+        # capability
+        await self._send('CAP REQ :twitch.tv/membership')
+        await self._send('CAP REQ :twitch.tv/commands')
+        await self._send('CAP REQ :twitch.tv/tags')
+        # loging
+        await self._send(f'PASS {self.token}')
+        await self._send(f'NICK {self.login}')
+        # joining
+        self.joined_channels_logins = set(channels)
+        self._do_later(self.join_channels(channels))
+
+    async def _read_websocket(self):
+        # forever
+        while True:
+            # try read
+            try:
+                irc_messages = await self._websocket.recv()
+            # if websocket is closed
+            except ConnectionClosedError:
+                if self.should_restart:
+                    await self.connect_irc(self.joined_channels_logins)
+            # if no exeptions
+            else:
+                for irc_message in irc_messages.split('\r\n'):
+                    # if empty
+                    if not irc_message:
+                        continue
+                    # if PING
+                    elif irc_message.startswith('PING'):
+                        await self._send('PONG :tmi.twitch.tv')
+                    # others
+                    else:
+                        yield self._parse_irc_message(irc_message)  # tags, command, text
+
+    async def reconnect_irc(self):
+        await self.connect_irc(self.joined_channels_logins)
 
     async def start(
             self,
-            token: str,
-            login: str,
-            channels: Iterable[str],
-            *,
-            ws_params: Dict = None
+            channels: Iterable[str]
     ) -> None:
         """
         |Coroutine|
-        starts event listener. \n
-        If you won't combine this with any other async code - you can use 'run()'.
+        starts event listener.
+
+        Notes:
+            If you won't combine this with any other async code - you can use sync method 'self.run()'.
 
         Args:
-            token: `str`
-                token of your aplication/account
-            login: `str`
-                login of your aplication/account
-            channels: Iterable[`str`]
+            channels: |Iterable[str]|
                 Iterable object with logins of channel to join
-            ws_params: Dict[`str`, Any]
-                Dict with arguments for websockets.connect
         """
-        async def connect_websocket(uri: str = 'wss://irc-ws.chat.twitch.tv:443'):
-            nonlocal ws_params
-            ws_params = ws_params if (ws_params is not None) else {}
-            self._websocket = await connect(uri, **ws_params)
 
-        async def read_websocket():
-            while True:
-                try:
-                    irc_messages = await self._websocket.recv()
-                # if connection closed
-                except ConnectionClosedError:
-                    # if should -> restart
-                    if self.should_restart:
-                        await connect_websocket()
-                        await log_in_irc()
-                        self.joined_channels_logins = set(channels)  # reset
-                        self._do_later(self.join_channels(channels))
-                    # else -> raise
-                    else:
-                        raise
-                # if successfully read
-                else:
-                    for irc_message in irc_messages.split('\r\n'):
-                        if not irc_message:
-                            continue
-                        elif irc_message.startswith('PING'):
-                            await self._send('PONG :tmi.twitch.tv')
-                        else:
-                            yield irc_message
-
-        async def log_in_irc():
-            # capability
-            await self._send('CAP REQ :twitch.tv/membership')
-            await self._send('CAP REQ :twitch.tv/commands')
-            await self._send('CAP REQ :twitch.tv/tags')
-            # loging
-            await self._send(f'PASS {token}')
-            await self._send(f'NICK {login}')
-            # check token & login
-            async for irc_message in read_websocket():
-                tags, command, text = await self._parse_irc_message(irc_message)
+        async def try_log_in():
+            await self.connect_irc(channels)
+            async for tags, command, text in self._read_websocket():
                 # if successful login
                 if command[1] == 'GLOBALUSERSTATE':
-                    self.global_state = GlobalState(login, tags)
+                    self.global_state = GlobalState(self.login, tags)
                     # if has handler
                     if hasattr(self, 'on_login'):
                         self._do_later(self.on_login())
-                    break
-                # if auth error
+                    return
+                # if logging error
                 elif command[1] == 'NOTICE' and command[-1] == '*':
                     raise InvalidToken(text)
-                # if a thing we don't expect
+                # if a command that we don't expect
                 elif command[1] not in ('001', '002', '003', '004', '372', '375', '376', 'CAP'):
-                    break
-        # connect and login
-        await connect_websocket()
-        await log_in_irc()
-        self._do_later(self.join_channels(channels))
-        self.joined_channels_logins = set(channels)
-        async for irc_message in read_websocket():
-            tags, command, text = await self._parse_irc_message(irc_message)
+                    return
+
+        # try log in
+        await try_log_in()
+        # start main listener
+        async for tags, command, text in self._read_websocket():
+            # if RECCONECT request  # still don't know what that is, but let's reconnct to all channels.
             if command[1] == 'RECONNECT':
                 self._do_later(self.join_channels(self.joined_channels_logins))
+            # else
             else:
                 self._do_later(self._select_handler(tags, command, text))
 
     @staticmethod
-    async def _parse_irc_message(
+    def _parse_irc_message(
             message: str
     ) -> Tuple[Dict[str, str], List[str], Optional[str]]:
         raw_parts = message[1:].split(' :', 2)  # remove ':' or '@' in start of the irc_message
@@ -297,9 +302,11 @@ class Client:
                 self._handle_userstate(tags, command)
             # if our global state
             elif command_type == 'GLOBALUSERSTATE':
-                self.global_state = GlobalState(self.global_state.login, tags)
-        except ChannelNotExists as e:
-            channel_login = e.args[0]
+                self.global_state = GlobalState(self.login, tags)
+            elif command_type == 'RECONNECT':
+                self._do_later(self.join_channels(self.joined_channels_logins))
+        except ChannelNotExists:
+            channel_login = command[-1][1:]
             await self._delay_this_message((tags, command, text), channel_login)
 
     #################################
@@ -632,7 +639,7 @@ class Client:
             via_channel = self.whisper_channel_login
         # if not specified
         else:
-            via_channel = self.global_state.login
+            via_channel = self.login
         # send
         await self.send_message(via_channel, conntent)
 
@@ -645,10 +652,21 @@ class Client:
 
     async def join_channels(
             self,
-            logins: Iterable[str]
+            logins: Iterable[str],
+            *,
+            timeout: float = 20,
+            ignore_exceptions: bool = True
     ) -> None:
-        for login in logins:
-            await self.join_channel(login)
+        awaitables = [self.join_channel(login) for login in logins]
+        try:
+            # wait for all tasks
+            await asyncio.wait_for(
+                asyncio.gather(*awaitables),
+                timeout=timeout
+            )
+        except:
+            if not ignore_exceptions:
+                raise
 
     async def part_channel(
             self,
@@ -659,10 +677,21 @@ class Client:
 
     async def part_channels(
             self,
-            logins: Iterable[str]
+            logins: Iterable[str],
+            *,
+            timeout: float = 20,
+            ignore_exceptions: bool = True
     ) -> None:
-        for login in logins:
-            await self.part_channel(login)
+        awaitables = [self.part_channel(login) for login in logins]
+        try:
+            # wait for all tasks
+            await asyncio.wait_for(
+                asyncio.gather(*awaitables),
+                timeout=timeout
+            )
+        except:
+            if not ignore_exceptions:
+                raise
     #
     # end of: IRC commands
     #################################
@@ -670,6 +699,29 @@ class Client:
     #################################
     # event's things
     #
+
+    def event(self, coro: Coroutine) -> Coroutine:
+        """
+        |DECORATOR|\n
+        registers handler of event
+
+        Args:
+            coro: Coroutine
+                an Coroutine that will be called when the event would be happened, should has known name of event
+
+        Raises:
+            errors.UnknownEvent
+                if got unknown name of event
+            errors.FunctionIsNotCorutine
+                if object is not Coroutine
+
+        Returns:
+            Coroutine:
+                the object that the method got in `coro` as argument
+        """
+        self._register_event(coro.__name__, coro)
+        return coro
+    
     def events(self, *handlers_names: str) -> Callable:
         """
         |DECORATOR|\n
@@ -723,28 +775,6 @@ class Client:
             return coro
         # prepared decorator would be returned
         return decorator
-
-    def event(self, coro: Coroutine) -> Coroutine:
-        """
-        |DECORATOR|\n
-        registers handler of event
-
-        Args:
-            coro: Coroutine
-                an Coroutine that will be called when the event would be happened, should has known name of event
-
-        Raises:
-            errors.UnknownEvent
-                if got unknown name of event
-            errors.FunctionIsNotCorutine
-                if object is not Coroutine
-
-        Returns:
-            Coroutine:
-                the object that the method got in `coro` as argument
-        """
-        self._register_event(coro.__name__, coro)
-        return coro
 
     def _register_event(self, handler_name: str, coro: Coroutine):
         # if event

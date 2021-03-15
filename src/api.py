@@ -1,5 +1,6 @@
 import aiohttp
 
+from aiohttp.client import _RequestContextManager, ClientResponse
 from aiohttp.client_exceptions import ContentTypeError
 from errors import HTTPError, InvalidToken, ServerError, AccessError
 
@@ -12,47 +13,49 @@ __all__ = (
 
 class Api:
     """
-    This class gives you ability to easy use twtich-API. \n
-    Before using, Authorization-Token must be set, use set_token(token) or `create(token)` methods
-    ( `create(token)` returns initialized object)
+        This class gives you ability to easy use twtich-API.
 
-    ----------------
+        Attrs:
+            token: `Optional[str]`
+                Authorization-Token, would be set in set_token() method
+            client_id: `Optional[str]`
+                client id of current token, would be set in set_token() method
+            scopes: `List[str]`
+                scopes of current token, would be set in set_token() method
+            expires_in: `Optional[int]`
+                count of seconds of rest of life of current token since set_token() called
 
-    Methods:
-    ================
-        set_token(token: str):
-            sets `token` (Authorization-Token) in current object, also set :attr:`client_id` and `scopes` of `token`
-
-        @staticmethod
-        create(token: str):
-            returns created and initialized object (sets Authorization-Token via :func:`set_token`)
-
-        @staticmethod
-        once(generator: AsyncGenerator):
-            This method gives you simple way to get only one result from any async generator in one code-row.\n
-
-        others:
-            all twitch-API requests as methods
-    -----------------
-
-    Attributes:
-    ==================
-        self.scopes: List[str]
-            scopes of your Authorization-Token, untill token is set - empty list
-
-        self.client_id: str
-            client_id of current setted Authorization-Token
-    -----------------
-    """
+        Notes:
+            1st:
+                Before using a request, Authorization-Token must be set, see self.set_token() and Api.create() methods.
+            2nd:
+                All object attributes is None before set_token() is successfully called
+        """
     _session: aiohttp.ClientSession = None
+    'session container'
+
+    @staticmethod
+    def get_open_session():
+        """
+        returns open session, current if exists, or new one.
+
+        Returns:
+            (aiohttp.ClientSession) current session if opened, else opens new one and returns it
+        """
+        if Api._session is None:
+            Api._session = aiohttp.ClientSession()
+        elif Api._session.closed:
+            Api._session = aiohttp.ClientSession()
+        # return anyway
+        return Api._session
 
     def __init__(self):
-        self.scopes: List[str] = []
-        self._headers: Dict[str, str] = {}
-        self._token: str = ''
-        self.client_id: str = ''
-        if Api._session is None:  # we don't create a session without at least one Api-object
-            Api._session = aiohttp.ClientSession()
+        self._headers: Optional[Dict[str, str]] = None
+        'the headers using for http requests, would be set in set_token() method'
+        self.token: Optional[str] = None
+        self.scopes: Optional[List[str]] = None
+        self.client_id: Optional[str] = None
+        self.expires_in: Optional[int] = None
 
     #################################
     # INITIALIZATION'S THINGS
@@ -61,32 +64,19 @@ class Api:
     async def create(cls, token: str):
         """
         |Coroutine|
-        =================
-        if you want to create and initialize object in one row, use this.\n
+
+        if you want to create and initialize object (set a token) in one row, use this.\n
         The method creates object and calls `set_token` method for the object.
 
-        -----------------
+        Examples:
+            >>>> api_token: str
+            >>>> ttv_api = await Api.create(api_token)
 
-        Examples::
-        ================
-            my_api = await Api.create(my_token)
+        :param token: your Authorization-Token
+        :type token: `str`
 
-            If you create Api object in async function - use only this, because you can't use Api without token,
-            so you must to set token, better do it in one row.
-
-        ----------------
-
-        Args:
-        =================
-            token:  `str`
-                your Authorization-Token
-        -----------------
-        
         Returns:
-        =================
-            :class:`Api`
-                created and initialized object
-        -----------------
+            (Api) created and initialized object
         """
 
         api = Api()
@@ -122,21 +112,72 @@ class Api:
         -----------------
         """
 
-        self._headers = {'Authorization': 'Bearer ' + token}
+        self._headers = {'Authorization': f'Bearer {token}'}
         url = 'https://id.twitch.tv/oauth2/validate'  # url to check token
-        async with Api._session.get(url, headers=self._headers) as response:
-            json = await response.json()
+        try:
+            json = await self._get_response(
+                self.get_open_session().get(url, headers=self._headers)
+            )
+        except HTTPError as e:
+            response: ClientResponse = e.args[0]
             if 399 < response.status < 500:  # 4XX - invalid token
-                raise InvalidToken(json)
-            elif 499 < response.status < 600:  # 5XX - server has a problem
-                raise ServerError(json)
-            elif not (199 < response.status < 300):  # if not 2XX - HTTP Error
-                raise HTTPError(json)
+                raise InvalidToken(response)
+            elif 499 < response.status < 600:  # 5XX - server roblem
+                raise ServerError(response)
             else:
-                self._token = token
-                self.client_id = json['client_id']
-                self.scopes = json['scopes']
-                self._headers['Client-Id'] = json['client_id']
+                raise
+        else:
+            self.token = token
+            self.client_id = json['client_id']
+            self._headers['Client-Id'] = json['client_id']
+            self.expires_in = json['expires_in']
+            self.scopes = json['scopes']
+
+    @classmethod
+    async def create_app_token(
+            cls,
+            client_id: str,
+            client_secret: str,
+            scope: str,
+            grant_type: str = 'client_credentials'
+    ) -> Dict[str, str]:
+        """
+        |Coroutine|
+
+        creates an app `token`
+
+        Args:
+            client_id: (str) Your client ID
+            client_secret: (str) Your client secret
+            grant_type: (str) Must be 'client_credentials'
+            scope: (str) Space-separated list of scopes
+
+        Returns:
+            (Dict[str, str])
+            pass
+
+
+        Raises:
+            HTTPError: if status-code of response is not 2XX, passes `dict` with json of response.
+        """
+
+        data = {}
+        params = {}
+        if client_id is not None:
+            params['client_id'] = client_id
+        if client_secret is not None:
+            params['client_secret'] = client_secret
+        if scope is not None:
+            params['scope'] = scope
+        if grant_type is not None:
+            params['grant_type'] = grant_type
+
+        url = 'https://id.twitch.tv/oauth2/token'  # url to create app token
+        json = await cls._get_response(
+            cls.get_open_session().post(url, params=params)
+        )
+        return json
+
     #
     # end of INITIALIZATION'S THINGS
     #################################
@@ -148,7 +189,7 @@ class Api:
             self,
             broadcaster_id: str,
             length: int
-    ) -> AsyncGenerator[dict, None]:
+    ) -> Dict[str, str]:
         """
         |Coroutine|
         ================
@@ -296,7 +337,7 @@ class Api:
             params['ended_at'] = ended_at
         if type is not None:
             params['type'] = type
-        params = self._insert_first(params, limit, 100)
+        self._insert_first(params, limit, 100)
         self._check_scope('analytics:read:extensions')
 
         url = 'https://api.twitch.tv/helix/analytics/extensions'
@@ -392,7 +433,7 @@ class Api:
             params['ended_at'] = ended_at
         if type is not None:
             params['type'] = type
-        params = self._insert_first(params, limit, 100)
+        self._insert_first(params, limit, 100)
         self._check_scope('analytics:read:games')
 
         url = 'https://api.twitch.tv/helix/analytics/games'
@@ -472,7 +513,7 @@ class Api:
             params['started_at'] = started_at
         if user_id is not None:
             params['user_id'] = user_id
-        params = self._insert_count(params, limit, 100)
+        self._insert_count(params, limit, 100)
         self._check_scope('bits:read')
 
         url = 'https://api.twitch.tv/helix/bits/leaderboard'
@@ -638,7 +679,7 @@ class Api:
             params['extension_id'] = extension_id
         if transaction_id is not None:
             params['id'] = transaction_id
-        params = self._insert_first(params, limit, 100)
+        self._insert_first(params, limit, 100)
 
         url = 'https://api.twitch.tv/helix/extensions/transactions'
         async for transaction in self._handle_cursor(url, limit, params):
@@ -1157,7 +1198,7 @@ class Api:
             params['status'] = status
         if sort is not None:
             params['sort'] = sort
-        params = self._insert_first(params, limit, 50)
+        self._insert_first(params, limit, 50)
         self._check_scope('channel:read:redemptions')
 
         url = 'https://api.twitch.tv/helix/channel_points/custom_rewards/redemptions'
@@ -1658,7 +1699,7 @@ class Api:
             params['started_at'] = started_at
         if ended_at is not None:
             params['ended_at'] = ended_at
-        params = self._insert_first(params, limit, 100)
+        self._insert_first(params, limit, 100)
 
         url = 'https://api.twitch.tv/helix/clips'
         async for clip in self._handle_cursor(url, limit, params):
@@ -1878,7 +1919,7 @@ class Api:
             params['user_id'] = user_id
         if game_id is not None:
             params['game_id'] = game_id
-        params = self._insert_first(params, limit, 100)
+        self._insert_first(params, limit, 100)
 
         url = 'https://api.twitch.tv/helix/entitlements/drops'
         async for code_status in self._handle_cursor(url, limit, params):
@@ -2504,7 +2545,7 @@ class Api:
         params = {}
         if query is not None:
             params['query'] = query
-        params = self._insert_first(params, limit, 100)
+        self._insert_first(params, limit, 100)
 
         url = 'https://api.twitch.tv/helix/search/categories'
         async for category in self._handle_cursor(url, limit, params):
@@ -2570,7 +2611,7 @@ class Api:
         params = {}
         if query is not None:
             params['query'] = query
-        params = self._insert_first(params, limit, 100)
+        self._insert_first(params, limit, 100)
 
         url = 'https://api.twitch.tv/helix/search/channels'
         async for channel in self._handle_cursor(url, limit, params):
@@ -3581,7 +3622,7 @@ class Api:
         params = {}
         if broadcaster_id is not None:
             params['broadcaster_id'] = broadcaster_id
-        params = self._insert_first(params, limit, 100)
+        self._insert_first(params, limit, 100)
         self._check_scope('user:read:blocked_users')
 
         url = 'https://api.twitch.tv/helix/users/blocks'
@@ -3807,7 +3848,7 @@ class Api:
 
     async def get_webhook_subscriptions(self, limit: int):
         params = {}
-        params = self._insert_first(params, limit, 100)
+        self._insert_first(params, limit, 100)
 
         url = 'https://api.twitch.tv/helix/webhooks/subscriptions'
         async for subscription in self._handle_cursor(url, limit, params):
@@ -3815,7 +3856,7 @@ class Api:
 
     async def get_eventsub_subscriptions(self, limit: int):
         params = {}
-        params = self._insert_first(params, limit, 100)
+        self._insert_first(params, limit, 100)
 
         url = 'https://api.twitch.tv/helix/eventsub/subscriptions'
         async for subscription in self._handle_cursor(url, limit, params):
@@ -3952,46 +3993,45 @@ class Api:
     # HTTP REQUESTS
     #
     async def _http_get(self, url: str, params: dict) -> Optional[dict]:
-        async with self._session.get(url, params=params, headers=self._headers) as response:
-            if not (199 < response.status < 300):  # if not 2XX
-                raise HTTPError(await response.json())
-            return await response.json()
+        json = await self._get_response(
+            self.get_open_session().get(url, params=params, headers=self._headers)
+        )
+        return json
 
     async def _http_post(self, url: str, data: dict, params: dict) -> Optional[dict]:
-        async with self._session.post(url, json=data, params=params, headers=self._headers) as response:
-            if not (199 < response.status < 300):  # if not 2XX
-                raise HTTPError(await response.json())
-            try:
-                return await response.json()
-            except ContentTypeError:
-                return None
+        json = await self._get_response(
+            self.get_open_session().post(url, json=data, params=params, headers=self._headers)
+        )
+        return json
 
     async def _http_put(self, url: str, data: dict, params: dict) -> Optional[dict]:
-        async with self._session.put(url, json=data, params=params, headers=self._headers) as response:
-            if not (199 < response.status < 300):  # if not 2XX
-                raise HTTPError(await response.json())
-            try:
-                return await response.json()
-            except ContentTypeError:
-                return None
+        json = await self._get_response(
+            self.get_open_session().put(url, json=data, params=params, headers=self._headers)
+        )
+        return json
 
     async def _http_patch(self, url: str, data: dict, params: dict) -> Optional[dict]:
-        async with self._session.patch(url, json=data, params=params, headers=self._headers) as response:
-            if not (199 < response.status < 300):  # if not 2XX
-                raise HTTPError(await response.json())
-            try:
-                return await response.json()
-            except ContentTypeError:
-                return None
+        json = await self._get_response(
+            self.get_open_session().patch(url, json=data, params=params, headers=self._headers)
+        )
+        return json
 
     async def _http_delete(self, url: str, params: dict) -> Optional[dict]:
-        async with self._session.delete(url, params=params, headers=self._headers) as response:
-            if not (199 < response.status < 300):  # if not 2XX
-                raise HTTPError(await response.json())
-            try:
-                return await response.json()
-            except ContentTypeError:
-                return None
+        json = await self._get_response(
+            self.get_open_session().delete(url, params=params, headers=self._headers)
+        )
+        return json
+
+    @staticmethod
+    async def _get_response(request: _RequestContextManager) -> Optional[Dict]:
+        async with request as response:
+            if 199 < response.status < 300:
+                try:
+                    return await response.json()
+                except ContentTypeError:
+                    return None
+            else:
+                raise HTTPError(response)
     #
     # end of HTTP REQUESTS
     #################################
@@ -4106,6 +4146,6 @@ class Api:
     # end of METHODS FOR PREPARE DATA
     #################################
 
-    @staticmethod
-    async def close():
-        await Api._session.close()
+    @classmethod
+    async def close(cls):
+        await cls._session.close()
