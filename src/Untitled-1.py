@@ -863,3 +863,22 @@
 #     print(time()-t0)
 #
 # asyncio.get_event_loop().run_until_complete(start())
+# from time import time
+#
+# def outer():
+#     def inner():
+#         print(id(inner))
+#     inner()
+# t0 = time()
+# for _ in range(10):
+#     outer()
+# print(time()-t0)
+
+# def inner():
+#     pow(2, 2)
+# def outer():
+#     inner()
+# t0 = time()
+# for _ in range(1000000):
+#     outer()
+# print(time()-t0)

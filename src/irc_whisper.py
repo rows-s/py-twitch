@@ -1,9 +1,7 @@
-from abcs import AbstractMessage
-from irc_channel import Channel
-from irc_member import Member
-from utils import replace_slashes, parse_raw_badges, parse_raw_emotes
 
-from typing import Dict, Optional, Callable, Coroutine
+from utils import parse_raw_badges, parse_raw_emotes
+
+from typing import Dict, Callable
 
 
 __all__ = (

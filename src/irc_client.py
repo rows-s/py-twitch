@@ -21,6 +21,9 @@ __all__ = (
 
 
 class Client:
+    """
+
+    """
     _user_events_types: Dict[str, Tuple[str, Any]] = {
         # msg_id: (handler_name, event_class)
         'sub': ('on_sub', Sub),
@@ -98,7 +101,7 @@ class Client:
             self,
             channel_id: str,
             default: Any = None
-    ) -> Optional[Channel]:
+    ) -> Union[Channel, Any]:
         """Returns :class:`Channel` by id if exists else - `default`"""
         return self._channels_by_id.get(channel_id, default)
 
@@ -106,14 +109,14 @@ class Client:
             self,
             channel_login: str,
             default: Any = None
-    ) -> Optional[Channel]:
+    ) -> Union[Channel, Any]:
         """Returns :class:`Channel` by login if exists else - `default`"""
         return self._channels_by_login.get(channel_login, default)
 
     def _get_channel_if_exists(
             self,
             channel_login: str
-    ) -> Optional[Channel]:
+    ) -> Channel:
         """
         returns channel with given login if exists, else raises ChannelNotExists
 
@@ -137,10 +140,10 @@ class Client:
             channels: Iterable[str]
     ) -> None:
         """
-        the method starts event listener, use this if you want to start 'Client' as a single worker.
+        Starts event listener, use this if you want to start 'Client' as a single worker.
 
         Notes:
-            If you want to start 'Client' with any other async code - look 'start()'
+            If you want to start `Client` with any other async code - look 'start()'
 
         Args:
             channels: Iterable[`str`]
@@ -152,8 +155,10 @@ class Client:
 
     async def connect_irc(
             self,
-            channels: Iterable
+            channels: Iterable[str]
     ) -> None:
+        """Creates new websocket connection and send all login's commands"""
+
         uri: str = 'wss://irc-ws.chat.twitch.tv:443'
         self._websocket = await connect(uri)
         # capability
@@ -167,8 +172,12 @@ class Client:
         self.joined_channels_logins = set(channels)
         self._do_later(self.join_channels(channels))
 
+    async def reconnect_irc(self):
+        """reconnect websocket and irc with channels from `self.joined_channels_logins`"""
+        await self.connect_irc(self.joined_channels_logins)
+
     async def _read_websocket(self):
-        # forever
+        """tries read websocket, and restarts irc if connection is closed"""
         while True:
             # try read
             try:
@@ -176,7 +185,7 @@ class Client:
             # if websocket is closed
             except ConnectionClosedError:
                 if self.should_restart:
-                    await self.connect_irc(self.joined_channels_logins)
+                    await self.reconnect_irc()
             # if no exeptions
             else:
                 for irc_message in irc_messages.split('\r\n'):
@@ -190,16 +199,13 @@ class Client:
                     else:
                         yield self._parse_irc_message(irc_message)  # tags, command, text
 
-    async def reconnect_irc(self):
-        await self.connect_irc(self.joined_channels_logins)
-
     async def start(
             self,
             channels: Iterable[str]
     ) -> None:
         """
         |Coroutine|
-        starts event listener.
+        Starts event listener.
 
         Notes:
             If you won't combine this with any other async code - you can use sync method 'self.run()'.
@@ -210,6 +216,7 @@ class Client:
         """
 
         async def try_log_in():
+            """tries to log"""
             await self.connect_irc(channels)
             async for tags, command, text in self._read_websocket():
                 # if successful login
@@ -230,12 +237,7 @@ class Client:
         await try_log_in()
         # start main listener
         async for tags, command, text in self._read_websocket():
-            # if RECCONECT request  # still don't know what that is, but let's reconnct to all channels.
-            if command[1] == 'RECONNECT':
-                self._do_later(self.join_channels(self.joined_channels_logins))
-            # else
-            else:
-                self._do_later(self._select_handler(tags, command, text))
+            self._do_later(self._select_handler(tags, command, text))
 
     @staticmethod
     def _parse_irc_message(
@@ -303,7 +305,8 @@ class Client:
             # if our global state
             elif command_type == 'GLOBALUSERSTATE':
                 self.global_state = GlobalState(self.login, tags)
-            elif command_type == 'RECONNECT':
+
+            elif command_type == 'RECONNECT': # still don't know what this is, but let's reconnct to all channels.
                 self._do_later(self.join_channels(self.joined_channels_logins))
         except ChannelNotExists:
             channel_login = command[-1][1:]
@@ -422,6 +425,19 @@ class Client:
             self._local_states[channel_login] = LocalState(tags)
 
     def _is_channel_ready(self, channel_login) -> bool:
+        """
+        Returns True if channel with `channel_login` is ready:
+            1. it in `self._unprepared_channels`
+            2. has localstate - `channel.my_state`
+            3. has nameslist - `channel.nameslist`
+
+        Args:
+            channel_login: `str`
+                login of channel to checking
+
+        Returns:
+            `bool`, if channel with `channel_login` is ready
+        """
         channel = self._unprepared_channels.get(channel_login)
         if channel is None:
             return False
@@ -433,9 +449,20 @@ class Client:
             return True
 
     def _save_channel(self, channel_login: str):
+        """
+        1. Removes channel from `self._unprepared_channels`
+        2. Puts it in `self._channels_by_id` and `self._channels_by_login`
+        3. Creates async task `on_self_join`
+        4. Creates async tasks that will handle every delayed message
+        Args:
+            channel_login:
+                login of channel to save
+
+        Returns:
+            `None`
+        """
         channel = self._unprepared_channels.pop(channel_login)
-        channel_id = channel.id
-        self._channels_by_id[channel_id] = channel
+        self._channels_by_id[channel.id] = channel
         self._channels_by_login[channel_login] = channel
         # if has handler
         if hasattr(self, 'on_self_join'):
@@ -502,7 +529,7 @@ class Client:
         # if channel join error
         if notice_id == 'msg_room_not_found':
             channel_login = command[-1][1:]
-            self.joined_channels_logins.add(channel_login)
+            self.joined_channels_logins.discard(channel_login)
             if hasattr(self, 'on_self_join_error'):
                 self._do_later(
                     self.on_self_join_error(channel_login)
@@ -614,14 +641,36 @@ class Client:
             self,
             command: str
     ) -> None:
+        """
+        Sends raw message in websocket
+
+        Args:
+            command: `str`
+                command to send
+
+        Returns:
+            `None`
+        """
         await self._websocket.send(command + '\r\n')
 
     async def send_message(
             self,
             channel_login: str,
-            conntent: str
+            content: str
     ) -> None:
-        await self._send(f'PRIVMSG #{channel_login} :{conntent}')
+        """
+        Sends `content` into the channel with login equals `channel_login`
+
+        Args:
+            channel_login: `str`
+                login of channel into which the `content` should be sent.
+            content: `str`
+                content to send into the channel
+
+        Returns:
+            `None`
+        """
+        await self._send(f'PRIVMSG #{channel_login} :{content}')
 
     async def send_whisper(
             self,
@@ -630,6 +679,20 @@ class Client:
             *,
             via_channel: str = None
     ) -> None:
+        """
+        Sends whisper with `content` to the recipient with login equals `recipient_login`
+
+        Args:
+            recipient_login: `str`
+                login of recipient
+            conntent: `str`
+                content to send
+            via_channel: `str`
+                login of channel via which the whisper would be sent
+
+        Returns:
+            `None`
+        """
         conntent = rf'/w {recipient_login} {conntent}'
         # if specified channel for the whisper
         if via_channel is not None:
@@ -647,6 +710,7 @@ class Client:
             self,
             login: str
     ) -> None:
+        """Sends command to join the channel and adds its login to `self.joined_channels_logins`"""
         await self._send(f'JOIN #{login}')
         self.joined_channels_logins.add(login)
 
@@ -657,6 +721,20 @@ class Client:
             timeout: float = 20,
             ignore_exceptions: bool = True
     ) -> None:
+        """
+        Sends commands to join the channels and adds their logins to `self.joined_channels_logins`
+
+        Args:
+            logins: Iterable[`str`]
+                Iterable object with logins of channel
+            timeout: `float` (default: 20.0)
+                time for send all commands, if out of it - cancel all unfinished
+            ignore_exceptions: `bool`
+                marks if should ignore all exceptions (e.g. )
+
+        Returns:
+            `None`
+        """
         awaitables = [self.join_channel(login) for login in logins]
         try:
             # wait for all tasks
@@ -672,8 +750,9 @@ class Client:
             self,
             login: str
     ) -> None:
+        """Sends command to part the channel and discards its login from `self.joined_channels_logins`"""
         await self._send(f'PART #{login}')
-        self.joined_channels_logins.remove(login)
+        self.joined_channels_logins.discard(login)
 
     async def part_channels(
             self,
@@ -682,6 +761,20 @@ class Client:
             timeout: float = 20,
             ignore_exceptions: bool = True
     ) -> None:
+        """
+        Sends commands to part the channels and discards their logins from `self.joined_channels_logins`
+
+        Args:
+            logins: Iterable[`str`]
+                Iterable object with logins of channel
+            timeout: `float` (default: 20.0)
+                time for send all commands, if out of it - cancel all unfinished
+            ignore_exceptions: `bool`
+                marks if should ignore all exceptions (e.g. )
+
+        Returns:
+            `None`
+        """
         awaitables = [self.part_channel(login) for login in logins]
         try:
             # wait for all tasks
@@ -702,7 +795,7 @@ class Client:
 
     def event(self, coro: Coroutine) -> Coroutine:
         """
-        |DECORATOR|\n
+        |DECORATOR|
         registers handler of event
 
         Args:
@@ -724,36 +817,25 @@ class Client:
     
     def events(self, *handlers_names: str) -> Callable:
         """
-        |DECORATOR|\n
-        registers handlers of events\n
-        you have no reason to use the method not as a decorator.
-
-        ----------------
+        returns |DECORATOR|
+        registers handler of events. use as a decorator.
 
         Examples:
-        ================
             1st:
-                >>>> irc_bot = Client(token='', login='')\n
-                >>>> @irc_bot.events('on_sub', 'on_resub')\n
-                >>>> async def any_name_of_handler(event):\n
-                >>>> ....pass
-            ----------------
+                1. >>>> ttv_bot = Client(token='', login='')
+                2. >>>> @ttv_bot.events('on_sub', 'on_resub')
+                3. >>>> async def any_name_of_handler(event):
+                4. >>>> ....pass
             2nd:
-                >>>> irc_bot = Client(token='', login='')\n
-                >>>> any_events = ('on_sub', 'on_resub')\n
-                >>>> @irc_bot.events(*any_events)\n
-                >>>> async def any_name_of_handler(event):\n
-                >>>> ....pass
-            ----------------
-        ----------------
+                1. >>>> events = ('on_sub', 'on_resub')
+                2. >>>> ttv_bot = Client(token='', login='')
+                3. >>>> @ttv_bot.events(*events)
+                4. >>>> async def any_name_of_handler(event):
+                5. >>>> ....pass
 
         Args:
-        ================
-            handlers_names (Iterable[str]):
+            handlers_names: Iterable[`str`]
                 names of events that must be registered
-            coro (Coroutine):
-                event handler that must be called on event occurs.
-        ----------------
 
         Raises:
         ================
@@ -776,7 +858,25 @@ class Client:
         # prepared decorator would be returned
         return decorator
 
-    def _register_event(self, handler_name: str, coro: Coroutine):
+    def _register_event(
+            self,
+            handler_name: str,
+            coro: Coroutine
+    ) -> None:
+        """
+        1. Registers event with given name.
+        2. Checks that the `coro` is Coroutine.
+        3. Checks that the `handler_name` is known.
+
+        Args:
+            handler_name: `str`
+                name of handler, should be known
+            coro: Coroutine
+                this would be called when a event registered as `handler_name` happen.
+
+        Returns:
+            `None`
+        """
         # if event
         if not iscoroutinefunction(coro):
             raise FunctionIsNotCorutine(coro.__name__)
@@ -791,28 +891,30 @@ class Client:
     # end of: event's things
     #################################
 
-    def _do_later(self, coro: Awaitable):
+    def _do_later(
+            self,
+            coro: Awaitable
+    ) -> None:
+        """Creates a async task in `self.loop`"""
         self.loop.create_task(coro)
 
-    async def _delay_this_message(self, parts: Tuple[dict, list, str], channel_login: str):
+    async def _delay_this_message(
+            self,
+            parts: Tuple[dict, list, str],
+            channel_login: str
+    ) -> None:
         """
-        Delays the `parts`(as parts of irc_message) from args.\n
+        Delays the `parts`(as parts of irc_message).\n
         Delayed messages will be handled after the channel with `channel_login` is created
 
-        ----------------
-
         Args:
-        ================
-            message: `str`
-                irc_message to delay
+            parts: Tuple[dict, list, str]
+                parts of irc_message to delay
             channel_login: `str`
-                login of the channel, after the creation of which the message must be handled
-        ----------------
+                login of the channel, after creation of which the message must be handled
 
         Returns:
-        ================
-            None
-        ----------------
+            `None`
         """
         delayed_parts = self._delayed_irc_parts.setdefault(channel_login, [])
         if len(delayed_parts) == 10:
@@ -828,14 +930,41 @@ class Client:
 
 
 class GlobalState:
+    """
+    Object of the class would contains information about global state of `Client`
+
+    Attrs:
+        self.login: `str`
+            login of `Client`
+        self.display_name: `str`
+            display name of `Client`
+        self.id: `str`
+            id of `Client`
+        self.color: `str`
+            nick-name color of `Client`
+        self.emote_sets: Tuple[`str`]
+            Tuple with id of emote-sets that `Client` owns
+        self.badges: Dict[`str`, `str`]
+            badges of `Client`
+        self.badge_info: Dict[`str`, `str`]
+            additional information of badges of `Client`
+    """
     def __init__(self, login, tags: Dict[str, str]):
+        """
+
+        Args:
+            login: `str`
+                login of `Client`
+            tags: Dict[`str`, `str`]
+                prepared tags from irc_message
+        """
         # prepared
         self.login = login
         # badges
         self.badges: Dict[str, str] = parse_raw_badges(tags.get('badges', ''))
         self.badge_info: Dict[str, str] = parse_raw_badges(tags.get('badge-info', ''))
         # stable tags
-        self.color = tags.get('color')
-        self.display_name = tags.get('display-name')
-        self.emote_sets = tuple(tags.get('emote-sets', '').split(','))
-        self.id = tags.get('user-id')
+        self.color: str = tags.get('color')
+        self.display_name: str = tags.get('display-name')
+        self.emote_sets: Tuple[str] = tuple(tags.get('emote-sets', '').split(','))
+        self.id: str = tags.get('user-id')

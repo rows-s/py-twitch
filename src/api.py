@@ -2,9 +2,10 @@ import aiohttp
 
 from aiohttp.client import _RequestContextManager, ClientResponse
 from aiohttp.client_exceptions import ContentTypeError
-from errors import HTTPError, InvalidToken, ServerError, AccessError
+from errors import HTTPError, InvalidToken, AccessError
 
-from typing import Dict, Union, Iterable, List, Optional, AsyncGenerator, Any
+from typing import Dict, Union, Iterable, List, Optional, AsyncGenerator, Any, NamedTuple, Callable, Tuple, Coroutine, \
+    Awaitable
 
 __all__ = (
     'Api',
@@ -31,27 +32,68 @@ class Api:
             2nd:
                 All object attributes is None before set_token() is successfully called
         """
-    _session: aiohttp.ClientSession = None
-    'session container'
 
     @staticmethod
-    def get_open_session():
-        """
-        returns open session, current if exists, or new one.
+    def rename_fields(
+            names_pairs: Tuple[str, str],
+            locals_: Dict[str, Any]
+    ):
+        if names_pairs:
+            for old, new in names_pairs:
+                if old in locals_:
+                    locals_[new] = locals_.pop(old)
+        return locals_
 
-        Returns:
-            (aiohttp.ClientSession) current session if opened, else opens new one and returns it
-        """
-        if Api._session is None:
-            Api._session = aiohttp.ClientSession()
-        elif Api._session.closed:
-            Api._session = aiohttp.ClientSession()
-        # return anyway
-        return Api._session
+    @staticmethod
+    def get_fields_from_locals(
+            fields: List[str],
+            locals_: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        if fields:
+            final_tuple: Dict[str, Any] = {}
+            # save every not empty field
+            for field in fields:
+                if locals_[field] is not None:
+                    final_tuple[field] = locals_[field]
+            # return if not empty
+            if final_tuple:
+                return final_tuple
+
+    async def do_paginated_request(
+            self,
+            request_name: str,
+            locals_: Dict[str, Any],
+            limit: int,
+            *,
+            url_base: str = 'https://api.twitch.tv/helix/'
+    ):
+        pass
+
+    async def do_single_request(
+            self,
+            request_name: str,
+            locals_: Dict[str, Any],
+            *,
+            url_base: str = 'https://api.twitch.tv/helix/'
+    ) -> Any:
+        request = Api.single_requests[request_name]
+        url = url_base+request.url
+        self._check_scope(request.scope)
+        locals_ = self.rename_fields(request.to_rename_fields, locals_)
+        data = self.get_fields_from_locals(request.data_fields, locals_)
+        params = self.get_fields_from_locals(request.param_fields, locals_)
+        response = await self._get_response(
+            request.http_method(self, url=url, data=data, params=params)
+        )
+        if request.custom_return_indexes is not None:
+            for index in request.custom_return_indexes:
+                response = response[index]
+            return response
+        else:
+            return response['data'][0]
 
     def __init__(self):
         self._headers: Optional[Dict[str, str]] = None
-        'the headers using for http requests, would be set in set_token() method'
         self.token: Optional[str] = None
         self.scopes: Optional[List[str]] = None
         self.client_id: Optional[str] = None
@@ -61,69 +103,66 @@ class Api:
     # INITIALIZATION'S THINGS
     #
     @classmethod
-    async def create(cls, token: str):
+    async def create(
+            cls,
+            token: str
+    ):
         """
         |Coroutine|
 
-        if you want to create and initialize object (set a token) in one row, use this.\n
-        The method creates object and calls `set_token` method for the object.
+        if you want to create and initialize object (set a token) in one row, use this.
+        The method creates object and calls `self.set_token()` method for the object with given `token`.
+
+        Args:
+            token: `str`
+                your Authorization-token
 
         Examples:
-            >>>> api_token: str
-            >>>> ttv_api = await Api.create(api_token)
-
-        :param token: your Authorization-Token
-        :type token: `str`
+            1. >>>> ttv_api = await Api.create(api_token)
 
         Returns:
-            (Api) created and initialized object
+            `Api` created and initialized object
         """
 
         api = Api()
         await api.set_token(token)
         return api
 
-    async def set_token(self, token: str) -> None:
+    async def set_token(
+            self,
+            token: str
+    ) -> None:
         """
         |Coroutine|
-        ====================
-        sets `token` in current object, also set `client_id` and `scopes` of `token`
 
-        --------------------
+        sets:
+            1. `self.token`
+            2. `self.client_id`
+            3. `self.scopes`
+            4. `self.expires_at`
+            5. prepares header for requests
 
         Args:
-        ====================
             token: `str`
                 your Authorization-Token
-        --------------------
 
         Raises:
-        ================
-            :class:`InvalidToken`:
-                if `token` is invalid, passes `dict` with json of response. passes `dict` with json of response.
-
-            :class:`ServerError`:
-                if response contains 5XX as status-code, passes `dict` with json of response.\n
-                from twitch: 'Internal Server Error: Something bad happened on our side'\n
-                , passes `dict` with json of response.
-
-            :class:`HTTPError`:
-                if status-code of response is not 2XX, 4XX or 5XX, passes `dict` with json of response.
-        -----------------
+            HTTPError:
+                if status-code of response is not 2XX or 4XX. passes response.
+            InvalidToken:
+                if `token` is invalid, passes `dict` with json of response. passes response.
         """
 
         self._headers = {'Authorization': f'Bearer {token}'}
         url = 'https://id.twitch.tv/oauth2/validate'  # url to check token
         try:
             json = await self._get_response(
-                self.get_open_session().get(url, headers=self._headers)
+                self._get_open_session().get(url, headers=self._headers)
             )
         except HTTPError as e:
             response: ClientResponse = e.args[0]
             if 399 < response.status < 500:  # 4XX - invalid token
                 raise InvalidToken(response)
-            elif 499 < response.status < 600:  # 5XX - server roblem
-                raise ServerError(response)
             else:
                 raise
         else:
@@ -138,7 +177,7 @@ class Api:
             cls,
             client_id: str,
             client_secret: str,
-            scope: str,
+            scope: str = None,
             grant_type: str = 'client_credentials'
     ) -> Dict[str, str]:
         """
@@ -147,21 +186,37 @@ class Api:
         creates an app `token`
 
         Args:
-            client_id: (str) Your client ID
-            client_secret: (str) Your client secret
-            grant_type: (str) Must be 'client_credentials'
-            scope: (str) Space-separated list of scopes
+        ----------
+            client_id: `str`
+                Your client ID
+            client_secret: `str`
+                Your client secret
+            grant_type: `str`
+                1. VALID VALUES: 'client_credentials'; DEFAULT'client_credentials';
+                2. not described
+            scope: `str`
+                Space-separated list of scopes
 
         Returns:
-            (Dict[str, str])
-            pass
-
+        ----------
+            dict: {
+                'access_token': `str`
+                    user access token
+                'refresh_token': `str`
+                    not described
+                'expires_in': `str`
+                    number of seconds until the token expires
+                'scope': `str`
+                    your previously listed scope(s)
+                'token_type': `str`
+                    bearer
+            }
 
         Raises:
-            HTTPError: if status-code of response is not 2XX, passes `dict` with json of response.
+            HTTPError:
+                if status-code of response is not 2XX. passes response.
         """
 
-        data = {}
         params = {}
         if client_id is not None:
             params['client_id'] = client_id
@@ -174,17 +229,22 @@ class Api:
 
         url = 'https://id.twitch.tv/oauth2/token'  # url to create app token
         json = await cls._get_response(
-            cls.get_open_session().post(url, params=params)
+            cls._get_open_session().post(url, params=params)
         )
         return json
 
     #
-    # end of INITIALIZATION'S THINGS
+    # INITIALIZATION'S THINGS
     #################################
 
     #################################
     # TWITCH API REQUESTS
     #
+
+    #################################
+    # Ads
+    #
+
     async def start_commercial(
             self,
             broadcaster_id: str,
@@ -192,46 +252,41 @@ class Api:
     ) -> Dict[str, str]:
         """
         |Coroutine|
-        ================
-        Starts a commercial on a specified channel.\n
-        REQUIRED scope: 'channel:edit:commercial'
 
-        ----------------
+        Starts a commercial on a specified channel.
+
+        1. SCOPE: 'channel:edit:commercial'
+        2. ACCESS: OAuth Token required
 
         Args:
-        ================
-            broadcaster_id: REQUIRED `str`
-                 ID of the channel requesting a commercial \n
-                 Minimum: 1 Maximum: 1
-
-            length: REQUIRED `int`
-                Desired length of the commercial in seconds. \n
-                Valid options are 30, 60, 90, 120, 150, 180.
-        ----------------
+        ----------
+            broadcaster_id: `str`
+                1. REQUIRED;
+                2. ID of the channel requesting a commercial. Minimum: 1 Maximum: 1
+            length: `int`
+                1. REQUIRED;  VALID VALUES: 30 60 90 120 150 180;
+                2. Desired length of the commercial in seconds.
 
         Returns:
-        ================
-            `dict` {
+        ----------
+            dict: {
                 'length': `int`
                     Length of the triggered commercial
-
                 'message': `str`
                     Provides contextual information on why the request failed
-
                 'retry_after': `int`
                     Seconds until the next commercial can be served on this channel
             }
-        ----------------
 
         Raises:
-        ================
-            :class:`HTTPError`:
-                if status-code of response is not 2XX, passes `dict` with json of response.
+            HTTPError:
+                if status-code of response is not 2XX. passes response.
+            AccessError:
+                if the Token has not required scope. passes response.
 
-            :class:`AccessError`:
-                if the Authorization-Token hasn't required scope
-        ----------------
+Input type:
         """
+        self._check_scope('channel:edit:commercial')
 
         data = {}
         if broadcaster_id is not None:
@@ -239,11 +294,18 @@ class Api:
         if length is not None:
             data['length'] = length
         params = {}
-        self._check_scope('channel:edit:commercial')
 
         url = 'https://api.twitch.tv/helix/channels/commercial'
         response = await self._http_post(url, data, params)
         return response['data'][0]
+
+    #
+    # Ads
+    #################################
+
+    #################################
+    # Analytics
+    #
 
     async def get_extension_analytics(
             self,
@@ -251,84 +313,76 @@ class Api:
             extension_id: str = None,
             started_at: str = None,
             ended_at: str = None,
-            type: str = None
+            type: str = 'overview_v2'
     ) -> AsyncGenerator[dict, None]:
         """
-        |Async Generator|
-        ================
-        Yields URL that extension developers can use to download analytics reports (CSV files) for their extensions.
-        The URL is valid for 5 minutes.
-        If you specify a future date, the response will be “Report Not Found For Date Range.”
-        If you leave both started_at and ended_at blank, the API returns the most recent date of data.\n
-        REQUIRED scope: 'analytics:read:extensions'
+        |AsyncGenerator|
 
-        ----------------
+        Gets a URL that Extension developers can use to download analytics reports (CSV files) for their Extensions. The
+        URL is valid for 5 minutes.If you specify a future date, the response will be “Report Not Found For Date Range.”
+        If you leave both `started_at` and `ended_at` blank, the API returns the most recent date of data.
+
+        1. SCOPE: 'analytics:read:extensions'
+        2. ACCESS: OAuth token required
 
         Args:
-        ================
+        ----------
             limit: `int`
-                limit on number of returned values, 0 - unlimited
-
+                1. REQUIRED;
+                2. limit on number of yields, 0 - unlimited
             extension_id: `str`
-                Client ID value assigned to the extension when it is created. If this is specified,
-                the returned URL points to an analytics report for just the specified extension.
-
-            started_at:  `str`
-                Starting date/time for returned reports,  in RFC3339 format with the hours, minutes,
-                and seconds zeroed out and the UTC timezone: YYYY-MM-DDT00:00:00Z.
-                This must be on or after January 31, 2018. If this is provided, ended_at also must be specified.
-                If started_at is earlier than the default start date,
-                the default date is used.  The file contains one row of data per day.
-
+                Client ID value assigned to the extension when it is created.  If this is specified, the returned URL
+                points to an analytics report for just the specified extension. If this is not specified, the response
+                includes multiple URLs, pointing to separate analytics reports for each of the authenticated user’s
+                Extensions.
             ended_at: `str`
-                Ending date/time for returned reports, in RFC3339 format with the hours, minutes,
-                and seconds zeroed out and the UTC timezone: YYYY-MM-DDT00:00:00Z.
-                The report covers the entire ending date; e.g., if 2018-05-01T00:00:00Z is specified,
-                the report covers up to 2018-05-01T23:59:59Z.
-                If this is provided, started_at also must be specified. If ended_at is later than the default end date,
-                the default date is used. Default: 1-2 days before the request was issued.
-
+                1. DEFAULT: '1-2 days before the request was issued';
+                2. Ending date/time for returned reports, in RFC3339 format with the hours, minutes, and seconds zeroed
+                   out and the UTC timezone: 'YYYY-MM-DDT00:00:00Z'. The report covers the entire ending date; e.g., if
+                   '2018-05-01T00:00:00Z' is specified, the report covers up to '2018-05-01T23:59:59Z'. If this is
+                   provided, started_at also must be specified. If ended_at is later than the default end date, the
+                   default date is used. Default: 1-2 days before the request was issued (depending on report
+                   availability).
+            started_at: `str`
+                1. DEFAULT: 'This must be on or after January 31, 2018';
+                2. Starting date/time for returned reports, in RFC3339 format with the hours, minutes, and seconds
+                   zeroed out and the UTC timezone: 'YYYY-MM-DDT00:00:00Z'. This must be on or after January 31, 2018.If
+                   this is provided, `ended_at` also must be specified. If `started_at` is earlier than the default
+                   start date, the default date is used. The file contains one row of data per day.
             type: `str`
-                Type of analytics report that is returned. If this is specified, the response includes one URL,
-                for the specified report type.  Limit: 1. Valid values: "overview_v1", "overview_v2".
-                Default: all report types for the authenticated user’s Extensions.
-        ----------------
+                1. DEFAULT: 'overview_v2';
+                2. Type of analytics report that is returned. Currently, this field has no affect on the response as
+                   there is only one report type. If additional types were added, using this field would return only the
+                   URL for the specified report. Limit: 1. Valid values: 'overview_v2'.
 
         Yields:
-        ================
-            `dict` {
+        ----------
+            dict: {
                 'extension_id': `str`
                     ID of the extension whose analytics data is being provided.
-
                 'URL': `str`
                     URL to the downloadable CSV file containing analytics data. Valid for 5 minutes.
-
                 'type': `str`
                     Type of report.
-
-                'date_range': `dict` {
+                'date_range': {
                     'started_at': `str`
-                        Report start date/time.
-                        Note this may differ from (be later than) the started_at value in the request;
-                        the response value is the date when data for the extension is available.
-
+                        Report start date/time. Note this may differ from (be later than) the started_at value in the
+                        request; the response value is the date when data for the extension is available.
                     'ended_at': `str`
                         Report end date/time.
-                }
+                }, object contains data range parameters
             }
-        ----------------
 
         Raises:
-        ================
-            :class:`HTTPError`:
-                if status-code is not 2XX, passes `dict` with json of response.
-
-            :class:`AccessError`:
-                if the Authorization-Token hasn't required scope
-        ----------------
+            HTTPError:
+                if status-code of response is not 2XX. passes response.
+            AccessError:
+                if the Token has not required scope. passes response.
         """
+        self._check_scope('analytics:read:extensions')
 
         params = {}
+        self._insert_first(params, limit, 100)
         if extension_id is not None:
             params['extension_id'] = extension_id
         if started_at is not None:
@@ -337,11 +391,9 @@ class Api:
             params['ended_at'] = ended_at
         if type is not None:
             params['type'] = type
-        self._insert_first(params, limit, 100)
-        self._check_scope('analytics:read:extensions')
 
         url = 'https://api.twitch.tv/helix/analytics/extensions'
-        async for extension in self._handle_cursor(url, limit, params):
+        async for extension in self._handle_pagination(url, limit, params):
             yield extension
 
     async def get_game_analytics(
@@ -353,78 +405,70 @@ class Api:
             type: str = None
     ) -> AsyncGenerator[dict, None]:
         """
-        |Async Generator|
-        ================
-        Yields URL that game developers can use to download analytics reports (CSV files) for their games.
-        The URL is valid for 5 minutes.\n
-        REQUIRED scope: 'analytics:read:games'
+        |AsyncGenerator|
 
-        ----------------
+        Yields URL that game developers can use to download analytics reports (CSV files) for their games.
+        The URL is valid for 5 minutes.
+
+        1. SCOPE: 'analytics:read:games'
+        2. TOKEN: OAuth token required
 
         Args:
-        ================
+        ----------
             limit: `int`
-                limit on number of returned values, 0 - unlimited
-
+                1. REQUIRED: YES; MULTIPLE: NO;
+                2. limit on number of yields, 0 - unlimited
             game_id: `str`
-                Game ID. If this is specified, the returned URL points to an analytics report for just the specified game.
-
+                1. REQUIRED: NO; MULTIPLE: NO;
+                2. Game ID. If this is specified,
+                   the returned URL points to an analytics report for just the specified game.
             started_at:  `str`
-                Starting date/time for returned reports, in RFC3339 format with the hours, minutes,
-                and seconds zeroed out and the UTC timezone: YYYY-MM-DDT00:00:00Z.
-                If this is provided, ended_at also must be specified. If started_at is earlier than the default start date,
-                the default date is used. Default: 365 days before the report was issued.
-                The file contains one row of data per day.
-
+                1. REQUIRED: NO; MULTIPLE: NO; DEFAULT: 365 days before the report was issued;
+                2. Starting date/time for returned reports, in RFC3339 format with the hours, minutes,
+                   and seconds zeroed out and the UTC timezone: YYYY-MM-DDT00:00:00Z.
+                   If this is provided, ended_at also must be specified.
+                   If started_at is earlier than the default start date, the default date is used.
+                   The file contains one row of data per day.
             ended_at: `str`
-                Ending date/time for returned reports, in RFC3339 format with the hours, minutes,
-                and seconds zeroed out and the UTC timezone: YYYY-MM-DDT00:00:00Z.
-                The report covers the entire ending date; e.g., if 2018-05-01T00:00:00Z is specified,
-                the report covers up to 2018-05-01T23:59:59Z.
-                If this is provided, started_at also must be specified. If ended_at is later than the default end date,
-                the default date is used. Default: 1-2 days before the request was issued.
-
+                1. REQUIRED: NO; MULTIPLE: NO; DEFAULT: 1-2 days before the request was issued;
+                2. Ending date/time for returned reports, in RFC3339 format with the hours, minutes,
+                   and seconds zeroed out and the UTC timezone: YYYY-MM-DDT00:00:00Z.
+                   The report covers the entire ending date; e.g., if 2018-05-01T00:00:00Z is specified,
+                   the report covers up to 2018-05-01T23:59:59Z.If this is provided, started_at also must be specified.
+                   If ended_at is later than the default end date, the default date is used.
             type: `str`
-                Type of analytics report that is returned. If this is specified, the response includes one URL,
-                for the specified report type.  Limit: 1. Valid values: "overview_v1", "overview_v2".
-                Default: all report types for the authenticated user’s Extensions.
-        ----------------
+                1. REQUIRED: NO; MULTIPLE: NO; VALID VALUES: 'overview_v2';
+                2. Type of analytics report that is returned.
+                   Currently, this field has no affect on the response as there is only one report type.
+                   If additional types were added, using this field would return only the URL for the specified report.
 
         Yields:
-        ================
+        ----------
             `dict` {
                 'game_id': `str`
                     ID of the game whose analytics data is being provided.
-
                 'URL': `str`
                     URL to the downloadable CSV file containing analytics data. Valid for 5 minutes.
-
                 'type': `str`
                     Type of report.
-
                 'date_range': `dict` {
                     'started_at': `str`
                         Report start date/time.
-                        Note this may differ from (be later than) the started_at value in the request;
-                        the response value is the date when data for the extension is available.
-
                     'ended_at': `str`
                         Report end date/time.
                 }
             }
-        ----------------
 
         Raises:
-        ================
-            :class:`HTTPError`:
-                if status-code is not 2XX, passes `dict` with json of response.
-
-            :class:`AccessError`:
-                if the Authorization-Token hasn't required scope
-        ----------------
+            `HTTPError`:
+                if status-code of response is not 2XX, passes response.
+            `AccessError`:
+                if the Token has not required scope.
         """
+        self._check_scope('analytics:read:games')
 
         params = {}
+        self._insert_first(params, limit, 100)
         if game_id is not None:
             params['game_id'] = game_id
         if started_at is not None:
@@ -433,12 +477,18 @@ class Api:
             params['ended_at'] = ended_at
         if type is not None:
             params['type'] = type
-        self._insert_first(params, limit, 100)
-        self._check_scope('analytics:read:games')
 
         url = 'https://api.twitch.tv/helix/analytics/games'
-        async for game in self._handle_cursor(url, limit, params):
+        async for game in self._handle_pagination(url, limit, params):
             yield game
+
+    #
+    # Analytics
+    #################################
+
+    #################################
+    # Bits
+    #
 
     async def get_bits_leaderboard(
             self,
@@ -448,76 +498,70 @@ class Api:
             user_id: str = None
     ) -> AsyncGenerator[dict, None]:
         """
-        |Async Generator|
-        ================
-        Yields ranked Bits leaderboard information for an authorized broadcaster.
-        REQUIRED scope: 'bits:read'
+        |AsyncGenerator|
 
-        ----------------
+        Yields ranked Bits leaderboard information for an authorized broadcaster.
+
+        1. SCOPE: 'bits:read'
+        2. TOKEN: OAuth token required
 
         Args:
-        ================
+        ----------
             limit: `int`
-                limit on number of returned values, 0 - unlimited
-
-            period: `str`
-                Time period over which data is aggregated (PST time zone).
-                This parameter interacts with started_at. Valid values follow. Default: "all".
-                valid values: 'day', 'week', 'month', 'year', 'all'
-
-            started_at: `str`
-                Timestamp for the period over which the returned data is aggregated. Must be in RFC 3339 format.
-                If this is not provided, data is aggregated over the current period;
-                e.g., the current day/week/month/year. This value is ignored if period is "all".
-                Currently, the HH:MM:SS part of this value is used only to identify a given day in PST and otherwise ignored
-                For example, if the started_at value resolves to 5PM PST yesterday and period is "day",
-                data is returned for all of yesterday.
-
+                1. REQUIRED: YES; MULTIPLE: NO;
+                2. limit on number of yields, 0 - unlimited
             user_id: `str`
-                ID of the user whose results are returned; i.e., the person who paid for the Bits.
-                As long as count is greater than 1, the returned data includes additional users,
-                with Bits amounts above and below the user specified by user_id.
-        ----------------
+                1. REQUIRED: NO; MULTIPLE: YES NO; VALID VALUES: values; DEFAULT: default;
+                2. ID of the user whose results are returned; i.e., the person who paid for the Bits.
+                   As long as `limit` is greater than 1, the returned data includes additional users,
+                   with Bits amounts above and below the user specified by user_id.
+                   If `user_id` is not provided, the endpoint returns the Bits leaderboard data across top users.
+            started_at: `str`
+                1. REQUIRED: NO; MULTIPLE: NO;
+                2. Timestamp for the period over which the returned data is aggregated. Must be in RFC 3339 format.
+                   If this is not provided, data is aggregated over the current period;
+                   e.g., the current day/week/month/year. This value is ignored if period is "all".
+                   The HH:MM:SS part of this value is used only to identify a given day in PST and otherwise ignored
+                   For example, if the started_at value resolves to 5PM PST yesterday and period is "day",
+                   data is returned for all of yesterday.
+            period: `str`
+                1. REQUIRED: NO; MULTIPLE: NO; VALID VALUES: 'day', 'week', 'month', 'year', 'all'; DEFAULT: 'all';
+                2. Time period over which data is aggregated (PST time zone).This parameter interacts with started_at.
 
         Yields:
-        ================
+        ----------
             `dict` {
                 'rank': `int`
                     Leaderboard rank of the user.
-
                 'score': `int`
                     Leaderboard score (number of Bits) of the user.
-
                 'user_id': `str`
                     ID of the user (viewer) in the leaderboard entry.
-
+                'user_login': `str`
+                    User login name.
                 'user_name': `str`
                     Display name corresponding to user_id.
             }
-        ----------------
 
         Raises:
-        ================
-            :class:`HTTPError`:
-                if status-code is not 2XX, passes `dict` with json of response.
-
-            :class:`AccessError`:
-                if the Authorization-Token hasn't required scope
-        ----------------
+            `HTTPError`:
+                if status-code of response is not 2XX, passes response.
+            `AccessError`:
+                if the Token has not required scope.
         """
+        self._check_scope('bits:read')
 
         params = {}
+        self._insert_count(params, limit, 100)
         if period is not None:
             params['period'] = period
         if started_at is not None:
             params['started_at'] = started_at
         if user_id is not None:
             params['user_id'] = user_id
-        self._insert_count(params, limit, 100)
-        self._check_scope('bits:read')
 
         url = 'https://api.twitch.tv/helix/bits/leaderboard'
-        async for leader in self._handle_cursor(url, limit, params):
+        async for leader in self._handle_pagination(url, limit, params):
             yield leader
 
     async def get_cheermotes(
@@ -526,11 +570,235 @@ class Api:
             broadcaster_id: str = None
     ) -> AsyncGenerator[dict, None]:
         """
+        |AsyncGenerator|
+
+        Yields available Cheermotes, animated emotes to which viewers can assign Bits, to cheer in chat.
+        Cheermotes returned are available throughout Twitch, in all Bits-enabled channels.
+
+        1. SCOPE: NO
+        2. TOKEN: OAuth or App Access Token required.
+
+        Args:
+        ----------
+            limit: `int`
+                1. REQUIRED: YES; MULTIPLE: NO;
+                2. limit on number of yields, 0 - unlimited
+            broadcaster_id: `str`
+                1. REQUIRED: NO; MULTIPLE: NO;
+                2. ID for the broadcaster who might own specialized Cheermotes.
+
+        Yields:
+        ----------
+            dict {
+                'prefix': `str`
+                    The string used to Cheer that precedes the Bits amount.
+                'type': `str`
+                    Shows whether the emote is global_first_party,  global_third_party, channel_custom, display_only,
+                    or sponsored.
+                'order': `int`
+                    Order of the emotes as shown in the bits card, in ascending order.
+                'last_updated': `str`
+                    The data when this Cheermote was last updated.
+                'is_charitable': `bool`
+                     Indicates whether or not this emote provides a charity contribution match during charity campaigns.
+                'tiers': `dict` {
+                    'min_bits': `int`
+                        Minimum number of bits needed to be used to hit the given tier of emote.
+                    'id': `str`
+                        ID of the emote tier. Possible tiers are: 1,100,500,1000,5000, 10k, or 100k.
+                    'color': `str`
+                        Hex code for the color associated with the bits of that tier.
+                        Grey, Purple, Teal, Blue, or Red color to match the base bit type.
+                    'can_cheer': `bool`
+                        Indicates whether or not emote information is accessible to users.
+                    'show_in_bits_card': `bool`
+                        Indicates whether or not we hide the emote from the bits card.
+                    'images': {
+                        'dark': {
+                            'animated': {
+                                '1': `str`
+                                    1x scale of image (i guess)
+                                '1.5': `str`
+                                    1.5x scale of image (i guess)
+                                '2': `str`
+                                    2x scale of image (i guess)
+                                '3': `str`
+                                    3x scale of image (i guess)
+                                '4': `str`
+                                    4x scale of image (i guess)
+                            }
+
+                            'static': {
+                                <↑same_with↑>
+                            }
+                        }
+
+                        'light': {
+                            'animated': {
+                                <↑same_with↑>
+                            }
+
+                            'static':{
+                                <↑same_with↑>
+                            }
+                        }
+                    }
+                }
+            }
+
+        Raises:
+            `HTTPError`:
+                if status-code of response is not 2XX, passes response.
+        """
+
+        params = {}
+        if broadcaster_id is not None:
+            params['broadcaster_id'] = broadcaster_id
+
+        url = 'https://api.twitch.tv/helix/bits/cheermotes'
+        async for cheermote in self._handle_pagination(url, limit, params):
+            yield cheermote
+
+    async def get_extension_transactions(
+            self,
+            limit: int,
+            extension_id: str,
+            transaction_id: Union[Iterable[str], str] = None
+    ) -> AsyncGenerator[dict, None]:
+        """
+        |AsyncGenerator|
+
+        Get Extension Transactions allows extension back end servers to fetch a list of transactions
+        that have occurred for their extension across all of Twitch.
+        A transaction is a record of a user exchanging Bits for an in-Extension digital good.
+
+        1. SCOPE: NO
+        2. TOKEN: OAuth or App Access Token required.
+
+        Args:
+        ----------
+            limit: `int`
+                1. REQUIRED: YES; MULTIPLE: NO;
+                2. limit on number of yields, 0 - unlimited
+            extension_id: `str`
+                1. REQUIRED: YES; MULTIPLE: NO;
+                2. ID of the extension to list transactions for. Maximum: 1
+            transaction_id: Union[Iterable[`str`], `str`]
+                1. REQUIRED: NO; MULTIPLE: YES;
+                2. Transaction IDs to look up. Can include multiple to fetch multiple transactions in a single request.
+
+        Yields:
+        ----------
+            `dict` {
+                'id': `str`
+                    Unique identifier of the Bits in Extensions Transaction.
+                'timestamp': `str`
+                    UTC timestamp when this transaction occurred.
+                'broadcaster_id': `str`
+                    Twitch User ID of the channel the transaction occurred on.
+                'broadcaster_name': `str`
+                    Twitch Display Name of the broadcaster.
+                'user_id': `str`
+                    Twitch User ID of the user who generated the transaction.
+                'user_login': `str`
+                    Login name of the user who generated the transaction.
+                'user_name': `str`
+                    Twitch Display Name of the user who generated the transaction.
+                'product_type': `str`
+                    Enum of the product type. Currently only 'BITS_IN_EXTENSION'.
+                'product_data': `dict` {
+                    'sku': `str`
+                        Unique identifier for the product across the extension.
+                    'displayName': `str`
+                        Display Name of the product.
+                    'inDevelopment': `bool`
+                        Flag used to indicate if the product is in development. Either true or false.
+                    'cost': `dict` {
+                        'amount': `int`
+                            Number of Bits required to acquire the product.
+                        'type': `str`
+                            Always the string
+                    }
+                }
+            }
+
+        Raises:
+            `HTTPError`:
+                if status-code of response is not 2XX, passes response.
+        """
+        params = {}
+        self._insert_first(params, limit, 100)
+        if extension_id is not None:
+            params['extension_id'] = extension_id
+        if transaction_id is not None:
+            params['id'] = transaction_id
+
+        url = 'https://api.twitch.tv/helix/extensions/transactions'
+        async for transaction in self._handle_pagination(url, limit, params):
+            yield transaction
+
+    #
+    # Bits
+    #################################
+
+    #################################
+    # Channels
+    #
+
+    async def get_channel_information(self, broadcaster_id: str) -> dict:
+        """
+        |Coroutine|\n
+        Gets channel information for users.\n
+        No REQUIRED scope
+
+        Args:
+        ================
+            broadcaster_id: REQUIRED `str`
+                ID of the channel.
+
+        Returns:
+        ================
+            `dict` {
+                'broadcaster_id': `str`
+                    Twitch User ID of this channel owner
+
+                'broadcaster_name': `str`
+                    Twitch user display name of this channel owner
+
+                'game_name': `str`
+                    Name of the game being played on the channel
+
+                'game_id': `int`
+                    Current game ID being played on the channel
+
+                'broadcaster_language': `str`
+                    Language of the channel.
+                    A language value is either the ISO 639-1 two-letter code for a supported stream language or “other”.
+
+                'title': `str`
+                    Title of the stream
+            }
+
+        Raises:
+        ================
+            :class:`HTTPError`:
+                if status-code is not 2XX, passes `dict` with json of response.
+        """
+
+        params = {}
+        if broadcaster_id is not None:
+            params['broadcaster_id'] = broadcaster_id
+
+        url = 'https://api.twitch.tv/helix/channels'
+        info = await self._http_get(url, params)
+        return info['data'][0]
+
+    async def get_channel_editors(self, limit: int, broadcaster_id: str) -> AsyncGenerator[dict, None]:
+        """
         |Async Generator|
         ================
-        Yields available Cheermotes, animated emotes to which viewers can assign Bits, to cheer in chat.
-        Cheermotes returned are available throughout Twitch, in all Bits-enabled channels.\n
-        no REQUIRED scope
+        Yields  users who have editor permissions for a specific channel.\n
+        REQUIRED scope 'channel:read:editors'
 
         ----------------
 
@@ -540,44 +808,20 @@ class Api:
                 limit on number of returned values, 0 - unlimited
 
             broadcaster_id: `str`
-                ID for the broadcaster who might own specialized Cheermotes.
+                Broadcaster’s user ID associated with the channel.
         ----------------
 
         Yields:
         ================
             `dict` {
-                'prefix': `str`
-                    not described
+                'user_id': `str`
+                    User ID of the editor.
 
-                'type': `str`
-                    Shows whether the emote is global_first_party,  global_third_party, channel_custom, display_only,
-                    or sponsored.
+                'user_name': `str`
+                    Display name of the editor.
 
-                'order': `int`
-                    Order of the emotes as shown in the bits card, in ascending order.
-
-                'last_updated': `str`
-                    The data when this Cheermote was last updated.
-
-                'is_charitable': `bool`
-                     Indicates whether or not this emote provides a charity contribution match during charity campaigns.
-
-                'tiers': `dict` {
-                    'min_bits': `int`
-                        Minimum number of bits needed to be used to hit the given tier of emote.
-
-                    'id': `str`
-                        ID of the emote tier. Possible tiers are: 1,100,500,1000,5000, 10k, or 100k.
-
-                    'images': `dict`
-                        Structure containing both animated and static image sets, sorted by light and dark.
-
-                    'can_cheer': `bool`
-                        Indicates whether or not emote information is accessible to users.
-
-                    'show_in_bits_card': `int`
-                        Indicates whether or not we hide the emote from the bits card.
-                }
+                'created_at': `str`
+                    Date and time the editor was given editor permissions.
             }
         ----------------
 
@@ -591,100 +835,76 @@ class Api:
         params = {}
         if broadcaster_id is not None:
             params['broadcaster_id'] = broadcaster_id
+        self._check_scope('channel:read:editors')
 
-        url = 'https://api.twitch.tv/helix/bits/cheermotes'
-        async for cheermote in self._handle_cursor(url, limit, params):
-            yield cheermote
+        url = 'https://api.twitch.tv/helix/channels/editors'
+        async for editor in self._handle_pagination(url, limit, params):
+            yield editor
 
-    async def get_extension_transactions(
+    async def modify_channel_information(
             self,
-            limit: int,
-            extension_id: str,
-            transaction_id: Union[Iterable[str], str] = None
-    ) -> AsyncGenerator[dict, None]:
+            broadcaster_id: str = None,
+            game_id: str = None,
+            broadcaster_language: str = None,
+            title: str = None
+    ) -> None:
         """
-        |Async Generator|
-        ================
-        Get Extension Transactions allows extension back end servers to fetch a list of transactions
-        that have occurred for their extension across all of Twitch.
-        A transaction is a record of a user exchanging Bits for an in-Extension digital good.
-        no REQUIRED scope
-
-        ----------------
+        |Coroutine|\n
+        Modifies channel information for users.\n
+        REQUIRED scope: 'user:edit:broadcast'
 
         Args:
         ================
-            limit: `int`
-                limit on number of returned values, 0 - unlimited
+            broadcaster_id: REQUIRED `str`
+                ID of the channel to be updated.
 
-            extension_id: REQUIRED `str`
-                ID of the extension to list transactions for. Maximum: 1
+            game_id: REQUIRED `str`
+                The current game ID being played on the channel
 
-            transaction_id: Union[Iterable[str], str]
-                Transaction IDs to look up. Can include multiple to fetch multiple transactions in a single request.
-        ----------------
+            broadcaster_language: REQUIRED `str`
+                The language of the channel. A language value must be either the ISO 639-1
+                two-letter code for a supported stream language or “other”.
 
-        Yields:
+            title: REQUIRED `str`
+                The title of the stream
+
+        Returns:
         ================
-            `dict` {
-                'id': `str`
-                    Unique identifier of the Bits in Extensions Transaction.
-
-                'timestamp': `str`
-                    UTC timestamp when this transaction occurred.
-
-                'broadcaster_id': `str`
-                    Twitch User ID of the channel the transaction occurred on.
-
-                'broadcaster_name': `str`
-                    Twitch Display Name of the broadcaster.
-
-                'user_id': `str`
-                    Twitch User ID of the user who generated the transaction.
-
-                'user_name': `str`
-                    Twitch Display Name of the user who generated the transaction.
-
-                'product_type': `str`
-                    Enum of the product type. Currently only 'BITS_IN_EXTENSION'.
-
-                'product_data': `dict` {
-                    'sku': `str`
-                        Unique identifier for the product across the extension.
-
-                    'displayName': `str`
-                        Display Name of the product.
-
-                    'inDevelopment': `bool`
-                        Flag used to indicate if the product is in development. Either true or false.
-
-                    'cost': `dict` {
-                        'amount': `int`
-                            Number of Bits required to acquire the product.
-                        'type': `str`
-                            Always the string
-                    }
-                }
-            }
-        ----------------
+            None:
+                successfully modified, else - raises HTTPError exception.
 
         Raises:
         ================
             :class:`HTTPError`:
-                if status-code is not 2XX, passes `dict` with json of response.
-        ----------------
+                if status-code is not 204, passes `dict` with json of response.
+
+            :class:`AccessError`:
+                if the Authorization-Token hasn't required scope
         """
+
+        data = {'game_id': game_id, 'broadcaster_language': broadcaster_language, 'title': title}
+        if game_id is not None:
+            data['game_id'] = game_id
+        if broadcaster_language is not None:
+            data['broadcaster_language'] = broadcaster_language
+        if title is not None:
+            data['title'] = title
         params = {}
-        if extension_id is not None:
-            params['extension_id'] = extension_id
-        if transaction_id is not None:
-            params['id'] = transaction_id
-        self._insert_first(params, limit, 100)
+        if broadcaster_id is not None:
+            params['broadcaster_id'] = broadcaster_id
+        self._check_scope('user:edit:broadcast')
 
-        url = 'https://api.twitch.tv/helix/extensions/transactions'
-        async for transaction in self._handle_cursor(url, limit, params):
-            yield transaction
+        url = 'https://api.twitch.tv/helix/channels'
+        await self._http_patch(url, data, params)
+        return None
 
+    #
+    # Channels
+    #################################
+
+    #################################
+    # rewards
+    #
     async def create_custom_rewards(
             self,
             broadcaster_id: str,
@@ -704,110 +924,97 @@ class Api:
     ) -> AsyncGenerator[dict, None]:
         """
         |Coroutine|
-        ================
-        Creates a Custom Reward on a channel.\n
-        REQUIRED scope: 'channel:manage:redemptions'
 
-        ----------------
+        Creates a Custom Reward on a channel.
+
+        1. SCOPE: 'channel:manage:redemptions'
+        2. TOKEN: Query parameter broadcaster_id must match the user_id in the User-Access token
 
         Args:
-        ================
-            broadcaster_id: REQUIRED `str`
-                Provided broadcaster_id must match the user_id in the auth token.
-
-            title: REQUIRED `str`
-                The title of the reward
-
-            cost: REQUIRED `int`
-                The cost of the reward
-
+        ----------
+            broadcaster_id: `str`
+                1. REQUIRED: YES; MULTIPLE: NO;
+                2. Provided broadcaster_id must match the user_id in the auth token.
+            title: `str`
+                1. REQUIRED: YES; MULTIPLE: NO;
+                2. The title of the reward
+            cost: `int`
+                1. REQUIRED: YES; MULTIPLE: NO;
+                2. The cost of the reward
             prompt: `str`
-                The prompt for the viewer when they are redeeming the reward
-
+                1. REQUIRED: NO; MULTIPLE: NO;
+                2. The prompt for the viewer when they are redeeming the reward
             is_enabled: `bool`
-                Is the reward currently enabled, if false the reward won’t show up to viewers. Defaults true
-
+                1. REQUIRED: NO; MULTIPLE: NO;
+                2. Is the reward currently enabled, if false the reward won’t show up to viewers. Defaults true
             max_per_stream: `int`
-                The maximum number per stream if enabled
-
+                1. REQUIRED: NO; MULTIPLE: NO;
+                2. The maximum number per stream if enabled
             background_color: `str`
-                Custom background color for the reward. Format: Hex with # prefix. Example: #00E5CB.
-
+                1. REQUIRED: NO; MULTIPLE: NO;
+                2. Custom background color for the reward. Format: Hex with # prefix. Example: #00E5CB.
             is_user_input_required: `bool`
-                Does the user need to enter information when redeeming the reward. Defaults false
-
+                1. REQUIRED: NO; MULTIPLE: NO;  DEFAULT: false;
+                2. Does the user need to enter information when redeeming the reward.
             max_per_user_per_stream: `int`
-                The maximum number per user per stream if enabled
-
+                1. REQUIRED: NO; MULTIPLE: NO;
+                2. The maximum number per user per stream if enabled
             global_cooldown_seconds: `int`
-                The cooldown in seconds if enabled
-
+                1. REQUIRED: NO; MULTIPLE: NO;
+                2. The cooldown in seconds if enabled
             is_max_per_stream_enabled: `bool`
-                Whether a maximum per stream is enabled. Defaults to false.
-
+                1. REQUIRED: NO; MULTIPLE: NO;  DEFAULT: false;
+                2. Whether a maximum per stream is enabled.
             is_global_cooldown_enabled: `bool`
-                Whether a cooldown is enabled. Defaults to false.
-
+                1. REQUIRED: NO; MULTIPLE: NO;  DEFAULT: false;
+                2. Whether a cooldown is enabled.
             is_max_per_user_per_stream_enabled: `bool`
-                Whether a maximum per user per stream is enabled. Defaults to false.
-
+                1. REQUIRED: NO; MULTIPLE: NO;  DEFAULT: false;
+                2. Whether a maximum per user per stream is enabled.
             should_redemptions_skip_request_queue: `bool`
-                Should redemptions be set to FULFILLED status immediately when redeemed
-                and skip the request queue instead of the normal UNFULFILLED status. Defaults false
-        ----------------
+                1. REQUIRED: NO; MULTIPLE: NO; DEFAULT: false;
+                2. Should redemptions be set to FULFILLED status immediately when redeemed
+                   and skip the request queue instead of the normal UNFULFILLED status.
 
         Returns:
-        ================
+        ----------
             `dict` {
                 'id': `str`
                     ID of the reward
-
                 'broadcaster_id': `str`
                     ID of the channel the reward is for'
-
+                'broadcaster_login': `str`
+                    Broadcaster’s user login name.
                 'broadcaster_name': `str`
                     Display name of the channel the reward is for
-
                 'title':  `str`
                     The title of the reward
-
                 'cost': REQUIRED `int`
                     The cost of the reward
-
                 'prompt': `str`
                     The prompt for the viewer when they are redeeming the reward
-
                 'is_enabled': `bool`
                     Is the reward currently enabled, if false the reward won’t show up to viewers. Defaults true
-
                 'is_paused': `bool`
                     Is the reward currently paused, if true viewers can’t redeem
-
                 'is_in_stock': `bool`
                     Is the reward currently in stock, if false viewers can’t redeem
-
                 'is_user_input_required': `bool`
                     Does the user need to enter information when redeeming the reward
-
                 'background_color': `str`
                     Custom background color for the reward. Format: Hex with # prefix. Example: #00E5CB.
-
                 'should_redemptions_skip_request_queue': `bool`
                     Should redemptions be set to FULFILLED status immediately when redeemed
                     and skip the request queue instead of the normal UNFULFILLED status. Defaults false
-
                 'redemptions_redeemed_current_stream': Optional[`int`]
                     The number of redemptions redeemed during the current live stream.
                     Counts against the max_per_stream_setting limit.
                     Null if the broadcasters stream isn’t live or max_per_stream_setting isn’t enabled.
-
                 'cooldown_expires_at': Optional[`str`]
                     Timestamp of the cooldown expiration. Null if the reward isn’t on cooldown.
-
                 'max_per_stream_setting': `dict` {
                     'is_enabled': `bool`
                         marks if this enabled
-
                     'max_per_stream': `int`
                         The maximum number per stream if enabled, else - 0
                 }
@@ -815,7 +1022,6 @@ class Api:
                 'max_per_user_per_stream_setting': `dict` {
                     'is_enabled': `bool`
                         marks if this enabled
-
                     'max_per_user_per_stream': `int`
                         The maximum number per user per stream if enabled, else - 0
                 }
@@ -823,7 +1029,6 @@ class Api:
                 'global_cooldown_setting': `dict` {
                     'is_enabled': `bool`
                         marks if this enabled
-
                     'global_cooldown_seconds': `int`
                         The cooldown in seconds if enabled, else - 0
                 }
@@ -835,8 +1040,7 @@ class Api:
                         url for 2x image
                     'url_4x': `str`
                         url for 4x image
-                }, Set of custom images of 1x, 2x and 4x sizes for the reward,
-                can be null if no images have been uploaded.
+                }, can be null if no images are uploaded.
 
                 'default_image': `dict` {
                     'url_1x': `str`,
@@ -847,17 +1051,15 @@ class Api:
                         url for 4x image
                 }, Set of default images of 1x, 2x and 4x sizes for the reward.
             }
-        ----------------
 
         Raises:
-        ================
-            :class:`HTTPError`:
-                if status-code is not 2XX, passes `dict` with json of response.
-
-            :class:`AccessError`:
-                if the Authorization-Token hasn't required scope
-        ----------------
+            `HTTPError`:
+                if status-code of response is not 2XX, passes response.
+            `AccessError`:
+                if the Token has not required scope.
         """
+        self._check_scope('channel:manage:redemptions')
+
         data = {}
         if cost is not None:
             data['cost'] = cost
@@ -888,7 +1090,6 @@ class Api:
         params = {}
         if broadcaster_id is not None:
             params['broadcaster_id'] = broadcaster_id
-        self._check_scope('channel:manage:redemptions')
 
         url = 'https://api.twitch.tv/helix/channel_points/custom_rewards'
         response = await self._http_post(url, data, params)
@@ -901,43 +1102,40 @@ class Api:
     ) -> None:
         """
         |Coroutine|
-        ================
+
         Deletes a Custom Reward on a channel.
         Only rewards created by the same client_id can be deleted.
-        Any UNFULFILLED Custom Reward Redemptions of the deleted Custom Reward will be updated to the FULFILLED status\n
-        REQUIRED scope: 'channel:manage:redemptions'
+        Any UNFULFILLED Custom Reward Redemptions of the deleted Custom Reward will be updated to the FULFILLED status
 
-        ----------------
+        1. SCOPE: 'channel:manage:redemptions'
+        2. TOKEN: Query parameter broadcaster_id must match the user_id in the User Access token
 
         Args:
-        ================
+        ----------
             broadcaster_id: REQUIRED `str`
-                Provided broadcaster_id must match the user_id in the auth token.
-
+                1. REQUIRED: YES; MULTIPLE: NO;
+                2. Provided `broadcaster_id` must match the `user_id` in the auth token.
             reward_id: REQUIRED `str`
-                ID of the Custom Reward to delete, must match a Custom Reward on broadcaster_id’s channel.
-        ----------------
+                1. REQUIRED: YES; MULTIPLE: NO;
+                2. ID of the Custom Reward to delete, must match a Custom Reward on `broadcaster_id`’s channel.
 
         Returns:
-        ================
-            `None` :
-                successfully deleted, else - raises :class:`HTTPError` exception.
-        ----------------
+        ----------
+            `None`
 
         Raises:
-        ================
-            :class:`HTTPError`:
-                if status-code is not 204(No Content), passes `dict` with json of response.\n
-                None in return means - successfully deleted, else - raises this exception.
-        ----------------
+            `HTTPError`:
+                if status-code of response is not 2XX, passes response.
+            `AccessError`:
+                if the Token has not required scope.
         """
+        self._check_scope('channel:manage:redemptions')
 
         params = {}
         if broadcaster_id is not None:
             params['broadcaster_id'] = broadcaster_id
         if reward_id is not None:
             params['id'] = reward_id
-        self._check_scope('channel:manage:redemptions')
 
         url = 'https://api.twitch.tv/helix/channel_points/custom_rewards'
         await self._http_delete(url, params)
@@ -951,82 +1149,69 @@ class Api:
             only_manageable_rewards: bool = None
     ) -> AsyncGenerator[dict, None]:
         """
-        |Async Generator|
-        ================
-        Yields Custom Reward objects for the Custom Rewards on a channel.
-        Developers only have access to update and delete rewards that the same/calling client_id created.\n
-        REQUIRED scope: 'channel:read:redemptions'
+        |AsyncGenerator|
 
-        ----------------
+        Yields Custom Reward objects for the Custom Rewards on a channel.
+        Developers only have access to update and delete rewards that the same/calling client_id created.
+
+        1. SCOPE: 'channel:read:redemptions'
+        2. TOKEN: Query parameter broadcaster_id must match the user_id in the User Access token
 
         Args:
-        ================
+        ----------
             limit: `int`
-                limit on number of returned values, 0 - unlimited
-
-            broadcaster_id: REQUIRED `str`
-                Provided broadcaster_id must match the user_id in the auth token.
-
+                1. REQUIRED: YES; MULTIPLE: NO;
+                2. limit on number of yields, 0 - unlimited
+            broadcaster_id: `str`
+                1. REQUIRED: YES; MULTIPLE: NO;
+                2. Provided broadcaster_id must match the user_id in the auth token.
             reward_id: Union[`str`, Iterable[`str`]]
-                When used, this parameter filters the results and only returns reward objects
-                for the Custom Rewards with matching ID. Maximum: 50
-
+                1. REQUIRED: NO; MULTIPLE: YES;
+                2. When used, this parameter filters the results and only returns reward objects
+                   for the Custom Rewards with matching ID. Maximum: 50
             only_manageable_rewards: `bool`
-                When set to true, only returns custom rewards that the calling client_id can manage. Defaults false.
-        ----------------
+                1. REQUIRED: NO; MULTIPLE: NO; DEFAULT: false;
+                2. When set to true, only returns custom rewards that the calling client_id can manage.
 
         Yields:
-        ================
+        ----------
             `dict` {
                 'id': `str`
                     ID of the reward
-
                 'broadcaster_id': `str`
                     ID of the channel the reward is for
-
+                'broadcaster_login': `str`
+                    Login of the channel the reward is for
                 'broadcaster_name': `str`
                     Display name of the channel the reward is for
-
                 'title':  `str`
                     The title of the reward
-
                 'cost': REQUIRED `int`
                     The cost of the reward
-
                 'prompt': `str`
                     The prompt for the viewer when they are redeeming the reward
-
                 'is_enabled': `bool`
                     Is the reward currently enabled, if false the reward won’t show up to viewers. Defaults true
-
                 'is_paused': `bool`
                     Is the reward currently paused, if true viewers can’t redeem
-
                 'is_in_stock': `bool`
                     Is the reward currently in stock, if false viewers can’t redeem
-
                 'is_user_input_required': `bool`
                     Does the user need to enter information when redeeming the reward
-
                 'background_color': `str`
                     Custom background color for the reward. Format: Hex with # prefix. Example: #00E5CB.
-
                 'should_redemptions_skip_request_queue': `bool`
                     Should redemptions be set to FULFILLED status immediately when redeemed
                     and skip the request queue instead of the normal UNFULFILLED status. Defaults false
-
                 'redemptions_redeemed_current_stream': Optional[`int`]
                     The number of redemptions redeemed during the current live stream.
                     Counts against the max_per_stream_setting limit.
                     Null if the broadcasters stream isn’t live or max_per_stream_setting isn’t enabled.
-
                 'cooldown_expires_at': Optional[`str`]
                     Timestamp of the cooldown expiration. Null if the reward isn’t on cooldown.
-
                 'max_per_stream_setting': `dict` {
                     'is_enabled': `bool`
                         marks if this enabled
-
                     'max_per_stream': `int`
                         The maximum number per stream if enabled, else - 0
                 }
@@ -1034,7 +1219,6 @@ class Api:
                 'max_per_user_per_stream_setting': `dict` {
                     'is_enabled': `bool`
                         marks if this enabled
-
                     'max_per_user_per_stream': `int`
                         The maximum number per user per stream if enabled, else - 0
                 }
@@ -1054,7 +1238,7 @@ class Api:
                         url for 2x image
                     'url_4x': `str`
                         url for 4x image
-                }, Set of custom images of 1x, 2x and 4x sizes for the reward, can be null if no images have been uploaded.
+                }, can be null if no images have been uploaded.
 
                 'default_image': `dict` {
                     'url_1x': `str`,
@@ -1065,17 +1249,14 @@ class Api:
                         url for 4x image
                 }, Set of default images of 1x, 2x and 4x sizes for the reward.
             }
-        ----------------
 
         Raises:
-        ================
-            :class:`HTTPError`:
-                if status-code is not 2XX, passes `dict` with json of response.
-
-            :class:`AccessError`:
-                if the Authorization-Token hasn't required scope
-        ----------------
+            `HTTPError`:
+                if status-code of response is not 2XX, passes response.
+            `AccessError`:
+                if the Token has not required scope.
         """
+        self._check_scope('channel:read:redemptions')
 
         params = {}
         if broadcaster_id is not None:
@@ -1084,110 +1265,98 @@ class Api:
             params['id'] = reward_id
         if only_manageable_rewards is not None:
             params['only_manageable_rewards'] = only_manageable_rewards
-        self._check_scope('channel:read:redemptions')
 
         url = 'https://api.twitch.tv/helix/channel_points/custom_rewards'
-        async for reward in self._handle_cursor(url, limit, params):
+        async for reward in self._handle_pagination(url, limit, params):
             yield reward
 
     async def get_custom_reward_redemption(
             self,
             limit: int,
             broadcaster_id: str,
-            reward_id: str,
+            reward_id: str ,
             redemption_id: Union[Iterable[str], str] = None,
             status: str = None,
             sort: str = None
     ) -> AsyncGenerator[dict, None]:
         """
-        |Async Generator|
-        ================
-        Yields Custom Reward Redemption objects for a Custom Reward on a channel that was created by the same client_id
-        Developers only have access to get and update redemptions for the rewards they created.\n
-        REQUIRED scope: 'channel:read:redemptions'
+        |AsyncGenerator|
 
-        ----------------
+        Yields Custom Reward Redemption objects for a Custom Reward on a channel that was created by the same client_id
+        Developers only have access to get and update redemptions for the rewards they created.
+
+        1. SCOPE: 'channel:read:redemptions'
+        2. TOKEN: Parameter broadcaster_id must match the user_id in the User Access token
 
         Args:
-        ================
+        ----------
             limit: `int`
-                limit on number of returned values, 0 - unlimited
-
-            broadcaster_id: REQUIRED `str`
-                Provided broadcaster_id must match the user_id in the auth token.
-
-            reward_id: REQUIRED `str`
-                When ID is not provided, this parameter returns paginated Custom Reward Redemption objects
-                for redemptions of the Custom Reward with ID reward_id
-
+                1. REQUIRED: YES; MULTIPLE: NO;
+                2. limit on number of yields, 0 - unlimited
+            broadcaster_id: `str`
+                1. REQUIRED: YES; MULTIPLE: NO;
+                2. Provided broadcaster_id must match the user_id in the auth token.
+            reward_id: `str`
+                1. REQUIRED: YES; MULTIPLE: YES NO;
+                2. When ID is not provided, this parameter returns paginated Custom Reward Redemption objects
+                   for redemptions of the Custom Reward with ID reward_id
             redemption_id: Union[Iterable[str], str]
-                When used, this param filters the results and only returns Custom Reward Redemption objects
-                or the redemptions with matching ID. Maximum: 50
-
+                1. REQUIRED: NO; MULTIPLE: YES;
+                2. When used, this param filters the results and only returns Custom Reward Redemption objects
+                   or the redemptions with matching ID. Maximum: 50
             status: `str`
-                When `redemption_id` is not provided, this param is required
-                and filters the paginated Custom Reward Redemption objects for redemptions with the matching status.
-                Can be one of UNFULFILLED, FULFILLED or CANCELED
-
+                1. REQUIRED: NO; MULTIPLE: NO; VALID VALUES: 'UNFULFILLED', 'FULFILLED' or 'CANCELED';
+                2. When `redemption_id` is not provided, this param is required
+                   and filters the paginated Custom Reward Redemption objects for redemptions with the matching status.
             sort: `str`
-                order of redemptions returned when getting the paginated Custom Reward Redemption objects for a reward.
-                One of: OLDEST, NEWEST. Default: OLDEST.
-        ----------------
+                1. REQUIRED: NO; MULTIPLE: NO; VALID VALUES: 'OLDEST', 'NEWEST'; DEFAULT: OLDEST;
+                2. order of redemptions returned when getting the paginated Custom Reward Redemption objects for reward.
 
         Yields:
-        ================
+        ----------
             `dict` {
                 'id': `str`
                     The ID of the redemption.
-
                 'broadcaster_id': `str`
                     The id of the broadcaster that the reward belongs to.
-
+                'broadcaster_login': `str`
+                    Broadcaster’s user login name.
                 'broadcaster_name': `str`
                     The display name of the broadcaster that the reward belongs to.
-
                 'user_id': `str`
                     The ID of the user that redeemed the reward
-
+                'user_login': `str`
+                    The login of the user who redeemed the reward.
                 'user_name': `str`
                     The display name of the user that redeemed the reward.
-
                 'user_input':  `str`
                     The user input provided. Empty string if not provided.
-
                 'status': `str`
                     One of UNFULFILLED, FULFILLED or CANCELED
-
                 'redeemed_at': `str`
                     RFC3339 timestamp of when the reward was redeemed.
-
                 'reward': `dict` {
                     'id': `str`,
                         ID of reward
-
                     'title': `str`,
                         title of reward
-
                     'prompt': `str`
                         prompt of reward
-
                     'cost': `int`
                         cost of reward
                 }
             }
-        ----------------
 
         Raises:
-        ================
-            :class:`HTTPError`:
-                if status-code is not 2XX, passes `dict` with json of response.
-
-            :class:`AccessError`:
-                if the Authorization-Token hasn't required scope
-        ----------------
+            `HTTPError`:
+                if status-code of response is not 2XX, passes response.
+            `AccessError`:
+                if the Token has not required scope.
         """
+        self._check_scope('channel:read:redemptions')
 
         params = {}
+        self._insert_first(params, limit, 50)
         if broadcaster_id is not None:
             params['broadcaster_id'] = broadcaster_id
         if reward_id is not None:
@@ -1198,11 +1367,9 @@ class Api:
             params['status'] = status
         if sort is not None:
             params['sort'] = sort
-        self._insert_first(params, limit, 50)
-        self._check_scope('channel:read:redemptions')
 
         url = 'https://api.twitch.tv/helix/channel_points/custom_rewards/redemptions'
-        async for reward in self._handle_cursor(url, limit, params):
+        async for reward in self._handle_pagination(url, limit, params):
             yield reward
 
     async def update_custom_reward(
@@ -1226,117 +1393,104 @@ class Api:
     ) -> dict:
         """
         |Coroutine|
-        ================
-        Updates a Custom Reward created on a channel.
-        Only rewards created by the same client_id can be updated.\n
-        REQUIRED scope: 'channel:manage:redemptions'
 
-        ----------------
+        Updates a Custom Reward created on a channel.
+        Only rewards created by the same client_id can be updated.
+
+        1. SCOPE: 'channel:manage:redemptions'
+        2. TOKEN: Parameter broadcaster_id must match the user_id in the User Access token
 
         Args:
-        ================
-            broadcaster_id: REQUIRED `str`
-                Provided broadcaster_id must match the user_id in the auth token.
-
-            reward_id: REQUIRED `str`
-                ID of the Custom Reward to update, must match a Custom Reward on broadcaster_id’s channel.
-
+        ----------
+            broadcaster_id: `str`
+                1. REQUIRED: YES; MULTIPLE: NO;
+                2. Provided broadcaster_id must match the user_id in the auth token.
+            reward_id: `str`
+                1. REQUIRED: YES; MULTIPLE: NO;
+                2. ID of the Custom Reward to update, must match a Custom Reward on broadcaster_id’s channel.
             title: `str`
-                The title of the reward
-
+                1. REQUIRED: NO; MULTIPLE: NO;
+                2. The title of the reward
             cost: `int`
-                The cost of the reward
-
+                1. REQUIRED: NO; MULTIPLE: NO;
+                2. The cost of the reward
             prompt: `str`
-                The prompt for the viewer when they are redeeming the reward
-
+                1. REQUIRED: NO; MULTIPLE: NO;
+                2. The prompt for the viewer when they are redeeming the reward
             is_enabled: `bool`
-                Is the reward currently enabled, if false the reward won’t show up to viewers. Defaults true
-
+                1. REQUIRED: NO; MULTIPLE: NO;
+                2. Is the reward currently enabled, if false the reward won’t show up to viewers
             is_paused: `bool`
-                Is the reward currently paused, if true viewers can’t redeem
-
+                1. REQUIRED: NO; MULTIPLE: NO;
+                2. Is the reward currently paused, if true viewers can’t redeem
             max_per_stream: `int`
-                The maximum number per stream if enabled
-
+                1. REQUIRED: NO; MULTIPLE: NO;
+                2. The maximum number per stream if enabled
             background_color: `str`
-                Custom background color for the reward. Format: Hex with # prefix. Example: #00E5CB.
-
+                1. REQUIRED: NO; MULTIPLE: NO;
+                2. Custom background color for the reward. Format: Hex with # prefix. Example: #00E5CB.
             is_user_input_required: `bool`
-                Does the user need to enter information when redeeming the reward. Defaults false
-
+                1. REQUIRED: NO; MULTIPLE: NO;
+                2. Does the user need to enter information when redeeming the reward.
             max_per_user_per_stream: `int`
-                The maximum number per user per stream if enabled
-
+                1. REQUIRED: NO; MULTIPLE: NO;
+                2. The maximum number per user per stream if enabled
             global_cooldown_seconds: `int`
-                The cooldown in seconds if enabled
-
+                1. REQUIRED: NO; MULTIPLE: NO;
+                2. The cooldown in seconds if enabled
             is_max_per_stream_enabled: `bool`
-                Whether a maximum per stream is enabled. Defaults to false.
-
+                1. REQUIRED: NO; MULTIPLE: NO;
+                2. Whether a maximum per stream is enabled
             is_global_cooldown_enabled: `bool`
-                Whether a cooldown is enabled. Defaults to false.
-
+                1. REQUIRED: NO; MULTIPLE: NO;
+                2. Whether a cooldown is enabled.
             is_max_per_user_per_stream_enabled: `bool`
-                Whether a maximum per user per stream is enabled. Defaults to false.
-
+                1. REQUIRED: NO; MULTIPLE: NO;
+                2. Whether a maximum per user per stream is enabled.
             should_redemptions_skip_request_queue: `bool`
-                Should redemptions be set to FULFILLED status immediately when redeemed
-                and skip the request queue instead of the normal UNFULFILLED status. Defaults false
-        ----------------
+                1. REQUIRED: NO; MULTIPLE: NO;
+                2. Should redemptions be set to FULFILLED status immediately when redeemed
+                   and skip the request queue instead of the normal UNFULFILLED status.
 
         Returns:
-        ================
+        ----------
             `dict` {
                 'id': `str`
                     ID of the reward
-
                 'broadcaster_id': `str`
-                    ID of the channel the reward is for'
-
+                    ID of the channel the reward is for
+                'broadcaster_login': `str`
+                    Broadcaster’s user login name.
                 'broadcaster_name': `str`
                     Display name of the channel the reward is for
-
                 'title':  `str`
                     The title of the reward
-
                 'cost': REQUIRED `int`
                     The cost of the reward
-
                 'prompt': `str`
                     The prompt for the viewer when they are redeeming the reward
-
-                'is_paused': `bool`
-                    Is the reward currently paused, if true viewers can’t redeem
-
-                'is_enabled': `bool`
-                    Is the reward currently enabled, if false the reward won’t show up to viewers. Defaults true
-
-                'is_in_stock': `bool`
-                    Is the reward currently in stock, if false viewers can’t redeem
-
-                'is_user_input_required': `bool`
-                    Does the user need to enter information when redeeming the reward
-
                 'background_color': `str`
                     Custom background color for the reward. Format: Hex with # prefix. Example: #00E5CB.
-
+                'is_paused': `bool`
+                    Is the reward currently paused, if true viewers can’t redeem
+                'is_enabled': `bool`
+                    Is the reward currently enabled, if false the reward won’t show up to viewers. Defaults true
+                'is_in_stock': `bool`
+                    Is the reward currently in stock, if false viewers can’t redeem
+                'is_user_input_required': `bool`
+                    Does the user need to enter information when redeeming the reward
                 'should_redemptions_skip_request_queue': `bool`
                     Should redemptions be set to FULFILLED status immediately when redeemed
                     and skip the request queue instead of the normal UNFULFILLED status. Defaults false
-
                 'redemptions_redeemed_current_stream': Optional[`int`]
                     The number of redemptions redeemed during the current live stream.
                     Counts against the max_per_stream_setting limit.
                     Null if the broadcasters stream isn’t live or max_per_stream_setting isn’t enabled.
-
                 'cooldown_expires_at': Optional[`str`]
                     Timestamp of the cooldown expiration. Null if the reward isn’t on cooldown.
-
                 'max_per_stream_setting': `dict` {
                     'is_enabled': `bool`
                         marks if this enabled
-
                     'max_per_stream': `int`
                         The maximum number per stream if enabled, else - 0
                 }
@@ -1344,7 +1498,6 @@ class Api:
                 'max_per_user_per_stream_setting': `dict` {
                     'is_enabled': `bool`
                         marks if this enabled
-
                     'max_per_user_per_stream': `int`
                         The maximum number per user per stream if enabled, else - 0
                 }
@@ -1352,7 +1505,6 @@ class Api:
                 'global_cooldown_setting': `dict` {
                     'is_enabled': `bool`
                         marks if this enabled
-
                     'global_cooldown_seconds': `int`
                         The cooldown in seconds if enabled, else - 0
                 }
@@ -1364,7 +1516,7 @@ class Api:
                         url for 2x image
                     'url_4x': `str`
                         url for 4x image
-                }, Set of custom images of 1x, 2x and 4x sizes for the reward, can be null if no images have been uploaded.
+                }, can be null if no images have been uploaded.
 
                 'default_image': `dict` {
                     'url_1x': `str`,
@@ -1375,17 +1527,14 @@ class Api:
                         url for 4x image
                 }, Set of default images of 1x, 2x and 4x sizes for the reward.
             }
-        ----------------
 
         Raises:
-        ================
-            :class:`HTTPError`:
-                if status-code is not 2XX, passes `dict` with json of response.
-
-            :class:`AccessError`:
-                if the Authorization-Token hasn't required scope
-        ----------------
+            `HTTPError`:
+                if status-code of response is not 2XX, passes response.
+            `AccessError`:
+                if the Token has not required scope.
         """
+        self._check_scope('channel:manage:redemptions')
 
         data = {}
         if cost is not None:
@@ -1421,7 +1570,6 @@ class Api:
             params['broadcaster_id'] = broadcaster_id
         if reward_id is not None:
             params['id'] = reward_id
-        self._check_scope('channel:manage:redemptions')
 
         url = 'https://api.twitch.tv/helix/channel_points/custom_rewards'
         response = await self._http_patch(url, data, params)
@@ -1436,81 +1584,71 @@ class Api:
     ) -> dict:
         """
         |Coroutine|
-        ================
-        Updates the status of Custom Reward Redemption objects on a channel that are in the UNFULFILLED status.
-        Only redemptions for a reward created by the same client_id as attached to the access token can be updated.\n
-        REQUIRED scope: 'channel:manage:redemptions'
 
-        ----------------
+        Updates the status of Custom Reward Redemption objects on a channel that are in the UNFULFILLED status.
+        Only redemptions for a reward created by the same client_id as attached to the access token can be updated.
+
+        1. SCOPE: 'channel:manage:redemptions'
+        2. TOKEN: Parameter broadcaster_id must match the user_id in the User-Access token
 
         Args:
-        ================
-            broadcaster_id: REQUIRED `str`
-                Provided broadcaster_id must match the user_id in the auth token.
-
-            reward_id: REQUIRED `str`
-                ID of the Custom Reward to update, must match a Custom Reward on broadcaster_id’s channel.
-
-            redemption_id: REQUIRED `str`
-                ID of the Custom Reward to update, must match a Custom Reward on broadcaster_id’s channel.
-
-            status: REQUIRED `str`
-                The new status to set redemptions to. Can be either FULFILLED or CANCELED.
-                Updating to CANCELED will refund the user their points.
-        ----------------
+        ----------
+            broadcaster_id: `str`
+                1. REQUIRED: YES; MULTIPLE: NO; 2. MULTIPLE
+                2. Provided broadcaster_id must match the user_id in the auth token.
+            reward_id: `str`
+                1. REQUIRED: YES; MULTIPLE: NO;
+                2. ID of the Custom Reward to update, must match a Custom Reward on broadcaster_id’s channel.
+            redemption_id: `Union[Iterable[str], str]`
+                1. REQUIRED: YES; MULTIPLE: YES;
+                2. ID of the Custom Reward Redemption to update,
+                   must match a Custom Reward Redemption on broadcaster_id’s channel Max: 50
+            status: `str`
+                1. REQUIRED: YES; MULTIPLE: NO; VALID VALUES: 'FULFILLED', 'CANCELED';
+                2. The new status to set redemptions to. Updating to CANCELED will refund the user their points.
 
         Returns:
-        ================
+        ----------
             `dict` {
                 'id': `str`
                     The ID of the redemption.
-
                 'broadcaster_id': `str`
                     The id of the broadcaster that the reward belongs to.
-
+                'broadcaster_login': `str`
+                    Broadcaster’s user login name.
                 'broadcaster_name': `str`
                     The display name of the broadcaster that the reward belongs to.
-
                 'user_id': `str`
                     The ID of the user that redeemed the reward
-
+                'user_login': `str`
+                    The login of the user that redeemed the reward.
                 'user_name': `str`
                     The display name of the user that redeemed the reward.
-
                 'user_input':  `str`
                     The user input provided. Empty string if not provided.
-
                 'status': `str`
                     One of UNFULFILLED, FULFILLED or CANCELED
-
                 'redeemed_at': `str`
                     RFC3339 timestamp of when the reward was redeemed.
-
                 'reward': `dict` {
                     'id': `str`,
                         ID of reward
-
                     'title': `str`,
                         title of reward
-
                     'prompt': `str`
                         prompt of reward
-
                     'cost': `int`
                         cost of reward
                 }
             }
-        ----------------
 
         Raises:
-        ================
-            :class:`HTTPError`:
-                if status-code is not 2XX, passes `dict` with json of response.
-
-            :class:`AccessError`:
-                if the Authorization-Token hasn't required scope
-        ----------------
+            `HTTPError`:
+                if status-code of response is not 2XX, passes response.
+            `AccessError`:
+                if the Token has not required scope.
         """
+        self._check_scope('channel:manage:redemptions')
 
         data = {}
         if status is not None:
@@ -1522,11 +1660,18 @@ class Api:
             params['reward_id'] = reward_id
         if redemption_id is not None:
             params['id'] = redemption_id
-        self._check_scope('channel:manage:redemptions')
 
         url = 'https://api.twitch.tv/helix/channel_points/custom_rewards/redemptions'
         response = await self._http_patch(url, data, params)
         return response['data'][0]
+
+    #
+    # rewards
+    #################################
+
+    #################################
+    # clips
+    #
 
     async def create_clip(
             self,
@@ -1535,47 +1680,41 @@ class Api:
     ) -> dict:
         """
         |Coroutine|
-        ================
-        Creates a clip programmatically. This returns both an ID and an edit URL for the new clip\n
+
+        Creates a clip programmatically. This returns both an ID and an edit URL for the new clip.
         Clip creation takes time. We recommend that you query Get Clips, with the clip ID that is returned here.
         If Get Clips returns a valid clip, your clip creation was successful.
         If, after 15 seconds, you still have not gotten back a valid clip from Get Clips,
-        assume that the clip was not created and retry Create Clip.\n
-        REQUIRED scope: 'clips:edit'
+        assume that the clip was not created and retry Create Clip.
 
-        ----------------
+        1. SCOPE: 'clips:edit'
+        2. TOKEN: OAuth token required
 
         Args:
-        ================
-            broadcaster_id: REQUIRED `str`
-                ID of the stream from which the clip will be made.
-
+        ----------
+            broadcaster_id: `str`
+                1. REQUIRED: YES; MULTIPLE: NO;
+                2. ID of the stream from which the clip will be made.
             has_delay: `bool`
-                If false, the clip is captured from the live stream when the API is called; otherwise,
-                a delay is added before the clip is captured
-                (to account for the brief delay between the broadcaster’s stream and the viewer’s experience of that stream)
-                Default: false.
-        ----------------
+                1. REQUIRED: NO; MULTIPLE: NO; DEFAULT: False;
+                2. If false, the clip is captured from the live stream when the API is called;
+                   otherwise, a delay is added before the clip is captured (to account for the brief delay between
+                   the broadcaster’s stream and the viewer’s experience of that stream)
 
         Returns:
-        ================
+        ----------
             `dict` {
                 'id': `str`
                     ID of the clip that was created.
-
                 'edit_url': `str`
                     URL of the edit page for the clip.
             }
-        ----------------
 
         Raises:
-        ================
-            :class:`HTTPError`:
-                if status-code is not 2XX, passes `dict` with json of response.
-
-            :class:`AccessError`:
-                if the Authorization-Token hasn't required scope
-        ----------------
+            `HTTPError`:
+                if status-code of response is not 2XX, passes response.
+            `AccessError`:
+                if the Token has not required scope.
         """
 
         data = {}
@@ -1702,52 +1841,16 @@ class Api:
         self._insert_first(params, limit, 100)
 
         url = 'https://api.twitch.tv/helix/clips'
-        async for clip in self._handle_cursor(url, limit, params):
+        async for clip in self._handle_pagination(url, limit, params):
             yield clip
 
-    async def create_entitlement_grants_upload_url(
-            self,
-            manifest_id: str,
-            type: str
-    ) -> str:
-        """
-        |Coroutine|\n
-        Creates a URL where you can upload a manifest file and notify users that they have an entitlement.
-        Entitlements are digital items that users are allowed to use.
-        Twitch entitlements are granted to users free or as part of a purchase on Twitch.\n
-        No REQUIRED scope
+    #
+    # clips
+    #################################
 
-        Args:
-        ================
-            manifest_id: REQUIRED `str`
-                Unique identifier of the manifest file to be uploaded. Must be 1-64 characters.
-
-            type: REQUIRED `str`
-                Type of entitlement being granted. Only bulk_drops_grant is supported.
-
-        Returns:
-        ================
-            `str` :
-                The URL where you will upload the manifest file. This is the URL of a pre-signed S3 bucket.
-                Lease time: 15 minutes.\n
-                Note: You must replace all occurrences of \u0026 with an ampersand (&) character. See the Drops Guide.
-
-        Raises:
-        ================
-            :class:`HTTPError`:
-                if status-code is not 2XX, passes `dict` with json of response.
-        """
-
-        data = {}
-        params = {}
-        if manifest_id is not None:
-            params['manifest_id'] = manifest_id
-        if type is not None:
-            params['type'] = type
-
-        url = 'https://api.twitch.tv/helix/entitlements/upload'
-        response = await self._http_post(url, data, params)
-        return response['data'][0]['url']
+    #################################
+    # Entitlements
+    #
 
     async def get_code_status(
             self,
@@ -1844,7 +1947,7 @@ class Api:
             params['user_id'] = user_id
 
         url = 'https://api.twitch.tv/helix/entitlements/codes'
-        async for code_status in self._handle_cursor(url, limit, params):
+        async for code_status in self._handle_pagination(url, limit, params):
             yield code_status
 
     async def get_drops_entitlements(
@@ -1922,7 +2025,7 @@ class Api:
         self._insert_first(params, limit, 100)
 
         url = 'https://api.twitch.tv/helix/entitlements/drops'
-        async for code_status in self._handle_cursor(url, limit, params):
+        async for code_status in self._handle_pagination(url, limit, params):
             yield code_status
 
     async def redeem_code(
@@ -1968,8 +2071,8 @@ class Api:
 
                     'status': `str`
                         status of code, see Notes
+                },
                 ...
-                }
             ]
         ----------------
 
@@ -2024,7 +2127,18 @@ class Api:
         response = await self._http_post(url, data, params)
         return response['data']
 
-    async def get_top_games(self, limit: int) -> dict:
+    #
+    # Entitlements
+    #################################
+
+    #################################
+    # Games
+    #
+
+    async def get_top_games(
+            self,
+            limit: int
+    ) -> dict:
         """
         |Async Generator|\n
         Gets games sorted by number of current viewers on Twitch, most popular first.
@@ -2057,7 +2171,7 @@ class Api:
         self._insert_first(params, limit, 100)
 
         url = 'https://api.twitch.tv/helix/games/top'
-        async for game in self._handle_cursor(url, limit, params):
+        async for game in self._handle_pagination(url, limit, params):
             yield game
 
     async def get_games(self,
@@ -2109,8 +2223,77 @@ class Api:
             params['name'] = name
 
         url = 'https://api.twitch.tv/helix/games'
-        async for game in self._handle_cursor(url, limit, params):
+        async for game in self._handle_pagination(url, limit, params):
             yield game
+
+    #
+    # Games
+    #################################
+
+    #################################
+    #  eventsubs
+    #
+
+    async def create_eventsub_subscription(
+            self,
+            type: str,
+            condition_name: str,
+            condition_value: Any,
+            callback: str,
+            secret: str,
+            version: str = '1',
+            method: str = 'webhook'
+    ):
+        data = {}
+        if type is not None:
+            data['type'] = type
+        if version is not None:
+            data['version'] = version
+        data['condition'] = {
+            condition_name: condition_value
+        }
+        data['transport'] = {
+            'method': method,
+            'callback': callback,
+            'secret': secret
+        }
+
+        url = 'https://api.twitch.tv/helix/eventsub/subscriptions'
+        json = await self._get_response(
+            self._get_open_session().post(url, data=data)
+        )
+        return json['data'][0]
+
+    async def get_eventsub_subscriptions(
+            self,
+            limit: int
+    ):
+        params = {}
+        self._insert_first(params, limit, 100)
+
+        url = 'https://api.twitch.tv/helix/eventsub/subscriptions'
+        async for subscription in self._handle_pagination(url, limit, params):
+            yield subscription
+
+    async def delete_eventsub_subscription(
+            self,
+            sub_id: str
+    ):
+        params = {}
+        if sub_id is not None:
+            params['id'] = sub_id
+
+        url = 'https://api.twitch.tv/helix/eventsub/subscriptions'
+        respone = await self._http_delete(url, params)
+        return respone
+
+    #
+    # eventsubs
+    ################################
+
+    #################################
+    # Hype train
+    #
 
     async def get_hype_train_events(self,
                                     limit: int,
@@ -2229,24 +2412,16 @@ class Api:
         self._check_scope('channel:read:hype_train')
 
         url = 'https://api.twitch.tv/helix/hypetrain/events'
-        async for event in self._handle_cursor(url, limit, params):
+        async for event in self._handle_pagination(url, limit, params):
             yield event
 
-    # async def check_automod_status(self,
-    #                                broadcaster_id: str = None,
-    #                                msg_id: Union[Iterable[str], str] = None,
-    #                                msg_text: Union[Iterable[str], str] = None,
-    #                                user_id: Union[Iterable[str], str] = None):
-    #     scope = 'moderation:read'
-    #     if scope not in self.scopes:
-    #         raise AccessError(f'Current auth-token hasn\'t required scope: `{scope}`')
     #
-    #     data = {}
-    #     params = {'broadcaster_id': broadcaster_id}
+    # Hype train
+    #################################
+
+    #################################
+    # moderation
     #
-    #     url = 'https://api.twitch.tv/helix/moderation/enforcements/status'
-    #     response = await self._http_post(url, data, params)
-    #     return response['data']
 
     async def get_banned_events(self,
                                 limit: int,
@@ -2321,7 +2496,7 @@ class Api:
         self._check_scope('moderation:read')
 
         url = 'https://api.twitch.tv/helix/moderation/banned/events'
-        async for event in self._handle_cursor(url, limit, params):
+        async for event in self._handle_pagination(url, limit, params):
             yield event
 
     async def get_banned_users(self,
@@ -2377,7 +2552,7 @@ class Api:
         self._check_scope('moderation:read')
 
         url = 'https://api.twitch.tv/helix/moderation/banned'
-        async for user in self._handle_cursor(url, limit, params):
+        async for user in self._handle_pagination(url, limit, params):
             yield user
 
     async def get_moderators(self,
@@ -2430,7 +2605,7 @@ class Api:
         self._check_scope('moderation:read')
 
         url = 'https://api.twitch.tv/helix/moderation/moderators'
-        async for moderator in self._handle_cursor(url, limit, params):
+        async for moderator in self._handle_pagination(url, limit, params):
             yield moderator
 
     async def get_moderator_events(self,
@@ -2506,8 +2681,16 @@ class Api:
         self._check_scope('moderation:read')
 
         url = 'https://api.twitch.tv/helix/moderation/moderators/events'
-        async for event in self._handle_cursor(url, limit, params):
+        async for event in self._handle_pagination(url, limit, params):
             yield event
+
+    #
+    # moderation
+    #################################
+
+    #################################
+    # Search
+    #
 
     async def search_categories(self, limit: int, query: str) -> dict:
         """
@@ -2548,7 +2731,7 @@ class Api:
         self._insert_first(params, limit, 100)
 
         url = 'https://api.twitch.tv/helix/search/categories'
-        async for category in self._handle_cursor(url, limit, params):
+        async for category in self._handle_pagination(url, limit, params):
             yield category
 
     async def search_channels(self, limit: int, query: str) -> dict:
@@ -2614,8 +2797,16 @@ class Api:
         self._insert_first(params, limit, 100)
 
         url = 'https://api.twitch.tv/helix/search/channels'
-        async for channel in self._handle_cursor(url, limit, params):
+        async for channel in self._handle_pagination(url, limit, params):
             yield channel
+
+    #
+    # Search
+    #################################
+
+    #################################
+    # Streams
+    #
 
     async def get_stream_key(self, broadcaster_id: str) -> str:
         """
@@ -2731,6 +2922,7 @@ class Api:
             :class:`HTTPError`:
                 if status-code is not 2XX, passes `dict` with json of response.
         """
+        localss = locals()
         params = {}
         if game_id is not None:
             params['game_id'] = game_id
@@ -2743,13 +2935,14 @@ class Api:
         self._insert_first(params, limit, 100)
 
         url = 'https://api.twitch.tv/helix/streams'
-        async for stream in self._handle_cursor(url, limit, params):
+        async for stream in self._handle_pagination(url, limit, params):
             yield stream
 
-    async def create_stream_marker(self,
-                                   user_id: str,
-                                   description: str = None
-                                   ) -> dict:
+    async def create_stream_marker(
+            self,
+            user_id: str,
+            description: str = None
+    ) -> dict:
         """
         |Coroutine|\n
         Gets the channel stream key for a user.\n
@@ -2800,11 +2993,12 @@ class Api:
         response = await self._http_post(url, data, params)
         return response['data'][0]
 
-    async def get_stream_markers(self,
-                                 limit: int,
-                                 user_id: str = None,
-                                 video_id: str = None
-                                 ) -> dict:
+    async def get_stream_markers(
+            self,
+            limit: int,
+            user_id: str = None,
+            video_id: str = None
+    ) -> dict:
         """
         |Async Generator|\n
         Yields markers for either a specified user’s most recent stream or a specified VOD/video (stream),
@@ -2871,126 +3065,31 @@ class Api:
 
         url = 'https://api.twitch.tv/helix/streams/markers'
         counter = 0
-        async for user_dict in self._handle_cursor(url, limit, params):  # response is dict with `user info`
+        async for user_dict in self._handle_pagination(url, limit, params):  # response is dict with `user info`
             for video_dict in user_dict['videos']:  # dict with `user info` contains `videos info`
                 for marker in video_dict['markers']:  # `video info` contains `markers`, that we should yield
                     marker['user_id'] = user_dict['user_id']  # we can't just send to dev whole response
-                    marker['user_name'] = user_dict['user_name']  # and at the same time can't lose info
-                    marker['video_id'] = video_dict['video_id']  # so we're inserting it in every marker
+                    marker['user_name'] = user_dict['user_name']  # and at the same time can't lose data
+                    marker['video_id'] = video_dict['video_id']  # so we're inserting that in every marker
                     yield marker  # yield prepared marker
                     counter += 1  # this request make us to use different logic, so we need another counter
                     if counter == limit:  # if counter has been reached - Stop Async Iteration
                         return
 
-    async def get_channel_information(self, broadcaster_id: str) -> dict:
-        """
-        |Coroutine|\n
-        Gets channel information for users.\n
-        No REQUIRED scope
+    #
+    # Streams
+    #################################
 
-        Args:
-        ================
-            broadcaster_id: REQUIRED `str`
-                ID of the channel.
+    #################################
+    # Subscriptions
+    #
 
-        Returns:
-        ================
-            `dict` {
-                'broadcaster_id': `str`
-                    Twitch User ID of this channel owner
-
-                'broadcaster_name': `str`
-                    Twitch user display name of this channel owner
-
-                'game_name': `str`
-                    Name of the game being played on the channel
-
-                'game_id': `int`
-                    Current game ID being played on the channel
-
-                'broadcaster_language': `str`
-                    Language of the channel.
-                    A language value is either the ISO 639-1 two-letter code for a supported stream language or “other”.
-
-                'title': `str`
-                    Title of the stream
-            }
-
-        Raises:
-        ================
-            :class:`HTTPError`:
-                if status-code is not 2XX, passes `dict` with json of response.
-        """
-
-        params = {}
-        if broadcaster_id is not None:
-            params['broadcaster_id'] = broadcaster_id
-
-        url = 'https://api.twitch.tv/helix/channels'
-        info = await self._http_get(url, params)
-        return info['data'][0]
-
-    async def modify_channel_information(self,
-                                         broadcaster_id: str = None,
-                                         game_id: str = None,
-                                         broadcaster_language: str = None,
-                                         title: str = None
-                                         ) -> None:
-        """
-        |Coroutine|\n
-        Modifies channel information for users.\n
-        REQUIRED scope: 'user:edit:broadcast'
-
-        Args:
-        ================
-            broadcaster_id: REQUIRED `str`
-                ID of the channel to be updated.
-
-            game_id: REQUIRED `str`
-                The current game ID being played on the channel
-
-            broadcaster_language: REQUIRED `str`
-                The language of the channel. A language value must be either the ISO 639-1
-                two-letter code for a supported stream language or “other”.
-
-            title: REQUIRED `str`
-                The title of the stream
-
-        Returns:
-        ================
-            None:
-                successfully modified, else - raises HTTPError exception.
-
-        Raises:
-        ================
-            :class:`HTTPError`:
-                if status-code is not 204, passes `dict` with json of response.
-
-            :class:`AccessError`:
-                if the Authorization-Token hasn't required scope
-        """
-
-        data = {'game_id': game_id, 'broadcaster_language': broadcaster_language, 'title': title}
-        if game_id is not None:
-            data['game_id'] = game_id
-        if broadcaster_language is not None:
-            data['broadcaster_language'] = broadcaster_language
-        if title is not None:
-            data['title'] = title
-        params = {}
-        if broadcaster_id is not None:
-            params['broadcaster_id'] = broadcaster_id
-        self._check_scope('user:edit:broadcast')
-
-        url = 'https://api.twitch.tv/helix/channels'
-        await self._http_patch(url, data, params)
-        return None
-
-    async def get_broadcaster_subscriptions(self,
-                                            limit: int,
-                                            broadcaster_id: str = None,
-                                            user_id: Union[Iterable[str], str] = None
-                                            ) -> dict:
+    async def get_broadcaster_subscriptions(
+            self,
+            limit: int,
+            broadcaster_id: str = None,
+            user_id: Union[Iterable[str], str] = None
+    ) -> dict:
         """
         |Async Generator|\n
         Yields broadcaster’s subscriptions.\n
@@ -3052,10 +3151,22 @@ class Api:
         self._check_scope('channel:read:subscriptions')
 
         url = 'https://api.twitch.tv/helix/subscriptions'
-        async for subscription in self._handle_cursor(url, limit, params):
+        async for subscription in self._handle_pagination(url, limit, params):
             yield subscription
 
-    async def get_all_stream_tags(self, limit: int, tag_id: Union[Iterable[str], str] = None) -> dict:
+    #
+    # Subscriptions
+    #################################
+
+    #################################
+    # Tags
+    #
+
+    async def get_all_stream_tags(
+            self,
+            limit: int,
+            tag_id: Union[Iterable[str], str] = None
+    ) -> dict:
         """
         |Async Generator|\n
         Yields stream tags defined by Twitch, optionally filtered by tag ID(s).\n
@@ -3108,10 +3219,14 @@ class Api:
         self._insert_first(params, limit, 100)
 
         url = 'https://api.twitch.tv/helix/tags/streams'
-        async for tag in self._handle_cursor(url, limit, params):
+        async for tag in self._handle_pagination(url, limit, params):
             yield tag
 
-    async def get_stream_tags(self, limit: int, broadcaster_id: str) -> dict:
+    async def get_stream_tags(
+            self,
+            limit: int,
+            broadcaster_id: str
+    ) -> dict:
         """
         |Async Generator|\n
         Yields  tags for a specified stream (channel).\n
@@ -3162,13 +3277,14 @@ class Api:
             params['broadcaster_id'] = broadcaster_id
 
         url = 'https://api.twitch.tv/helix/streams/tags'
-        async for tag in self._handle_cursor(url, limit, params):
+        async for tag in self._handle_pagination(url, limit, params):
             yield tag
 
-    async def replace_stream_tags(self,
-                                  broadcaster_id: str = None,
-                                  tag_ids: Union[Iterable[str], str] = None
-                                  ) -> None:
+    async def replace_stream_tags(
+            self,
+            broadcaster_id: str = None,
+            tag_ids: Union[Iterable[str], str] = None
+    ) -> None:
         """
         |Coroutine|\n
         Applies specified tags to a specified stream, overwriting any existing tags applied to that stream.
@@ -3214,67 +3330,29 @@ class Api:
         await self._http_put(url, {}, params)
         return None
 
-    async def get_channel_editors(self, limit: int, broadcaster_id: str) -> AsyncGenerator[dict, None]:
+    #
+    # Tags
+    #################################
+
+    #################################
+    # Users
+    #
+
+    async def get_users(
+            self,
+            limit: int,
+            user_id: str = None,
+            login: str = None
+    ) -> AsyncGenerator[dict, None]:
         """
         |Async Generator|
-        ================
-        Yields  users who have editor permissions for a specific channel.\n
-        REQUIRED scope 'channel:read:editors'
 
-        ----------------
-
-        Args:
-        ================
-            limit: `int`
-                limit on number of returned values, 0 - unlimited
-
-            broadcaster_id: `str`
-                Broadcaster’s user ID associated with the channel.
-        ----------------
-
-        Yields:
-        ================
-            `dict` {
-                'user_id': `str`
-                    User ID of the editor.
-
-                'user_name': `str`
-                    Display name of the editor.
-
-                'created_at': `str`
-                    Date and time the editor was given editor permissions.
-            }
-        ----------------
-
-        Raises:
-        ================
-            :class:`HTTPError`:
-                if status-code is not 2XX, passes `dict` with json of response.
-        ----------------
-        """
-
-        params = {}
-        if broadcaster_id is not None:
-            params['broadcaster_id'] = broadcaster_id
-        self._check_scope('channel:read:editors')
-
-        url = 'https://api.twitch.tv/helix/channels/editors'
-        async for editor in self._handle_cursor(url, limit, params):
-            yield editor
-
-    async def get_users(self, limit: int, user_id: str = None, login: str = None) -> AsyncGenerator[dict, None]:
-        """
-        |Async Generator|
-        ================
         Yields  information about one or more specified Twitch users.
         Users are identified by optional user IDs and/or login name.
         If neither a user ID nor a login name is specified, the user is looked up by Bearer token.\n
         No REQUIRED scope ('user:read:email' to include the user’s email address in response.)
 
-        ----------------
-
         Args:
-        ================
             limit: `int`
                 limit on number of returned values, 0 - unlimited
 
@@ -3287,7 +3365,6 @@ class Api:
             !Notes:
                 Note: The limit of 100 IDs and login names is the total limit. You can request,
                 for example, 50 of each or 100 of one of them. You cannot request 100 of both.
-        ----------------
 
         Yields:
         ================
@@ -3325,13 +3402,10 @@ class Api:
                 'created_at': `str`
                     Date when the user was created.
             }
-        ----------------
 
         Raises:
-        ================
-            :class:`HTTPError`:
+            `HTTPError`:
                 if status-code is not 2XX, passes `dict` with json of response.
-        ----------------
         """
 
         params = {}
@@ -3341,26 +3415,23 @@ class Api:
             params['login'] = login
 
         url = 'https://api.twitch.tv/helix/users'
-        async for user in self._handle_cursor(url, limit, params):
+        async for user in self._handle_pagination(url, limit, params):
             yield user
 
-    async def update_user(self, description: str = None) -> dict:
+    async def update_user(
+            self,
+            description: str = None
+    ) -> dict:
         """
         |Coroutine|
-        ================
         Updates the description of a user specified by a Bearer token.\n
         REQUIRED scope: 'user:edit'
 
-        ----------------
-
         Args:
-        ================
             description: `str`
                 User’s account description
-        ----------------
 
         Returns:
-        ================
             `dict` {
                 'id': `str`
                     User’s ID.
@@ -3395,16 +3466,13 @@ class Api:
                 'created_at': `str`
                     Date when the user was created.
             }
-        ----------------
 
         Raises:
-        ================
             :class:`HTTPError`:
                 if status-code is not 2XX, passes `dict` with json of response.
 
             :class:`AccessError`:
                 if the Authorization-Token hasn't required scope
-        ----------------
         """
 
         data = {}
@@ -3417,7 +3485,12 @@ class Api:
         response = await self._http_put(url, data, params)
         return response['data'][0]
 
-    async def get_users_follows(self, limit: int, from_id: str = None, to_id: str = None) -> AsyncGenerator[dict, None]:
+    async def get_users_follows(
+            self,
+            limit: int,
+            from_id: str = None,
+            to_id: str = None
+    ) -> AsyncGenerator[dict, None]:
         """
         |Async Generator|
         ================
@@ -3477,10 +3550,15 @@ class Api:
             params['to_id'] = to_id
 
         url = 'https://api.twitch.tv/helix/users/follows'
-        async for follower in self._handle_cursor(url, limit, params):
+        async for follower in self._handle_pagination(url, limit, params):
             yield follower
 
-    async def create_user_follows(self, from_id: str, to_id: str, allow_notifications: bool = None) -> dict:
+    async def create_user_follows(
+            self,
+            from_id: str,
+            to_id: str,
+            allow_notifications: bool = None
+    ) -> dict:
         """
         |Coroutine|
         ================
@@ -3531,7 +3609,11 @@ class Api:
         response = await self._http_post(url, data, params)
         return response
 
-    async def delete_user_follows(self, from_id: str, to_id: str) -> dict:
+    async def delete_user_follows(
+            self,
+            from_id: str,
+            to_id: str
+    ) -> dict:
         """
         |Coroutine|
         ================
@@ -3564,7 +3646,7 @@ class Api:
         ----------------
         """
 
-        data = {}
+        data =
         params = {}
         if from_id is not None:
             params['from_id'] = from_id
@@ -3573,10 +3655,14 @@ class Api:
         self._check_scope('user:edit:follows')
 
         url = 'https://api.twitch.tv/helix/users/follows'
-        response = await self._http_delete(url, params)
+        response = await self._http_delete(url, data, params)
         return response
 
-    async def get_user_block_list(self, limit: int, broadcaster_id: int) -> AsyncGenerator[dict, None]:
+    async def get_user_block_list(
+            self,
+            limit: int,
+            broadcaster_id: int
+    ) -> AsyncGenerator[dict, None]:
         """
         |Async Generator|
         ================
@@ -3626,10 +3712,15 @@ class Api:
         self._check_scope('user:read:blocked_users')
 
         url = 'https://api.twitch.tv/helix/users/blocks'
-        async for user in self._handle_cursor(url, limit, params):
+        async for user in self._handle_pagination(url, limit, params):
             yield user
 
-    async def block_user(self, target_user_id: str, source_context: str, reason: str) -> dict:
+    async def block_user(
+            self,
+            target_user_id: str,
+            source_context: str,
+            reason: str
+    ) -> dict:
         """
         |Coroutine|
         ================
@@ -3676,10 +3767,13 @@ class Api:
         self._check_scope('user:manage:blocked_users')
 
         url = 'https://api.twitch.tv/helix/users/blocks'
-        response = await self._http_put(url, params)
+        response = await self._http_put(url, data, params)
         return response
 
-    async def unblock_user(self, target_user_id: str) -> dict:
+    async def unblock_user(
+            self,
+            target_user_id: str
+    ) -> dict:
         """
         |Coroutine|
         ================
@@ -3719,7 +3813,10 @@ class Api:
         response = await self._http_delete(url, params)
         return response
 
-    async def get_user_extensions(self, limit: int) -> AsyncGenerator[dict, None]:
+    async def get_user_extensions(
+            self,
+            limit: int
+    ) -> AsyncGenerator[dict, None]:
         """
         |Async Generator|
         ================
@@ -3769,10 +3866,14 @@ class Api:
         self._check_scope('user:read:broadcast')
 
         url = 'https://api.twitch.tv/helix/users/extensions/list'
-        async for extensions in self._handle_cursor(url, 0, params):
+        async for extensions in self._handle_pagination(url, 0, params):
             yield extensions
 
-    async def get_user_active_extensions(self, limit: int, user_id: str) -> AsyncGenerator[dict, None]:
+    async def get_user_active_extensions(
+            self,
+            limit: int,
+            user_id: str
+    ) -> AsyncGenerator[dict, None]:
         """
         |Async Generator|
         ================
@@ -3838,7 +3939,7 @@ class Api:
                 else:
                     new_extesion['type'] = [key]
                     extesions.append(new_extesion)
-                    
+
         counter = 0  # counter of iterations
         for extesion in extesions:
             yield extesion
@@ -3846,77 +3947,151 @@ class Api:
             if counter == limit:
                 return
 
+    #
+    # Users
+    #################################
+
+    #################################
+    # Webhooks
+    #
+
     async def get_webhook_subscriptions(self, limit: int):
         params = {}
         self._insert_first(params, limit, 100)
 
         url = 'https://api.twitch.tv/helix/webhooks/subscriptions'
-        async for subscription in self._handle_cursor(url, limit, params):
+        async for subscription in self._handle_pagination(url, limit, params):
             yield subscription
 
-    async def get_eventsub_subscriptions(self, limit: int):
-        params = {}
-        self._insert_first(params, limit, 100)
-
-        url = 'https://api.twitch.tv/helix/eventsub/subscriptions'
-        async for subscription in self._handle_cursor(url, limit, params):
-            yield subscription
-
-    async def delete_eventsub_subscription(self, sub_id: str):
-        params = {}
-        if sub_id is not None:
-            params['id'] = sub_id
-
-        url = 'https://api.twitch.tv/helix/eventsub/subscriptions'
-        respone = await self._http_delete(url, params)
-        return None
+    #
+    # Webhooks
+    #################################
 
     #################################
-    # REQUESTS THINGS
+    # other requests
     #
-    async def _handle_cursor(self, url: str, limit: int, params: dict):
+    async def create_entitlement_grants_upload_url(
+            self,
+            manifest_id: str,
+            type: str
+    ) -> str:
         """
-        |Async Generator|
-        ================
-        Method implements simple request, limit and cursor handler
-        Handles cursor if exists and limits count of yields
-
-        ----------------
+        |Coroutine|\n
+        Creates a URL where you can upload a manifest file and notify users that they have an entitlement.
+        Entitlements are digital items that users are allowed to use.
+        Twitch entitlements are granted to users free or as part of a purchase on Twitch.\n
+        No REQUIRED scope
 
         Args:
         ================
+            manifest_id: REQUIRED `str`
+                Unique identifier of the manifest file to be uploaded. Must be 1-64 characters.
+
+            type: REQUIRED `str`
+                Type of entitlement being granted. Only bulk_drops_grant is supported.
+
+        Returns:
+        ================
+            `str` :
+                The URL where you will upload the manifest file. This is the URL of a pre-signed S3 bucket.
+                Lease time: 15 minutes.\n
+                Note: You must replace all occurrences of \u0026 with an ampersand (&) character. See the Drops Guide.
+
+        Raises:
+        ================
+            :class:`HTTPError`:
+                if status-code is not 2XX, passes `dict` with json of response.
+        """
+
+        data = {}
+        params = {}
+        if manifest_id is not None:
+            params['manifest_id'] = manifest_id
+        if type is not None:
+            params['type'] = type
+
+        url = 'https://api.twitch.tv/helix/entitlements/upload'
+        response = await self._http_post(url, data, params)
+        return response['data'][0]['url']
+
+    #
+    # other requests
+    #################################
+
+    #################################
+    # request's staff
+    #
+
+    _session: aiohttp.ClientSession = None
+    'session container'
+
+    @staticmethod
+    def _get_open_session():
+        """
+        returns open session, current if exists, or new one.
+
+        Returns:
+            (aiohttp.ClientSession) current session if opened, else opens new one and returns it
+        """
+        if Api._session is None:
+            Api._session = aiohttp.ClientSession()
+        elif Api._session.closed:
+            Api._session = aiohttp.ClientSession()
+        # return anyway
+        return Api._session
+
+    async def _handle_pagination(
+            self,
+            url: str,
+            limit: int,
+            data: dict = None,
+            params: Optional[dict] = None
+    ) -> AsyncGenerator[dict, None]:
+        """
+        |Async Generator|
+
+        Method implements simple request, limit and cursor handler
+        Handles cursor if exists and limits count of yields
+
+        Args:
+            data (Union[dict]):
+                data to send as JSON
             url: `str`
                 URL for request
             limit: `int`
                 value of max count of Yields
             params: `dict`
                 params to insert in the URL
-        ----------------
 
         Yields:
-        ================
-            dict: data of response that method got from request
-        ----------------
+            splitted data of the response of the request
         """
 
-        counter = 0  # counter of iterations
-        while True:  # loop will be stopped in conditions
-            response = await self._http_get(url, params)
+        counter = 0
+        while True:
+            response = await self._http_get(url, data, params)
+            # parse
             for part in response['data']:
-                yield part  # yield every part of data
-                counter += 1  # increasing the counter value
-                if counter == limit:  # if limit is reached -> stop async iteration
+                yield part
+                # if limit is reached
+                counter += 1
+                if counter == limit:
                     return
+            # try get cursor
             try:
-                pagination = response.get('pagination')
+                pagination = response['pagination']
                 cursor = pagination['cursor']
+            # if can't get
             except KeyError:
-                return  # if can't get cursor -> no more data -> StopAsyncIteration
+                return
+            # if got
             else:
-                params['after'] = cursor  # add `after`(cursor) param or change it
+                params['after'] = cursor # set or change
 
     @staticmethod
-    async def once(generator: AsyncGenerator) -> Optional[dict]:
+    async def once(
+            generator: AsyncGenerator[Any, Any]
+    ) -> Optional[dict]:
         """
         The method gives you simple way to get only one result from any async generator in one code-row.\n
         Gets initialized async generator (object of async generator).
@@ -3960,70 +4135,30 @@ class Api:
         except StopAsyncIteration:
             return None
 
-    def _check_scope(self, scope: str):
+    def _check_scope(
+            self,
+            scope: str
+    ) -> None:
         """
         Raises `AccessError` if current token hasn't required scope
 
-        ----------------
-
         Args:
-        ================
             scope: `str`
                 scope to check
-        ----------------
 
         Returns:
-        ================
-            `None`:
-                Just `None`...
-        ----------------
+            `None`
 
         Raises:
-        ================
-            :class:`AccessError`: if the object hasn't required scope
-        ----------------
+            `AccessError`: if the object hasn't required scope
         """
         if scope not in self.scopes:
             raise AccessError(f'Current auth-token has\'t required scope: `{scope}`')
-    #
-    # end of 'REQUESTS THINGS'
-    #################################
-
-    #################################
-    # HTTP REQUESTS
-    #
-    async def _http_get(self, url: str, params: dict) -> Optional[dict]:
-        json = await self._get_response(
-            self.get_open_session().get(url, params=params, headers=self._headers)
-        )
-        return json
-
-    async def _http_post(self, url: str, data: dict, params: dict) -> Optional[dict]:
-        json = await self._get_response(
-            self.get_open_session().post(url, json=data, params=params, headers=self._headers)
-        )
-        return json
-
-    async def _http_put(self, url: str, data: dict, params: dict) -> Optional[dict]:
-        json = await self._get_response(
-            self.get_open_session().put(url, json=data, params=params, headers=self._headers)
-        )
-        return json
-
-    async def _http_patch(self, url: str, data: dict, params: dict) -> Optional[dict]:
-        json = await self._get_response(
-            self.get_open_session().patch(url, json=data, params=params, headers=self._headers)
-        )
-        return json
-
-    async def _http_delete(self, url: str, params: dict) -> Optional[dict]:
-        json = await self._get_response(
-            self.get_open_session().delete(url, params=params, headers=self._headers)
-        )
-        return json
 
     @staticmethod
-    async def _get_response(request: _RequestContextManager) -> Optional[Dict]:
+    async def _get_response(
+            request: Awaitable
+    ) -> Optional[Dict]:
         async with request as response:
             if 199 < response.status < 300:
                 try:
@@ -4032,12 +4167,76 @@ class Api:
                     return None
             else:
                 raise HTTPError(response)
+
     #
-    # end of HTTP REQUESTS
+    # request's staff
     #################################
 
     #################################
-    # METHODS FOR PREPARE DATA
+    # http requests
+    #
+
+    async def _http_get(
+            self,
+            url: str,
+            data: dict = None,
+            params: dict = None
+    ) -> Optional[dict]:
+        json = await self._get_response(
+            self._get_open_session().get(url, data=data, params=params, headers=self._headers)
+        )
+        return json
+
+    async def _http_post(
+            self,
+            url: str,
+            data: dict = None,
+            params: dict = None
+    ) -> Optional[dict]:
+        json = await self._get_response(
+            self._get_open_session().post(url, json=data, params=params, headers=self._headers)
+        )
+        return json
+
+    async def _http_put(
+            self,
+            url: str,
+            data: dict = None,
+            params: dict = None
+    ) -> Optional[dict]:
+        json = await self._get_response(
+            self._get_open_session().put(url, json=data, params=params, headers=self._headers)
+        )
+        return json
+
+    async def _http_patch(
+            self,
+            url: str,
+            data: dict = None,
+            params: dict = None
+    ) -> Optional[dict]:
+        json = await self._get_response(
+            self._get_open_session().patch(url, json=data, params=params, headers=self._headers)
+        )
+        return json
+
+    async def _http_delete(
+            self,
+            url: str,
+            data: dict = None,
+            params: dict = None
+    ) -> Optional[dict]:
+        json = await self._get_response(
+            self._get_open_session().delete(url, data=data, params=params, headers=self._headers)
+        )
+        return json
+
+    #
+    # http requests
+    #################################
+
+    #################################
+    # data preparing
     #
     @staticmethod
     def _insert_first(
@@ -4083,7 +4282,7 @@ class Api:
         """
         inserts 'count' param in `params`
         `count` as opposed to `first` is global limit.
-        If 'first' is limit of results for every step, then 'count' is limit of all results(only one step).
+        If 'first' is limit of results for every step, then 'count' is limit of all results(only one response).
 
         ----------------
 
@@ -4143,9 +4342,30 @@ class Api:
         else:  # we don't wait other types, but if so - convert to `str` and put in `list`
             return [str(obj)]
     #
-    # end of METHODS FOR PREPARE DATA
+    # data preparing
     #################################
 
     @classmethod
     async def close(cls):
         await cls._session.close()
+
+    class SingleRequest(NamedTuple):
+        url: str
+        http_method: Callable
+        data_fields: Optional[List[str]] = None
+        param_fields: Optional[List[str]] = None
+        to_rename_fields: Optional[Tuple[str, str]] = None
+        custom_return_indexes: List[Any] = None
+        scope: Optional[str] = None
+
+    class PaginatedRequest(SingleRequest):
+        max_limit_for_step: int
+
+    single_requests: Dict[str, SingleRequest] = {
+        'start_commercial': SingleRequest(
+            url='channels/commercial',
+            http_method=_http_post,
+            data_fields=['broadcaster_id', 'length'],
+            scope='channel:edit:commercial'
+        ),
+    }
