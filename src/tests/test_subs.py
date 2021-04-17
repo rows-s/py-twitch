@@ -9,14 +9,15 @@ import eventsub_events
 
 
 app = web.Application()
-webhook_handler = eventsub.EventSub(secret=config.secret,
-                                    is_verify_signature=True,
-                                    is_time_limit_control=True,
-                                    is_duplicate_control=True,
-                                    time_limit=1*60,
-                                    duplicate_save_period=1 * 60)
+ttv_eventsub = eventsub.EventSub(secret=config.secret,
+                                 should_verify_signature=True,
+                                 should_limit_time_range=True,
+                                 should_control_duplicates=True,
+                                 time_limit=1*60,
+                                 duplicates_save_period=1 * 60)
 
-@webhook_handler.event
+
+@ttv_eventsub.event
 async def on_follow(_, event: eventsub_events.FollowEvent):
     print(f'{event.user_name} has followed to {event.broadcaster_user_name} at {event.event_time}')
     print(f'id of event is {event.event_id}')
@@ -30,8 +31,7 @@ async def context(app):
         async for event in api.get_eventsub_subscriptions(12):
             print(event)
             await api.delete_eventsub_subscription(event['id'])
-            event_id = event['id']
-            print(f'Deleted - {event_id}')
+            print(f"Deleted - {event['id']}")
 
         callback = 'https://e5948344f604.ngrok.io/twitch/events/subscriptions'
         url = 'https://api.twitch.tv/helix/eventsub/subscriptions'
@@ -58,7 +58,7 @@ async def on_cleanup(app):
     pass
 
 
-app.add_routes([web.post('/twitch/events/subscriptions', webhook_handler.handle)])
+app.add_routes([web.post('/twitch/events/subscriptions', ttv_eventsub.handler)])
 # app.on_startup.append(on_startup)
 # app.on_cleanup.append(on_cleanup)
 # app.cleanup_ctx.append(context)

@@ -64,7 +64,7 @@ def replace_slashes(text: str):
     which will be replaced as (space) to (slash+s), (slash) to (slash+slach), (semicolon) to (slash+colon)
     in this function we are replacing all back
     """
-    text = list(text)  # some symbols be removed
+    text = list(text)  # some symbols would be removed
     i = 0
     while i < len(text):
         if text[i] == '\\':
@@ -76,24 +76,24 @@ def replace_slashes(text: str):
                 text.pop(i + 1)
             elif text[i + 1] == '\\':  # if '\\' replace to '\'
                 text.pop(i + 1)
-            # above we change the first symbol and remove the second for not replace one letter twice
-            # example: original: '\s', we get: '\\s', after 1st iteration -> '\s', `i` at 2nd iteration points 's'
-            # otherwise: at 2nd iteration '\s' would be replaced to ' '
+            # above we change current symbol and remove next symbol, so as not to replace one symbol twice
+            # example: original = '\s', encoded = '\\s', decoding after 1st iteration = '\s'
+            # 2nd iteration must not replace '\s' to ' '. And it doesn't, because `i` equals 1 (it's 's').
         i += 1
     return ''.join(text)  # return str
 
 
-def normalize_ms(date: str):
-    if date.endswith('Z'):
-        date = date[:-1]
-    dot_index = date.find('.')
-    if dot_index != -1:
-        after_dot = len(date) - dot_index - 1
-        if after_dot > 6:
-            date = date[:dot_index+7]
-        else:
-            date += ('0' * (6 - after_dot))
+def normalize_ms(datetime_str: str):
+    if datetime_str.endswith('Z'):
+        datetime_str = datetime_str[:-1]
+    dot_index = datetime_str.find('.')
+    if dot_index == -1:
+        datetime_str = datetime_str + '.0'
     else:
-        date = date + '.000000'
-    return date
+        ms_symbols_length = len(datetime_str) - dot_index - 1
+        if ms_symbols_length > 6:
+            datetime_str = datetime_str[:dot_index + 7]  # length of milliseconds must not be more than 6
+        elif ms_symbols_length == 0:
+            datetime_str += '0'
+    return datetime_str
 

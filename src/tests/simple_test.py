@@ -84,10 +84,10 @@ async def channel_update(channel: Channel, before, after):
 
 async def start():
     api = await Api.create(app_token)
-    logins = [stream['user_login'] async for stream in api.get_streams(99)]
+    logins = [stream['user_login'] async for stream in api.get_streams(101)]
     logins.insert(0, 'rows_s')
     # start
-    bot.loop.create_task(bot.start(token))
+    bot.loop.create_task(bot.start(logins))
     while True:
         # every 30 minutes
         await asyncio.sleep(30 * 60)

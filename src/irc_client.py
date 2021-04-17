@@ -306,7 +306,7 @@ class Client:
             elif command_type == 'GLOBALUSERSTATE':
                 self.global_state = GlobalState(self.login, tags)
 
-            elif command_type == 'RECONNECT': # still don't know what this is, but let's reconnct to all channels.
+            elif command_type == 'RECONNECT':  # still don't know what this is, but let's reconnct to all channels.
                 self._do_later(self.join_channels(self.joined_channels_logins))
         except ChannelNotExists:
             channel_login = command[-1][1:]
@@ -886,7 +886,7 @@ class Client:
         elif handler_name in Client.user_event_handler_names:
             setattr(self, handler_name, coro)
         else:  # what for a developer will register unknown event? better tell him/her about
-            raise UnknownEvent(f'Unknown event name{handler_name}')
+            raise UnknownEvent(f'Unknown event name {handler_name}')
     #
     # end of: event's things
     #################################

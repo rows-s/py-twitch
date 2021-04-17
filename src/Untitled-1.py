@@ -882,3 +882,245 @@
 # for _ in range(1000000):
 #     outer()
 # print(time()-t0)
+
+# from typing import NamedTuple, Callable
+# from dataclasses import dataclass
+#
+# @dataclass()
+# class SingleRequest:
+#     # return_handler: Callable = lambda json: json['data'][0] if (json is not None) else json
+#     return_handler: Callable = lambda _: (_ for _ in ()).throw(NotImplementedError('http_method must passed'))
+#
+#
+# def do(request: SingleRequest):
+#     response = {'data': [12, 15]}
+#     return request.return_handler(response)
+#
+#
+# def foo(json):
+#     return json['data']
+#
+#
+# print(do(SingleRequest()))
+# print(do(SingleRequest(lambda json: json['data'])))
+# a = SingleRequest()
+# print(do(a))
+# a.return_handler = lambda json: json['data']
+# print(do(a))
+
+# from dataclasses import dataclass
+from typing import Optional, Tuple, List, Callable, Dict, NamedTuple
+
+# @dataclass()
+# class BaseRequest:
+#     url: str
+#     to_rename_fields: Optional[Tuple[str, str]] = None
+#     data_fields: Optional[List[str]] = None
+#     param_fields: Optional[List[str]] = None
+#     scope: Optional[str] = None
+#
+#
+# @dataclass()
+# class SingleRequest(BaseRequest):
+#     http_method: Callable = None
+#     # returns json['data'][0] by default
+#     data_preparer: Callable = lambda json: json['data'][0] if (json is not None) else json
+#
+#     def __post_init__(self):
+#         if self.http_method is None:
+#             raise NotImplementedError('http_method must be passed')
+#
+#
+# a = SingleRequest(' ', http_method=lambda: 2+2)
+
+
+# from dataclasses import dataclass, InitVar
+#
+#
+# helix_url: str = 'https://api.twitch.tv/helix'
+#
+#
+# @dataclass()
+# class _SingleRequest:
+#     sub_url: InitVar[str]
+#
+#     def __post_init__(self, sub_url):
+#         self.url = helix_url + sub_url
+#
+# a = _SingleRequest(sub_url='/asd')
+# 2 + 2
+
+# class A:
+#     def hello(
+#             self,
+#             first,
+#             second,
+#             *args,
+#             one_more,
+#             **kwargs
+#     ):
+#         print('first:', first, 'second:', second, 'one_more:', one_more)
+#
+#
+# class B(A):
+#     def hello1(
+#             self,
+#             first,
+#             second,
+#             third,
+#             *args,
+#             one_more,
+#             two_more,
+#             **kwargs
+#     ):
+#         super(B, self).hello(first, second, one_more=one_more, *args, **kwargs)
+#         print('third:', third, 'two_more:', two_more)
+#
+#
+# b = B()
+# b.hello(1, 2, 3, 4, 5, one_more=6, two_more=8)
+
+
+
+
+
+# def get_user_active_extensions_json_preparer(json):
+#     def add_type_to_extension(extension, extension_type):
+#         if 'type' in extension:
+#             extension['type'].append(extension_type)
+#         else:
+#             extension['type'] = [extension_type]
+#
+#     def get_extension_by_id(extension_id) -> Optional[dict]:
+#         for extension in extensions:
+#             if extension_id == extension['id']:
+#                 return extension
+#
+#     extension_types = json['data'].keys()
+#     extensions = []
+#     for extension_type in extension_types:
+#         current_type_extensions = json['data'][extension_type].values()
+#         for extension in current_type_extensions:
+#             if not extension['active']:
+#                 continue
+#             same_id_extension = get_extension_by_id(extension['id'])
+#             if same_id_extension is not None:
+#                 add_type_to_extension(same_id_extension, extension_type)
+#             else:
+#                 add_type_to_extension(extension, extension_type)
+#                 extensions.append(extension)
+#     return extensions
+#
+#
+# json = {
+#   "data": {
+#     "panel": {
+#       "1": {
+#         "active": True,
+#         "id": "rh6jq1q334hqc2rr1qlzqbvwlfl3x0",
+#         "version": "1.1.0",
+#         "name": "TopClip"
+#       },
+#       "2": {
+#         "active": True,
+#         "id": "wi08ebtatdc7oj83wtl9uxwz807l8b",
+#         "version": "1.1.8",
+#         "name": "Streamlabs Leaderboard"
+#       },
+#       "3": {
+#         "active": True,
+#         "id": "naty2zwfp7vecaivuve8ef1hohh6bo",
+#         "version": "1.0.9",
+#         "name": "Streamlabs Stream Schedule & Countdown"
+#       }
+#     },
+#     "overlay": {
+#       "1": {
+#         "active": True,
+#         "id": "zfh2irvx2jb4s60f02jq0ajm8vwgka",
+#         "version": "1.0.19",
+#         "name": "Streamlabs"
+#       }
+#     },
+#     "component": {
+#       "1": {
+#         "active": True,
+#         "id": "lqnf3zxk0rv0g7gq92mtmnirjz2cjj",
+#         "version": "0.0.1",
+#         "name": "Dev Experience Test",
+#         "x": 0,
+#         "y": 0
+#       },
+#       "2": {
+#         "active": False
+#       }
+#     }
+#   }
+# }
+# a = get_user_active_extensions_json_preparer(json)
+# print(a)
+from datetime import datetime
+import random
+
+
+class MessageDuplicate(NamedTuple):
+    id: str
+    datetime: datetime
+
+    def __eq__(self, other):
+        return self.id == other.id
+
+
+class EventSub:
+    """ Class to handle your webhooks verifications, notifications and revocations """
+    def __init__(self):
+        self._duplicates: List[MessageDuplicate] = []
+
+    def is_message_valid(
+            self,
+            messasge,
+            message_
+    ) -> bool:
+        self._delete_out_of_range_duplicates()
+        message_datetime = self.str_to_datatime(message_time, normalize=True)
+        if (message_id, message_datetime) in reversed(self._duplicates):
+            return False
+        self._save_duplicate(message_id, message_datetime)
+
+    def _save_duplicate(
+            self,
+            message_id: str,
+            message_datetime: datetime
+    ):
+        """
+        saves duplicate in position that matching  request's time
+
+        Args:
+            message_id: `str`
+                id of request
+
+            message_datetime: :class:`datetime`
+                time of request
+        """
+        current_index = len(self._duplicates)  # iterator is reversed - so index to inserting is last
+        for duplicate_time in reversed(self._duplicates.values()):  # more of request will be latest or close to
+            if message_datetime > duplicate_time:  # if later than current duplicate - insert and break, else- look next
+                self._duplicates[message_id] = message_datetime
+                # TODO: check how good it works
+                break
+            current_index -= 1
+        else:  # if list is empty, or others is later then request - index is 0
+            self._duplicates[message_id] = message_datetime
+
+
+def random_id() -> str:
+    return ''.join(random.choice(string) for _ in range(2))
+
+
+eventsub = EventSub()
+string = 'A B C D E F G H I J K L M N O P Q R S T U V W X Y Z'.replace(' ', '')
+
+
+for _ in range(10000):
+    eventsub._save_duplicate(random_id(), datetime.today())
+

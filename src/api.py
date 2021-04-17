@@ -1,15 +1,90 @@
 import aiohttp
-
-from aiohttp.client import _RequestContextManager, ClientResponse
+from aiohttp.client import ClientResponse
 from aiohttp.client_exceptions import ContentTypeError
+from dataclasses import dataclass, InitVar
+
 from errors import HTTPError, InvalidToken, AccessError
 
-from typing import Dict, Union, Iterable, List, Optional, AsyncGenerator, Any, NamedTuple, Callable, Tuple, Coroutine, \
-    Awaitable
+from typing import Dict, Union, Iterable, List, Optional, AsyncGenerator, Any, Callable, Tuple, Awaitable
 
 __all__ = (
     'Api',
 )
+
+
+@dataclass()
+class BaseRequest:
+    sub_url: InitVar[str]
+    data_params_keys: Iterable[str] = ()
+    query_params_keys: Iterable[str] = ()
+    scope: Optional[str] = None
+
+    def __post_init__(self, sub_url: str):
+        helix_url: str = 'https://api.twitch.tv/helix'
+        self.url: str = helix_url + sub_url
+
+    @staticmethod
+    def not_none_fromkeys(
+            raw_dict: dict,
+            keys_to_select: Iterable[Any]
+    ):
+        final_dict: Dict[str, Any] = {}
+        for key in keys_to_select:
+            if raw_dict.get(key) is not None:
+                final_dict[key] = raw_dict[key]
+        return final_dict
+
+    def distribute_raw_params(
+            self,
+            raw_params: Dict[str, Any],
+            *args,
+            **kwargs
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        raw_params = raw_params.copy()
+        raw_params.update(kwargs)
+        data_params = self.not_none_fromkeys(raw_params, self.data_params_keys)
+        query_params = self.not_none_fromkeys(raw_params, self.query_params_keys)
+        return data_params, query_params
+
+
+@dataclass()
+class SingleRequest(BaseRequest):
+    http_method: Callable = None
+    response_json_preparer: Callable[[dict], Any] = lambda json: json['data'][0] if (json is not None) else json
+
+    def __post_init__(self, sub_url: str):
+        super().__post_init__(sub_url)
+        if self.http_method is None:
+            raise NotImplementedError('http_method must be specified')
+
+
+@dataclass()
+class PaginatedRequest(BaseRequest):
+    max_first: int = 100
+    response_json_preparer: Callable[[dict], Iterable] = lambda json: json['data'] if (json is not None) else ()
+
+    def calc_first_param(
+            self,
+            limit: int
+    ) -> Optional[int]:
+        if limit > 0:
+            first: int = min(limit, self.max_first)
+            return first
+        else:
+            return None
+
+    def distribute_raw_params(
+            self,
+            raw_params: Dict[str, Any],
+            limit: int,
+            *args,
+            **kwargs
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        if 'first' in self.query_params_keys:
+            first = self.calc_first_param(limit=limit)
+            if first is not None:
+                kwargs['first'] = first
+        return super(PaginatedRequest, self).distribute_raw_params(raw_params, *args, **kwargs)
 
 
 class Api:
@@ -28,69 +103,10 @@ class Api:
 
         Notes:
             1st:
-                Before using a request, Authorization-Token must be set, see self.set_token() and Api.create() methods.
+                Before calling a request, Authorization-Token must be set, see self.set_token() and Api.create() methods
             2nd:
                 All object attributes is None before set_token() is successfully called
         """
-
-    @staticmethod
-    def rename_fields(
-            names_pairs: Tuple[str, str],
-            locals_: Dict[str, Any]
-    ):
-        if names_pairs:
-            for old, new in names_pairs:
-                if old in locals_:
-                    locals_[new] = locals_.pop(old)
-        return locals_
-
-    @staticmethod
-    def get_fields_from_locals(
-            fields: List[str],
-            locals_: Dict[str, Any]
-    ) -> Optional[Dict[str, Any]]:
-        if fields:
-            final_tuple: Dict[str, Any] = {}
-            # save every not empty field
-            for field in fields:
-                if locals_[field] is not None:
-                    final_tuple[field] = locals_[field]
-            # return if not empty
-            if final_tuple:
-                return final_tuple
-
-    async def do_paginated_request(
-            self,
-            request_name: str,
-            locals_: Dict[str, Any],
-            limit: int,
-            *,
-            url_base: str = 'https://api.twitch.tv/helix/'
-    ):
-        pass
-
-    async def do_single_request(
-            self,
-            request_name: str,
-            locals_: Dict[str, Any],
-            *,
-            url_base: str = 'https://api.twitch.tv/helix/'
-    ) -> Any:
-        request = Api.single_requests[request_name]
-        url = url_base+request.url
-        self._check_scope(request.scope)
-        locals_ = self.rename_fields(request.to_rename_fields, locals_)
-        data = self.get_fields_from_locals(request.data_fields, locals_)
-        params = self.get_fields_from_locals(request.param_fields, locals_)
-        response = await self._get_response(
-            request.http_method(self, url=url, data=data, params=params)
-        )
-        if request.custom_return_indexes is not None:
-            for index in request.custom_return_indexes:
-                response = response[index]
-            return response
-        else:
-            return response['data'][0]
 
     def __init__(self):
         self._headers: Optional[Dict[str, str]] = None
@@ -100,7 +116,7 @@ class Api:
         self.expires_in: Optional[int] = None
 
     #################################
-    # INITIALIZATION'S THINGS
+    # initialization methods
     #
     @classmethod
     async def create(
@@ -110,7 +126,7 @@ class Api:
         """
         |Coroutine|
 
-        if you want to create and initialize object (set a token) in one row, use this.
+        if you want to create and initialize object (set token) in one row, use this.
         The method creates object and calls `self.set_token()` method for the object with given `token`.
 
         Args:
@@ -232,18 +248,296 @@ class Api:
             cls._get_open_session().post(url, params=params)
         )
         return json
-
     #
-    # INITIALIZATION'S THINGS
+    # initialization methods
     #################################
 
     #################################
-    # TWITCH API REQUESTS
+    # requests methods
     #
+    _session: aiohttp.ClientSession = None
+    'session container'
 
-    #################################
-    # Ads
+    @staticmethod
+    def _get_open_session():
+        """
+        returns open session, if `Api._session` is open -> `Api._session`.
+        else -> open new one, save to `Api._session` and return
+
+        Returns:
+            (aiohttp.ClientSession)
+        """
+        if Api._session is None:
+            Api._session = aiohttp.ClientSession()
+        elif Api._session.closed:
+            Api._session = aiohttp.ClientSession()
+        # return anyway
+        return Api._session
+
+    @classmethod
+    async def close(cls):
+        await cls._session.close()
+
+    @staticmethod
+    async def _get_response(
+            request: Awaitable
+    ) -> Optional[Dict]:
+        async with request as response:
+            if 199 < response.status < 300:
+                try:
+                    return await response.json()
+                except ContentTypeError:
+                    return None
+            else:
+                raise HTTPError(response)
+
+    async def _http_get(
+            self,
+            url: str,
+            data: dict = None,
+            params: dict = None
+    ) -> Optional[dict]:
+        json = await self._get_response(
+            self._get_open_session().get(url, data=data, params=params, headers=self._headers)
+        )
+        return json
+
+    async def _http_post(
+            self,
+            url: str,
+            data: dict = None,
+            params: dict = None
+    ) -> Optional[dict]:
+        json = await self._get_response(
+            self._get_open_session().post(url, json=data, params=params, headers=self._headers)
+        )
+        return json
+
+    async def _http_put(
+            self,
+            url: str,
+            data: dict = None,
+            params: dict = None
+    ) -> Optional[dict]:
+        json = await self._get_response(
+            self._get_open_session().put(url, json=data, params=params, headers=self._headers)
+        )
+        return json
+
+    async def _http_patch(
+            self,
+            url: str,
+            data: dict = None,
+            params: dict = None
+    ) -> Optional[dict]:
+        json = await self._get_response(
+            self._get_open_session().patch(url, json=data, params=params, headers=self._headers)
+        )
+        return json
+
+    async def _http_delete(
+            self,
+            url: str,
+            data: dict = None,
+            params: dict = None
+    ) -> Optional[dict]:
+        json = await self._get_response(
+            self._get_open_session().delete(url, data=data, params=params, headers=self._headers)
+        )
+        return json
+
+    def _check_scope(
+            self,
+            scope: str
+    ) -> None:
+        """
+        Raises `AccessError` if current token hasn't required scope
+
+        Args:
+            scope: `str`
+                scope to check
+
+        Returns:
+            `None`
+
+        Raises:
+            `AccessError`: if the object hasn't required scope
+        """
+        if scope is not None:
+            if scope not in self.scopes:
+                raise AccessError(f'Current auth-token hasn\'t required scope: `{scope}`')
+
+    @staticmethod
+    def _set_additional_data(
+            all_data: dict,
+            additional_data: dict
+    ) -> None:
+        """sets all items from `all_data` into `additional_data` except root item with 'data' as key"""
+        if all_data is not None:
+            for key in all_data:
+                if key != 'data':
+                    additional_data[key] = all_data[key]
+
+    async def do_single_request_by_name(
+            self,
+            request_name: str,
+            raw_params: dict,
+            *,
+            additional_data: Optional[dict] = None
+    ):
+        """returns object that got from called method `self.do_single_request`"""
+        request = Api.single_requests[request_name]
+        return await self.do_single_request(request, raw_params, additional_data=additional_data)
+
+    async def do_paginated_request_by_name(
+            self,
+            request_name: str,
+            raw_params: dict,
+            limit: int,
+            *,
+            additional_data: Optional[dict] = None
+    ):
+
+        """yields all that yields called method `self.do_paginated_request`"""
+        request = Api.paginated_requests[request_name]
+        async for json_part in self.do_paginated_request(request, raw_params, limit, additional_data=additional_data):
+            yield json_part
+
+    async def do_single_request(
+            self,
+            request: SingleRequest,
+            raw_params: Dict[str, Any],
+            *,
+            additional_data: Optional[dict] = None
+    ) -> Any:
+        """Does single request based on url from `request.url`, with selected not None params from `raw_params`
+        basing on `request.data_params_keys` and `request.query_params_keys`"""
+        # prepare data
+        self._check_scope(request.scope)
+        data, params = request.distribute_raw_params(raw_params)
+        # get request
+        json = await request.http_method(self, url=request.url, data=data, params=params)
+        if additional_data is not None:
+            self._set_additional_data(json, additional_data)
+        return request.response_json_preparer(json)
+
+    async def do_paginated_request(
+            self,
+            request: PaginatedRequest,
+            raw_params: Dict[str, Any],
+            limit: int,
+            *,
+            additional_data: Optional[dict] = None
+    ) -> AsyncGenerator[dict, None]:
+        """Does single request based on url from `request.url`, with selected not None params from `raw_params`
+        basing on `request.data_params_keys` and `request.query_params_keys`"""
+        self._check_scope(request.scope)
+        data, params = request.distribute_raw_params(raw_params, limit)
+        async for json_part in self._handle_pagination(request.url, limit, data, params,
+                                                       response_json_preparer=request.response_json_preparer,
+                                                       additional_data=additional_data):
+            yield json_part
+
+    async def _handle_pagination(
+            self,
+            url: str,
+            limit: int,
+            data: Optional[dict] = None,
+            params: Optional[dict] = None,
+            *,
+            response_json_preparer: Callable[[dict], Iterable] = lambda json: json['data'] if (json is not None) else [],
+            additional_data: Optional[dict] = None
+    ) -> AsyncGenerator[dict, None]:
+        """
+        |Async Generator|
+
+        Method implements simple request, limit and cursor handler
+        Handles cursor if exists and limits count of yields
+
+        Args:
+            data (Union[dict]):
+                data to send as JSON
+            url: `str`
+                URL for request
+            limit: `int`
+                value of max count of Yields
+            params: `dict`
+                params to insert in the URL
+
+        Yields:
+            splitted data of the response of the request
+        """
+        counter = 0
+        while True:
+            json = await self._http_get(url=url, data=data, params=params)
+            if additional_data is not None:
+                self._set_additional_data(json, additional_data)
+            # parse
+            for part in response_json_preparer(json):
+                yield part
+                # if limit is reached
+                counter += 1
+                if counter == limit:  # if limit is 0 -> never True (unlimited)
+                    return
+            # prepare to new
+            else:
+                try:
+                    cursor = json['pagination']['cursor']
+                # if can't get
+                except KeyError:
+                    return
+                # if have got
+                else:
+                    params['after'] = cursor  # set or change
+
+    @staticmethod
+    async def once(
+            generator: AsyncGenerator[Any, Any]
+    ) -> Optional[dict]:
+        """
+        The method gives you simple way to get only one result from any async generator in one code-row.\n
+        Gets initialized async generator (object of async generator).
+
+        ----------------
+
+        Examples::
+        ===================
+            1st:
+                api = Api.create(token) \n
+                top_stream = await api.once(api.get_streams(limit=1))
+
+            2nd:
+                api = Api.create(token) \n
+                generator_obj = api.get_streams(limit=1) \n
+                top_stream = await api.once(generator_obj)
+
+            both of examples do the same thing, \n
+            2nd is here for more visual that the `generator` as argument is 'object of async generator',
+            not 'async generator'
+        ----------------
+
+        Args:
+        =================
+            generator:
+                Object of async generator
+        ----------------
+
+        Returns:
+        ==================
+            Dict:
+                if get result from the `generator`
+
+            None:
+                if the `generator` returned nothing(if raised StopAsyncIteration)
+        ----------------
+        """
+        try:
+            return await generator.__anext__()
+        except StopAsyncIteration:
+            return None
     #
+    # requests methods
+    #################################
 
     async def start_commercial(
             self,
@@ -286,26 +580,7 @@ class Api:
 
 Input type:
         """
-        self._check_scope('channel:edit:commercial')
-
-        data = {}
-        if broadcaster_id is not None:
-            data['broadcaster_id'] = broadcaster_id
-        if length is not None:
-            data['length'] = length
-        params = {}
-
-        url = 'https://api.twitch.tv/helix/channels/commercial'
-        response = await self._http_post(url, data, params)
-        return response['data'][0]
-
-    #
-    # Ads
-    #################################
-
-    #################################
-    # Analytics
-    #
+        return await self.do_single_request_by_name('start_commercial', locals())
 
     async def get_extension_analytics(
             self,
@@ -313,7 +588,7 @@ Input type:
             extension_id: str = None,
             started_at: str = None,
             ended_at: str = None,
-            type: str = 'overview_v2'
+            type: str = None
     ) -> AsyncGenerator[dict, None]:
         """
         |AsyncGenerator|
@@ -379,22 +654,8 @@ Input type:
             AccessError:
                 if the Token has not required scope. passes response.
         """
-        self._check_scope('analytics:read:extensions')
-
-        params = {}
-        self._insert_first(params, limit, 100)
-        if extension_id is not None:
-            params['extension_id'] = extension_id
-        if started_at is not None:
-            params['started_at'] = started_at
-        if ended_at is not None:
-            params['ended_at'] = ended_at
-        if type is not None:
-            params['type'] = type
-
-        url = 'https://api.twitch.tv/helix/analytics/extensions'
-        async for extension in self._handle_pagination(url, limit, params):
-            yield extension
+        async for extension_analytic in self.do_paginated_request_by_name('get_extension_analytics', locals(), limit):
+            yield extension_analytic
 
     async def get_game_analytics(
             self,
@@ -465,30 +726,8 @@ Input type:
             `AccessError`:
                 if the Token has not required scope.
         """
-        self._check_scope('analytics:read:games')
-
-        params = {}
-        self._insert_first(params, limit, 100)
-        if game_id is not None:
-            params['game_id'] = game_id
-        if started_at is not None:
-            params['started_at'] = started_at
-        if ended_at is not None:
-            params['ended_at'] = ended_at
-        if type is not None:
-            params['type'] = type
-
-        url = 'https://api.twitch.tv/helix/analytics/games'
-        async for game in self._handle_pagination(url, limit, params):
-            yield game
-
-    #
-    # Analytics
-    #################################
-
-    #################################
-    # Bits
-    #
+        async for game_analytics in self.do_paginated_request_by_name('get_game_analytics', locals(), limit):
+            yield game_analytics
 
     async def get_bits_leaderboard(
             self,
@@ -549,20 +788,10 @@ Input type:
             `AccessError`:
                 if the Token has not required scope.
         """
-        self._check_scope('bits:read')
-
-        params = {}
-        self._insert_count(params, limit, 100)
-        if period is not None:
-            params['period'] = period
-        if started_at is not None:
-            params['started_at'] = started_at
-        if user_id is not None:
-            params['user_id'] = user_id
-
-        url = 'https://api.twitch.tv/helix/bits/leaderboard'
-        async for leader in self._handle_pagination(url, limit, params):
-            yield leader
+        max_count: int = 100
+        count: int = min(limit, max_count)
+        async for bits_leader in self.do_paginated_request_by_name('get_bits_leaderboard', locals(), limit):
+            yield bits_leader
 
     async def get_cheermotes(
             self,
@@ -650,13 +879,7 @@ Input type:
             `HTTPError`:
                 if status-code of response is not 2XX, passes response.
         """
-
-        params = {}
-        if broadcaster_id is not None:
-            params['broadcaster_id'] = broadcaster_id
-
-        url = 'https://api.twitch.tv/helix/bits/cheermotes'
-        async for cheermote in self._handle_pagination(url, limit, params):
+        async for cheermote in self.do_paginated_request_by_name('get_cheermotes', locals(), limit):
             yield cheermote
 
     async def get_extension_transactions(
@@ -726,26 +949,15 @@ Input type:
             `HTTPError`:
                 if status-code of response is not 2XX, passes response.
         """
-        params = {}
-        self._insert_first(params, limit, 100)
-        if extension_id is not None:
-            params['extension_id'] = extension_id
-        if transaction_id is not None:
-            params['id'] = transaction_id
-
-        url = 'https://api.twitch.tv/helix/extensions/transactions'
-        async for transaction in self._handle_pagination(url, limit, params):
+        id = transaction_id
+        async for transaction in self.do_paginated_request_by_name('get_extension_transactions', locals(), limit):
             yield transaction
 
-    #
-    # Bits
-    #################################
-
-    #################################
-    # Channels
-    #
-
-    async def get_channel_information(self, broadcaster_id: str) -> dict:
+    async def get_channel_information(
+            self,
+            limit: int,
+            broadcaster_id: str
+    ) -> AsyncGenerator[dict, None]:
         """
         |Coroutine|\n
         Gets channel information for users.\n
@@ -784,62 +996,8 @@ Input type:
             :class:`HTTPError`:
                 if status-code is not 2XX, passes `dict` with json of response.
         """
-
-        params = {}
-        if broadcaster_id is not None:
-            params['broadcaster_id'] = broadcaster_id
-
-        url = 'https://api.twitch.tv/helix/channels'
-        info = await self._http_get(url, params)
-        return info['data'][0]
-
-    async def get_channel_editors(self, limit: int, broadcaster_id: str) -> AsyncGenerator[dict, None]:
-        """
-        |Async Generator|
-        ================
-        Yields  users who have editor permissions for a specific channel.\n
-        REQUIRED scope 'channel:read:editors'
-
-        ----------------
-
-        Args:
-        ================
-            limit: `int`
-                limit on number of returned values, 0 - unlimited
-
-            broadcaster_id: `str`
-                Broadcaster’s user ID associated with the channel.
-        ----------------
-
-        Yields:
-        ================
-            `dict` {
-                'user_id': `str`
-                    User ID of the editor.
-
-                'user_name': `str`
-                    Display name of the editor.
-
-                'created_at': `str`
-                    Date and time the editor was given editor permissions.
-            }
-        ----------------
-
-        Raises:
-        ================
-            :class:`HTTPError`:
-                if status-code is not 2XX, passes `dict` with json of response.
-        ----------------
-        """
-
-        params = {}
-        if broadcaster_id is not None:
-            params['broadcaster_id'] = broadcaster_id
-        self._check_scope('channel:read:editors')
-
-        url = 'https://api.twitch.tv/helix/channels/editors'
-        async for editor in self._handle_pagination(url, limit, params):
-            yield editor
+        async for information in self.do_paginated_request_by_name('get_channel_information', locals(), limit):
+            yield information
 
     async def modify_channel_information(
             self,
@@ -881,30 +1039,53 @@ Input type:
             :class:`AccessError`:
                 if the Authorization-Token hasn't required scope
         """
+        return await self.do_single_request_by_name('modify_channel_information', locals())
 
-        data = {'game_id': game_id, 'broadcaster_language': broadcaster_language, 'title': title}
-        if game_id is not None:
-            data['game_id'] = game_id
-        if broadcaster_language is not None:
-            data['broadcaster_language'] = broadcaster_language
-        if title is not None:
-            data['title'] = title
-        params = {}
-        if broadcaster_id is not None:
-            params['broadcaster_id'] = broadcaster_id
-        self._check_scope('user:edit:broadcast')
+    async def get_channel_editors(
+            self,
+            limit: int,
+            broadcaster_id: str
+    ) -> AsyncGenerator[dict, None]:
+        """
+        |Async Generator|
+        ================
+        Yields  users who have editor permissions for a specific channel.\n
+        REQUIRED scope 'channel:read:editors'
 
-        url = 'https://api.twitch.tv/helix/channels'
-        await self._http_patch(url, data, params)
-        return None
+        ----------------
 
-    #
-    # Channels
-    #################################
+        Args:
+        ================
+            limit: `int`
+                limit on number of returned values, 0 - unlimited
 
-    #################################
-    # rewards
-    #
+            broadcaster_id: `str`
+                Broadcaster’s user ID associated with the channel.
+        ----------------
+
+        Yields:
+        ================
+            `dict` {
+                'user_id': `str`
+                    User ID of the editor.
+
+                'user_name': `str`
+                    Display name of the editor.
+
+                'created_at': `str`
+                    Date and time the editor was given editor permissions.
+            }
+        ----------------
+
+        Raises:
+        ================
+            :class:`HTTPError`:
+                if status-code is not 2XX, passes `dict` with json of response.
+        ----------------
+        """
+        async for editor in self.do_paginated_request_by_name('get_channel_editors', locals(), limit):
+            yield editor
+
     async def create_custom_rewards(
             self,
             broadcaster_id: str,
@@ -912,14 +1093,14 @@ Input type:
             cost: int,
             prompt: str = None,
             is_enabled: bool = None,
-            max_per_stream: int = None,
             background_color: str = None,
             is_user_input_required: bool = None,
-            max_per_user_per_stream: int = None,
-            global_cooldown_seconds: int = None,
             is_max_per_stream_enabled: bool = None,
-            is_global_cooldown_enabled: bool = None,
+            max_per_stream: int = None,
             is_max_per_user_per_stream_enabled: bool = None,
+            max_per_user_per_stream: int = None,
+            is_global_cooldown_enabled: bool = None,
+            global_cooldown_seconds: int = None,
             should_redemptions_skip_request_queue: bool = None
     ) -> AsyncGenerator[dict, None]:
         """
@@ -1058,42 +1239,7 @@ Input type:
             `AccessError`:
                 if the Token has not required scope.
         """
-        self._check_scope('channel:manage:redemptions')
-
-        data = {}
-        if cost is not None:
-            data['cost'] = cost
-        if title is not None:
-            data['title'] = title
-        if prompt is not None:
-            data['prompt'] = prompt
-        if is_enabled is not None:
-            data['is_enabled'] = is_enabled
-        if max_per_stream is not None:
-            data['max_per_stream'] = max_per_stream
-        if background_color is not None:
-            data['background_color'] = background_color
-        if is_user_input_required is not None:
-            data['is_user_input_required'] = is_user_input_required
-        if max_per_user_per_stream is not None:
-            data['max_per_user_per_stream'] = max_per_user_per_stream
-        if global_cooldown_seconds is not None:
-            data['global_cooldown_seconds'] = global_cooldown_seconds
-        if is_max_per_stream_enabled is not None:
-            data['is_max_per_stream_enabled'] = is_max_per_stream_enabled
-        if is_global_cooldown_enabled is not None:
-            data['is_global_cooldown_enabled'] = is_global_cooldown_enabled
-        if is_max_per_user_per_stream_enabled is not None:
-            data['is_max_per_user_per_stream_enabled'] = is_max_per_user_per_stream_enabled
-        if should_redemptions_skip_request_queue is not None:
-            data['should_redemptions_skip_request_queue'] = should_redemptions_skip_request_queue
-        params = {}
-        if broadcaster_id is not None:
-            params['broadcaster_id'] = broadcaster_id
-
-        url = 'https://api.twitch.tv/helix/channel_points/custom_rewards'
-        response = await self._http_post(url, data, params)
-        return response['data'][0]
+        return await self.do_single_request_by_name('create_custom_rewards', locals())
 
     async def delete_custom_reward(
             self,
@@ -1129,17 +1275,8 @@ Input type:
             `AccessError`:
                 if the Token has not required scope.
         """
-        self._check_scope('channel:manage:redemptions')
-
-        params = {}
-        if broadcaster_id is not None:
-            params['broadcaster_id'] = broadcaster_id
-        if reward_id is not None:
-            params['id'] = reward_id
-
-        url = 'https://api.twitch.tv/helix/channel_points/custom_rewards'
-        await self._http_delete(url, params)
-        return None
+        id = reward_id
+        return await self.do_single_request_by_name('delete_custom_reward', locals())
 
     async def get_custom_reward(
             self,
@@ -1256,25 +1393,15 @@ Input type:
             `AccessError`:
                 if the Token has not required scope.
         """
-        self._check_scope('channel:read:redemptions')
-
-        params = {}
-        if broadcaster_id is not None:
-            params['broadcaster_id'] = broadcaster_id
-        if reward_id is not None:
-            params['id'] = reward_id
-        if only_manageable_rewards is not None:
-            params['only_manageable_rewards'] = only_manageable_rewards
-
-        url = 'https://api.twitch.tv/helix/channel_points/custom_rewards'
-        async for reward in self._handle_pagination(url, limit, params):
+        id = reward_id
+        async for reward in self.do_paginated_request_by_name('get_custom_reward', locals(), limit):
             yield reward
 
     async def get_custom_reward_redemption(
             self,
             limit: int,
             broadcaster_id: str,
-            reward_id: str ,
+            reward_id: str,
             redemption_id: Union[Iterable[str], str] = None,
             status: str = None,
             sort: str = None
@@ -1353,24 +1480,9 @@ Input type:
             `AccessError`:
                 if the Token has not required scope.
         """
-        self._check_scope('channel:read:redemptions')
-
-        params = {}
-        self._insert_first(params, limit, 50)
-        if broadcaster_id is not None:
-            params['broadcaster_id'] = broadcaster_id
-        if reward_id is not None:
-            params['reward_id'] = reward_id
-        if redemption_id is not None:
-            params['id'] = redemption_id
-        if status is not None:
-            params['status'] = status
-        if sort is not None:
-            params['sort'] = sort
-
-        url = 'https://api.twitch.tv/helix/channel_points/custom_rewards/redemptions'
-        async for reward in self._handle_pagination(url, limit, params):
-            yield reward
+        id = redemption_id
+        async for redemption in self.do_paginated_request_by_name('get_custom_reward_redemption', locals(), limit):
+            yield redemption
 
     async def update_custom_reward(
             self,
@@ -1534,46 +1646,8 @@ Input type:
             `AccessError`:
                 if the Token has not required scope.
         """
-        self._check_scope('channel:manage:redemptions')
-
-        data = {}
-        if cost is not None:
-            data['cost'] = cost
-        if title is not None:
-            data['title'] = title
-        if prompt is not None:
-            data['prompt'] = prompt
-        if is_paused is not None:
-            data['is_paused'] = is_paused
-        if is_enabled is not None:
-            data['is_enabled'] = is_enabled
-        if max_per_stream is not None:
-            data['max_per_stream'] = max_per_stream
-        if background_color is not None:
-            data['background_color'] = background_color
-        if is_user_input_required is not None:
-            data['is_user_input_required'] = is_user_input_required
-        if max_per_user_per_stream is not None:
-            data['max_per_user_per_stream'] = max_per_user_per_stream
-        if global_cooldown_seconds is not None:
-            data['global_cooldown_seconds'] = global_cooldown_seconds
-        if is_max_per_stream_enabled is not None:
-            data['is_max_per_stream_enabled'] = is_max_per_stream_enabled
-        if is_global_cooldown_enabled is not None:
-            data['is_global_cooldown_enabled'] = is_global_cooldown_enabled
-        if is_max_per_user_per_stream_enabled is not None:
-            data['is_max_per_user_per_stream_enabled'] = is_max_per_user_per_stream_enabled
-        if should_redemptions_skip_request_queue is not None:
-            data['should_redemptions_skip_request_queue'] = should_redemptions_skip_request_queue
-        params = {}
-        if broadcaster_id is not None:
-            params['broadcaster_id'] = broadcaster_id
-        if reward_id is not None:
-            params['id'] = reward_id
-
-        url = 'https://api.twitch.tv/helix/channel_points/custom_rewards'
-        response = await self._http_patch(url, data, params)
-        return response['data'][0]
+        id = reward_id
+        return await self.do_single_request_by_name('update_custom_reward', locals())
 
     async def update_redemption_status(
             self,
@@ -1648,30 +1722,8 @@ Input type:
             `AccessError`:
                 if the Token has not required scope.
         """
-        self._check_scope('channel:manage:redemptions')
-
-        data = {}
-        if status is not None:
-            data['status'] = status
-        params = {}
-        if broadcaster_id is not None:
-            params['broadcaster_id'] = broadcaster_id
-        if reward_id is not None:
-            params['reward_id'] = reward_id
-        if redemption_id is not None:
-            params['id'] = redemption_id
-
-        url = 'https://api.twitch.tv/helix/channel_points/custom_rewards/redemptions'
-        response = await self._http_patch(url, data, params)
-        return response['data'][0]
-
-    #
-    # rewards
-    #################################
-
-    #################################
-    # clips
-    #
+        id = redemption_id
+        return await self.do_single_request_by_name('update_redemption_status', locals())
 
     async def create_clip(
             self,
@@ -1716,18 +1768,7 @@ Input type:
             `AccessError`:
                 if the Token has not required scope.
         """
-
-        data = {}
-        params = {}
-        if broadcaster_id is not None:
-            params['broadcaster_id'] = broadcaster_id
-        if has_delay is not None:
-            params['has_delay'] = has_delay
-        self._check_scope('clips:edit')
-
-        url = 'https://api.twitch.tv/helix/clips'
-        response = await self._http_post(url, data, params)
-        return response['data'][0]
+        return await self.do_single_request_by_name('create_clip', locals())
 
     async def get_clips(
             self,
@@ -1826,31 +1867,9 @@ Input type:
                 if status-code is not 2XX, passes `dict` with json of response.
         ----------------
         """
-
-        params = {}
-        if broadcaster_id is not None:
-            params['broadcaster_id'] = broadcaster_id
-        if game_id is not None:
-            params['game_id'] = game_id
-        if clip_id is not None:
-            params['id'] = clip_id
-        if started_at is not None:
-            params['started_at'] = started_at
-        if ended_at is not None:
-            params['ended_at'] = ended_at
-        self._insert_first(params, limit, 100)
-
-        url = 'https://api.twitch.tv/helix/clips'
-        async for clip in self._handle_pagination(url, limit, params):
+        id = clip_id
+        async for clip in self.do_paginated_request_by_name('get_clips', locals(), limit):
             yield clip
-
-    #
-    # clips
-    #################################
-
-    #################################
-    # Entitlements
-    #
 
     async def get_code_status(
             self,
@@ -1939,16 +1958,8 @@ Input type:
                     Indicates some internal and/or unknown failure handling this code.
         ----------------
         """
-
-        params = {}
-        if code is not None:
-            params['code'] = code
-        if user_id is not None:
-            params['user_id'] = user_id
-
-        url = 'https://api.twitch.tv/helix/entitlements/codes'
-        async for code_status in self._handle_pagination(url, limit, params):
-            yield code_status
+        async for status in self.do_paginated_request_by_name('get_code_status', locals(), limit):
+            yield status
 
     async def get_drops_entitlements(
             self,
@@ -2014,19 +2025,9 @@ Input type:
             `App Access OAuth Token` can use all combinations of params
         ----------------
         """
-
-        params = {}
-        if entitlement_id is not None:
-            params['entitlement_id'] = entitlement_id
-        if user_id is not None:
-            params['user_id'] = user_id
-        if game_id is not None:
-            params['game_id'] = game_id
-        self._insert_first(params, limit, 100)
-
-        url = 'https://api.twitch.tv/helix/entitlements/drops'
-        async for code_status in self._handle_pagination(url, limit, params):
-            yield code_status
+        id = entitlement_id
+        async for entitlement in self.do_paginated_request_by_name('get_drops_entitlements', locals(), limit):
+            yield entitlement
 
     async def redeem_code(
             self,
@@ -2115,25 +2116,7 @@ Input type:
                     Indicates some internal and/or unknown failure handling this code.
         ----------------
         """
-
-        data = {}
-        params = {}
-        if code is not None:
-            params['code'] = code
-        if user_id is not None:
-            params['user_id'] = user_id
-
-        url = 'https://api.twitch.tv/helix/entitlements/code'
-        response = await self._http_post(url, data, params)
-        return response['data']
-
-    #
-    # Entitlements
-    #################################
-
-    #################################
-    # Games
-    #
+        return await self.do_single_request_by_name('redeem_code', locals())
 
     async def get_top_games(
             self,
@@ -2166,12 +2149,7 @@ Input type:
             :class:`HTTPError`:
                 if status-code is not 2XX, passes `dict` with json of response.
         """
-
-        params = {}
-        self._insert_first(params, limit, 100)
-
-        url = 'https://api.twitch.tv/helix/games/top'
-        async for game in self._handle_pagination(url, limit, params):
+        async for game in self.do_paginated_request_by_name('get_top_games', locals(), limit):
             yield game
 
     async def get_games(self,
@@ -2215,85 +2193,39 @@ Input type:
             :class:`HTTPError`:
                 if status-code is not 2XX, passes `dict` with json of response.
         """
-
-        params = {}
-        if game_id is not None:
-            params['id'] = game_id
-        if name is not None:
-            params['name'] = name
-
-        url = 'https://api.twitch.tv/helix/games'
-        async for game in self._handle_pagination(url, limit, params):
+        id = game_id
+        async for game in self.do_paginated_request_by_name('get_games', locals(), limit):
             yield game
-
-    #
-    # Games
-    #################################
-
-    #################################
-    #  eventsubs
-    #
 
     async def create_eventsub_subscription(
             self,
             type: str,
-            condition_name: str,
-            condition_value: Any,
+            condition: Dict[str, str],
             callback: str,
             secret: str,
             version: str = '1',
             method: str = 'webhook'
     ):
-        data = {}
-        if type is not None:
-            data['type'] = type
-        if version is not None:
-            data['version'] = version
-        data['condition'] = {
-            condition_name: condition_value
-        }
-        data['transport'] = {
+        transport = {
             'method': method,
             'callback': callback,
             'secret': secret
         }
+        return await self.do_single_request_by_name('create_eventsub_subscription', locals())
 
-        url = 'https://api.twitch.tv/helix/eventsub/subscriptions'
-        json = await self._get_response(
-            self._get_open_session().post(url, data=data)
-        )
-        return json['data'][0]
+    async def delete_eventsub_subscription(
+            self,
+            subscription_id: str
+    ):
+        id = subscription_id
+        return await self.do_single_request_by_name('delete_eventsub_subscription', locals())
 
     async def get_eventsub_subscriptions(
             self,
             limit: int
     ):
-        params = {}
-        self._insert_first(params, limit, 100)
-
-        url = 'https://api.twitch.tv/helix/eventsub/subscriptions'
-        async for subscription in self._handle_pagination(url, limit, params):
+        async for subscription in self.do_paginated_request_by_name('get_eventsub_subscriptions', locals(), limit):
             yield subscription
-
-    async def delete_eventsub_subscription(
-            self,
-            sub_id: str
-    ):
-        params = {}
-        if sub_id is not None:
-            params['id'] = sub_id
-
-        url = 'https://api.twitch.tv/helix/eventsub/subscriptions'
-        respone = await self._http_delete(url, params)
-        return respone
-
-    #
-    # eventsubs
-    ################################
-
-    #################################
-    # Hype train
-    #
 
     async def get_hype_train_events(self,
                                     limit: int,
@@ -2402,26 +2334,15 @@ Input type:
             :class:`AccessError`:
                 if the Authorization-Token hasn't required scope
         """
-
-        params = {}
-        if broadcaster_id is not None:
-            params['broadcaster_id'] = broadcaster_id
-        if event_id is not None:
-            params['id'] = event_id
-        self._insert_first(params, limit, 100)
-        self._check_scope('channel:read:hype_train')
-
-        url = 'https://api.twitch.tv/helix/hypetrain/events'
-        async for event in self._handle_pagination(url, limit, params):
+        id = event_id
+        async for event in self.do_paginated_request_by_name('get_hype_train_events', locals(), limit):
             yield event
 
-    #
-    # Hype train
-    #################################
-
-    #################################
-    # moderation
-    #
+    async def check_automod_status(
+            self,
+            data: List[dict],
+    ):
+        return await self.do_single_request_by_name('check_automod_status', {'data': data})
 
     async def get_banned_events(self,
                                 limit: int,
@@ -2486,17 +2407,7 @@ Input type:
             :class:`AccessError`:
                 if the Authorization-Token hasn't required scope
         """
-
-        params = {}
-        if broadcaster_id is not None:
-            params['broadcaster_id'] = broadcaster_id
-        if user_id is not None:
-            params['user_id'] = user_id
-        self._insert_first(params, limit, 100)
-        self._check_scope('moderation:read')
-
-        url = 'https://api.twitch.tv/helix/moderation/banned/events'
-        async for event in self._handle_pagination(url, limit, params):
+        async for event in self.do_paginated_request_by_name('get_banned_events', locals(), limit):
             yield event
 
     async def get_banned_users(self,
@@ -2542,17 +2453,7 @@ Input type:
             :class:`AccessError`:
                 if the Authorization-Token hasn't required scope
         """
-
-        params = {}
-        if broadcaster_id is not None:
-            params['broadcaster_id'] = broadcaster_id
-        if user_id is not None:
-            params['user_id'] = user_id
-        self._insert_first(params, limit, 100)
-        self._check_scope('moderation:read')
-
-        url = 'https://api.twitch.tv/helix/moderation/banned'
-        async for user in self._handle_pagination(url, limit, params):
+        async for user in self.do_paginated_request_by_name('get_banned_users', locals(), limit):
             yield user
 
     async def get_moderators(self,
@@ -2595,17 +2496,7 @@ Input type:
             :class:`AccessError`:
                 if the Authorization-Token hasn't required scope
         """
-
-        params = {}
-        if broadcaster_id is not None:
-            params['broadcaster_id'] = broadcaster_id
-        if user_id is not None:
-            params['user_id'] = user_id
-        self._insert_first(params, limit, 100)
-        self._check_scope('moderation:read')
-
-        url = 'https://api.twitch.tv/helix/moderation/moderators'
-        async for moderator in self._handle_pagination(url, limit, params):
+        async for moderator in self.do_paginated_request_by_name('get_moderators', locals(), limit):
             yield moderator
 
     async def get_moderator_events(self,
@@ -2671,26 +2562,8 @@ Input type:
             :class:`AccessError`:
                 if the Authorization-Token hasn't required scope
         """
-
-        params = {}
-        if broadcaster_id is not None:
-            params['broadcaster_id'] = broadcaster_id
-        if user_id is not None:
-            params['user_id'] = user_id
-        self._insert_first(params, limit, 100)
-        self._check_scope('moderation:read')
-
-        url = 'https://api.twitch.tv/helix/moderation/moderators/events'
-        async for event in self._handle_pagination(url, limit, params):
+        async for event in self.do_paginated_request_by_name('get_moderator_events', locals(), limit):
             yield event
-
-    #
-    # moderation
-    #################################
-
-    #################################
-    # Search
-    #
 
     async def search_categories(self, limit: int, query: str) -> dict:
         """
@@ -2724,14 +2597,7 @@ Input type:
             :class:`HTTPError`:
                 if status-code is not 2XX, passes `dict` with json of response.
         """
-
-        params = {}
-        if query is not None:
-            params['query'] = query
-        self._insert_first(params, limit, 100)
-
-        url = 'https://api.twitch.tv/helix/search/categories'
-        async for category in self._handle_pagination(url, limit, params):
+        async for category in self.do_paginated_request_by_name('search_categories', locals(), limit):
             yield category
 
     async def search_channels(self, limit: int, query: str) -> dict:
@@ -2790,25 +2656,14 @@ Input type:
             :class:`HTTPError`:
                 if status-code is not 2XX, passes `dict` with json of response.
         """
-
-        params = {}
-        if query is not None:
-            params['query'] = query
-        self._insert_first(params, limit, 100)
-
-        url = 'https://api.twitch.tv/helix/search/channels'
-        async for channel in self._handle_pagination(url, limit, params):
+        async for channel in self.do_paginated_request_by_name('search_channels', locals(), limit):
             yield channel
 
-    #
-    # Search
-    #################################
-
-    #################################
-    # Streams
-    #
-
-    async def get_stream_key(self, broadcaster_id: str) -> str:
+    async def get_stream_key(
+            self,
+            limit: int,
+            broadcaster_id: str
+    ) -> str:
         """
         |Coroutine|\n
         Gets the channel stream key for a user.\n
@@ -2832,15 +2687,8 @@ Input type:
             :class:`AccessError`:
                 if the Authorization-Token hasn't required scope
         """
-
-        params = {}
-        if broadcaster_id is not None:
-            params['broadcaster_id'] = broadcaster_id
-        self._check_scope('channel:read:stream_key')
-
-        url = 'https://api.twitch.tv/helix/streams/key'
-        stream_key = await self._http_get(url, params)
-        return stream_key['data'][0]['stream_key']
+        async for stream_key in self.do_paginated_request_by_name('get_stream_key', locals(), limit):
+            yield stream_key
 
     async def get_streams(
             self,
@@ -2922,20 +2770,7 @@ Input type:
             :class:`HTTPError`:
                 if status-code is not 2XX, passes `dict` with json of response.
         """
-        localss = locals()
-        params = {}
-        if game_id is not None:
-            params['game_id'] = game_id
-        if language is not None:
-            params['language'] = language
-        if user_id is not None:
-            params['user_id'] = user_id
-        if user_login is not None:
-            params['user_login'] = user_login
-        self._insert_first(params, limit, 100)
-
-        url = 'https://api.twitch.tv/helix/streams'
-        async for stream in self._handle_pagination(url, limit, params):
+        async for stream in self.do_paginated_request_by_name('get_streams', locals(), limit):
             yield stream
 
     async def create_stream_marker(
@@ -2980,18 +2815,7 @@ Input type:
             :class:`AccessError`:
                 if the Authorization-Token hasn't required scope
         """
-
-        data = {}
-        if user_id is not None:
-            data['user_id'] = user_id
-        if description is not None:
-            data['description'] = description
-        params = {}
-        self._check_scope('user:edit:broadcast')
-
-        url = 'https://api.twitch.tv/helix/streams/markers'
-        response = await self._http_post(url, data, params)
-        return response['data'][0]
+        return await self.do_single_request_by_name('create_stream_marker', locals())
 
     async def get_stream_markers(
             self,
@@ -3054,35 +2878,8 @@ Input type:
             :class:`AccessError`:
                 if the Authorization-Token hasn't required scope
         """
-
-        params = {}
-        if user_id is not None:
-            params['user_id'] = user_id
-        if video_id is not None:
-            params['video_id'] = video_id
-        self._insert_first(params, limit, 100)
-        self._check_scope('user:read:broadcast')
-
-        url = 'https://api.twitch.tv/helix/streams/markers'
-        counter = 0
-        async for user_dict in self._handle_pagination(url, limit, params):  # response is dict with `user info`
-            for video_dict in user_dict['videos']:  # dict with `user info` contains `videos info`
-                for marker in video_dict['markers']:  # `video info` contains `markers`, that we should yield
-                    marker['user_id'] = user_dict['user_id']  # we can't just send to dev whole response
-                    marker['user_name'] = user_dict['user_name']  # and at the same time can't lose data
-                    marker['video_id'] = video_dict['video_id']  # so we're inserting that in every marker
-                    yield marker  # yield prepared marker
-                    counter += 1  # this request make us to use different logic, so we need another counter
-                    if counter == limit:  # if counter has been reached - Stop Async Iteration
-                        return
-
-    #
-    # Streams
-    #################################
-
-    #################################
-    # Subscriptions
-    #
+        async for marker in self.do_paginated_request_by_name('get_stream_markers', locals(), limit):
+            yield marker
 
     async def get_broadcaster_subscriptions(
             self,
@@ -3141,26 +2938,24 @@ Input type:
             :class:`AccessError`:
                 if the Authorization-Token hasn't required scope
         """
-
-        params = {'broadcaster_id': broadcaster_id, 'user_id': user_id}
-        if broadcaster_id is not None:
-            params['broadcaster_id'] = broadcaster_id
-        if user_id is not None:
-            params['user_id'] = user_id
-        self._insert_first(params, limit, 100)
-        self._check_scope('channel:read:subscriptions')
-
-        url = 'https://api.twitch.tv/helix/subscriptions'
-        async for subscription in self._handle_pagination(url, limit, params):
+        async for subscription in self.do_paginated_request_by_name('get_broadcaster_subscriptions', locals(), limit):
             yield subscription
 
-    #
-    # Subscriptions
-    #################################
-
-    #################################
-    # Tags
-    #
+    async def check_user_subscription(
+            self,
+            broadcaster_id: str,
+            user_id: str,
+    ) -> bool:
+        try:
+            await self.do_single_request_by_name('check_user_subscription', locals())
+            return True
+        # if HTTPError
+        except HTTPError as error:
+            response: ClientResponse = error.args[0]
+            if response.status == 404:
+                return False
+            else:
+                raise
 
     async def get_all_stream_tags(
             self,
@@ -3212,14 +3007,7 @@ Input type:
             :class:`HTTPError`:
                 if status-code is not 2XX, passes `dict` with json of response.
         """
-
-        params = {}
-        if tag_id is not None:
-            params['tag_id'] = tag_id
-        self._insert_first(params, limit, 100)
-
-        url = 'https://api.twitch.tv/helix/tags/streams'
-        async for tag in self._handle_pagination(url, limit, params):
+        async for tag in self.do_paginated_request_by_name('get_all_stream_tags', locals(), limit):
             yield tag
 
     async def get_stream_tags(
@@ -3271,19 +3059,13 @@ Input type:
             :class:`HTTPError`:
                 if status-code is not 2XX, passes `dict` with json of response.
         """
-
-        params = {}
-        if broadcaster_id is not None:
-            params['broadcaster_id'] = broadcaster_id
-
-        url = 'https://api.twitch.tv/helix/streams/tags'
-        async for tag in self._handle_pagination(url, limit, params):
+        async for tag in self.do_paginated_request_by_name('get_stream_tags', locals(), limit):
             yield tag
 
     async def replace_stream_tags(
             self,
             broadcaster_id: str = None,
-            tag_ids: Union[Iterable[str], str] = None
+            tag_ids: Iterable[str] = None
     ) -> None:
         """
         |Coroutine|\n
@@ -3317,26 +3099,25 @@ Input type:
             :class:`AccessError`:
                 if the Authorization-Token hasn't required scope
         """
+        return await self.do_single_request_by_name('replace_stream_tags', locals())
 
-        data = {}
-        if tag_ids is not None:
-            data['tag_ids'] = self._mod_to_list(tag_ids)
-        params = {}
-        if broadcaster_id is not None:
-            params['broadcaster_id'] = broadcaster_id
-        self._check_scope('user:edit:broadcast')
+    async def get_channel_teams(
+            self,
+            limit: int,
+            broadcaster_id: str,
+    ):
+        async for team in self.do_paginated_request_by_name('get_channel_teams', locals(), limit):
+            yield team
 
-        url = 'https://api.twitch.tv/helix/streams/tags'
-        await self._http_put(url, {}, params)
-        return None
-
-    #
-    # Tags
-    #################################
-
-    #################################
-    # Users
-    #
+    async def get_teams(
+            self,
+            limit: int,
+            name: str,
+            team_id: str,
+    ):
+        id = team_id
+        async for team in self.do_paginated_request_by_name('get_teams', locals(), limit):
+            yield team
 
     async def get_users(
             self,
@@ -3362,9 +3143,9 @@ Input type:
             login: `str`
                 User login name. Multiple login names can be specified. Limit: 100.
 
-            !Notes:
-                Note: The limit of 100 IDs and login names is the total limit. You can request,
-                for example, 50 of each or 100 of one of them. You cannot request 100 of both.
+        Notes:
+            Note: The limit of 100 IDs and login names is the total limit. You can request,
+            for example, 50 of each or 100 of one of them. You cannot request 100 of both.
 
         Yields:
         ================
@@ -3407,15 +3188,8 @@ Input type:
             `HTTPError`:
                 if status-code is not 2XX, passes `dict` with json of response.
         """
-
-        params = {}
-        if user_id is not None:
-            params['id'] = user_id
-        if login is not None:
-            params['login'] = login
-
-        url = 'https://api.twitch.tv/helix/users'
-        async for user in self._handle_pagination(url, limit, params):
+        id = user_id
+        async for user in self.do_paginated_request_by_name('get_users', locals(), limit):
             yield user
 
     async def update_user(
@@ -3474,16 +3248,7 @@ Input type:
             :class:`AccessError`:
                 if the Authorization-Token hasn't required scope
         """
-
-        data = {}
-        params = {}
-        if description is not None:
-            params['description'] = description
-        self._check_scope('user:edit')
-
-        url = 'https://api.twitch.tv/helix/users'
-        response = await self._http_put(url, data, params)
-        return response['data'][0]
+        return await self.do_single_request_by_name('update_user', locals())
 
     async def get_users_follows(
             self,
@@ -3542,16 +3307,8 @@ Input type:
                 if status-code is not 2XX, passes `dict` with json of response.
         ----------------
         """
-
-        params = {}
-        if from_id is not None:
-            params['from_id'] = from_id
-        if to_id is not None:
-            params['to_id'] = to_id
-
-        url = 'https://api.twitch.tv/helix/users/follows'
-        async for follower in self._handle_pagination(url, limit, params):
-            yield follower
+        async for follow in self.do_paginated_request_by_name('get_users_follows', locals(), limit):
+            yield follow
 
     async def create_user_follows(
             self,
@@ -3594,20 +3351,7 @@ Input type:
                 if the Authorization-Token hasn't required scope
         ----------------
         """
-
-        data = {}
-        if from_id is not None:
-            data['from_id'] = from_id
-        if to_id is not None:
-            data['to_id'] = to_id
-        if allow_notifications is not None:
-            data['allow_notifications'] = allow_notifications
-        params = {}
-        self._check_scope('user:edit:follows')
-
-        url = 'https://api.twitch.tv/helix/users/follows'
-        response = await self._http_post(url, data, params)
-        return response
+        return await self.do_single_request_by_name('create_user_follows', locals())
 
     async def delete_user_follows(
             self,
@@ -3645,18 +3389,7 @@ Input type:
                 if the Authorization-Token hasn't required scope
         ----------------
         """
-
-        data =
-        params = {}
-        if from_id is not None:
-            params['from_id'] = from_id
-        if to_id is not None:
-            params['to_id'] = to_id
-        self._check_scope('user:edit:follows')
-
-        url = 'https://api.twitch.tv/helix/users/follows'
-        response = await self._http_delete(url, data, params)
-        return response
+        return await self.do_single_request_by_name('delete_user_follows', locals())
 
     async def get_user_block_list(
             self,
@@ -3704,16 +3437,8 @@ Input type:
                 if the Authorization-Token hasn't required scope
         ----------------
         """
-
-        params = {}
-        if broadcaster_id is not None:
-            params['broadcaster_id'] = broadcaster_id
-        self._insert_first(params, limit, 100)
-        self._check_scope('user:read:blocked_users')
-
-        url = 'https://api.twitch.tv/helix/users/blocks'
-        async for user in self._handle_pagination(url, limit, params):
-            yield user
+        async for block in self.do_paginated_request_by_name('get_user_block_list', locals(), limit):
+            yield block
 
     async def block_user(
             self,
@@ -3755,20 +3480,7 @@ Input type:
                 if the Authorization-Token hasn't required scope
         ----------------
         """
-
-        data = {}
-        params = {}
-        if target_user_id is not None:
-            params['from_id'] = target_user_id
-        if source_context is not None:
-            params['to_id'] = source_context
-        if reason is not None:
-            params['reason'] = reason
-        self._check_scope('user:manage:blocked_users')
-
-        url = 'https://api.twitch.tv/helix/users/blocks'
-        response = await self._http_put(url, data, params)
-        return response
+        return await self.do_single_request_by_name('block_user', locals())
 
     async def unblock_user(
             self,
@@ -3802,20 +3514,11 @@ Input type:
                 if the Authorization-Token hasn't required scope
         ----------------
         """
-
-        data = {}
-        params = {}
-        if target_user_id is not None:
-            params['from_id'] = target_user_id
-        self._check_scope('user:manage:blocked_users')
-
-        url = 'https://api.twitch.tv/helix/users/blocks'
-        response = await self._http_delete(url, params)
-        return response
+        return await self.do_single_request_by_name('unblock_user', locals())
 
     async def get_user_extensions(
             self,
-            limit: int
+            limit: int,
     ) -> AsyncGenerator[dict, None]:
         """
         |Async Generator|
@@ -3861,13 +3564,8 @@ Input type:
                 if the Authorization-Token hasn't required scope
         ----------------
         """
-
-        params = {}
-        self._check_scope('user:read:broadcast')
-
-        url = 'https://api.twitch.tv/helix/users/extensions/list'
-        async for extensions in self._handle_pagination(url, 0, params):
-            yield extensions
+        async for extension in self.do_paginated_request_by_name('get_user_extensions', locals(), limit):
+            yield extension
 
     async def get_user_active_extensions(
             self,
@@ -3921,451 +3619,419 @@ Input type:
                 if the Authorization-Token hasn't required scope
         ----------------
         """
+        async for extension in self.do_paginated_request_by_name('get_user_active_extensions', locals(), limit):
+            yield extension
 
-        params = {}
-        self._check_scope('user:read:broadcast')
+    async def update_user_extensions(
+            self,
+            new_extensions: dict,
+    ):
+        data = new_extensions
+        return await self.do_single_request_by_name('update_user_extensions', locals())
 
-        url = 'https://api.twitch.tv/helix/users/extensions/list'
-        response = await self._http_get(url, params)
-        extesions = []
-        response = response['data']
-        for key in response:
-            new_extesions = response[key]
-            for new_extesion in new_extesions:
-                for old_extesion in extesions:
-                    if old_extesion['id'] == new_extesion['id']:
-                        old_extesion['type'].append(key)
-                        break
-                else:
-                    new_extesion['type'] = [key]
-                    extesions.append(new_extesion)
+    async def get_videos(
+            self,
+            limit: int,
+            video_id: str = None,
+            user_id: str = None,
+            game_id: str = None,
+            language: str = None,
+            period: str = None,
+            sort: str = None,
+            type: str = None,
+    ):
+        id = video_id
+        async for video in self.do_paginated_request_by_name('get_videos', locals(), limit):
+            yield video
 
-        counter = 0  # counter of iterations
-        for extesion in extesions:
-            yield extesion
-            counter += 1
-            if counter == limit:
-                return
+    async def delete_videos(
+            self,
+            video_id: str,
+    ):
+        id = video_id
+        return await self.do_single_request_by_name('delete_videos', locals())
 
-    #
-    # Users
-    #################################
-
-    #################################
-    # Webhooks
-    #
-
-    async def get_webhook_subscriptions(self, limit: int):
-        params = {}
-        self._insert_first(params, limit, 100)
-
-        url = 'https://api.twitch.tv/helix/webhooks/subscriptions'
-        async for subscription in self._handle_pagination(url, limit, params):
+    async def get_webhook_subscriptions(
+            self,
+            limit: int
+    ):
+        async for subscription in self.do_paginated_request_by_name('get_webhook_subscriptions', locals(), limit):
             yield subscription
 
-    #
-    # Webhooks
-    #################################
-
-    #################################
-    # other requests
-    #
-    async def create_entitlement_grants_upload_url(
-            self,
-            manifest_id: str,
-            type: str
-    ) -> str:
-        """
-        |Coroutine|\n
-        Creates a URL where you can upload a manifest file and notify users that they have an entitlement.
-        Entitlements are digital items that users are allowed to use.
-        Twitch entitlements are granted to users free or as part of a purchase on Twitch.\n
-        No REQUIRED scope
-
-        Args:
-        ================
-            manifest_id: REQUIRED `str`
-                Unique identifier of the manifest file to be uploaded. Must be 1-64 characters.
-
-            type: REQUIRED `str`
-                Type of entitlement being granted. Only bulk_drops_grant is supported.
-
-        Returns:
-        ================
-            `str` :
-                The URL where you will upload the manifest file. This is the URL of a pre-signed S3 bucket.
-                Lease time: 15 minutes.\n
-                Note: You must replace all occurrences of \u0026 with an ampersand (&) character. See the Drops Guide.
-
-        Raises:
-        ================
-            :class:`HTTPError`:
-                if status-code is not 2XX, passes `dict` with json of response.
-        """
-
-        data = {}
-        params = {}
-        if manifest_id is not None:
-            params['manifest_id'] = manifest_id
-        if type is not None:
-            params['type'] = type
-
-        url = 'https://api.twitch.tv/helix/entitlements/upload'
-        response = await self._http_post(url, data, params)
-        return response['data'][0]['url']
-
-    #
-    # other requests
-    #################################
-
-    #################################
-    # request's staff
-    #
-
-    _session: aiohttp.ClientSession = None
-    'session container'
+    @staticmethod
+    def _get_stream_markers_json_preparer(json: Dict[str, Any]):
+        for user in json['data']:
+            for video in user['videos']:
+                for marker in video['markers']:
+                    marker: dict
+                    marker.update(
+                        {
+                            'video_id': video['video_id'],
+                            'user_id': user['user_id'],
+                            'user_name': user['user_name'],
+                            'user_login': user['user_login'],
+                        }
+                    )
+                    yield marker
 
     @staticmethod
-    def _get_open_session():
-        """
-        returns open session, current if exists, or new one.
-
-        Returns:
-            (aiohttp.ClientSession) current session if opened, else opens new one and returns it
-        """
-        if Api._session is None:
-            Api._session = aiohttp.ClientSession()
-        elif Api._session.closed:
-            Api._session = aiohttp.ClientSession()
-        # return anyway
-        return Api._session
-
-    async def _handle_pagination(
-            self,
-            url: str,
-            limit: int,
-            data: dict = None,
-            params: Optional[dict] = None
-    ) -> AsyncGenerator[dict, None]:
-        """
-        |Async Generator|
-
-        Method implements simple request, limit and cursor handler
-        Handles cursor if exists and limits count of yields
-
-        Args:
-            data (Union[dict]):
-                data to send as JSON
-            url: `str`
-                URL for request
-            limit: `int`
-                value of max count of Yields
-            params: `dict`
-                params to insert in the URL
-
-        Yields:
-            splitted data of the response of the request
-        """
-
-        counter = 0
-        while True:
-            response = await self._http_get(url, data, params)
-            # parse
-            for part in response['data']:
-                yield part
-                # if limit is reached
-                counter += 1
-                if counter == limit:
-                    return
-            # try get cursor
-            try:
-                pagination = response['pagination']
-                cursor = pagination['cursor']
-            # if can't get
-            except KeyError:
-                return
-            # if got
-            else:
-                params['after'] = cursor # set or change
-
-    @staticmethod
-    async def once(
-            generator: AsyncGenerator[Any, Any]
-    ) -> Optional[dict]:
-        """
-        The method gives you simple way to get only one result from any async generator in one code-row.\n
-        Gets initialized async generator (object of async generator).
-
-        ----------------
-
-        Examples::
-        ===================
-            1st:
-                api = Api.create(token) \n
-                top_stream = await api.once(api.get_streams(limit=1))
-
-            2nd:
-                api = Api.create(token) \n
-                generator_obj = api.get_streams(limit=1) \n
-                top_stream = await api.once(generator_obj)
-
-            both of examples do the same thing, \n
-            2nd is here for more visual that the `generator` as argument is 'object of async generator',
-            not 'async generator'
-        ----------------
-
-        Args:
-        =================
-            generator:
-                Object of async generator
-        ----------------
-
-        Returns:
-        ==================
-            Dict:
-                if get result from the `generator`
-
-            None:
-                if the `generator` returned nothing(if raised StopAsyncIteration)
-        ----------------
-        """
-
-        try:
-            return await generator.__anext__()
-        except StopAsyncIteration:
-            return None
-
-    def _check_scope(
-            self,
-            scope: str
-    ) -> None:
-        """
-        Raises `AccessError` if current token hasn't required scope
-
-        Args:
-            scope: `str`
-                scope to check
-
-        Returns:
-            `None`
-
-        Raises:
-            `AccessError`: if the object hasn't required scope
-        """
-        if scope not in self.scopes:
-            raise AccessError(f'Current auth-token has\'t required scope: `{scope}`')
-
-    @staticmethod
-    async def _get_response(
-            request: Awaitable
-    ) -> Optional[Dict]:
-        async with request as response:
-            if 199 < response.status < 300:
-                try:
-                    return await response.json()
-                except ContentTypeError:
-                    return None
-            else:
-                raise HTTPError(response)
-
-    #
-    # request's staff
-    #################################
-
-    #################################
-    # http requests
-    #
-
-    async def _http_get(
-            self,
-            url: str,
-            data: dict = None,
-            params: dict = None
-    ) -> Optional[dict]:
-        json = await self._get_response(
-            self._get_open_session().get(url, data=data, params=params, headers=self._headers)
-        )
-        return json
-
-    async def _http_post(
-            self,
-            url: str,
-            data: dict = None,
-            params: dict = None
-    ) -> Optional[dict]:
-        json = await self._get_response(
-            self._get_open_session().post(url, json=data, params=params, headers=self._headers)
-        )
-        return json
-
-    async def _http_put(
-            self,
-            url: str,
-            data: dict = None,
-            params: dict = None
-    ) -> Optional[dict]:
-        json = await self._get_response(
-            self._get_open_session().put(url, json=data, params=params, headers=self._headers)
-        )
-        return json
-
-    async def _http_patch(
-            self,
-            url: str,
-            data: dict = None,
-            params: dict = None
-    ) -> Optional[dict]:
-        json = await self._get_response(
-            self._get_open_session().patch(url, json=data, params=params, headers=self._headers)
-        )
-        return json
-
-    async def _http_delete(
-            self,
-            url: str,
-            data: dict = None,
-            params: dict = None
-    ) -> Optional[dict]:
-        json = await self._get_response(
-            self._get_open_session().delete(url, data=data, params=params, headers=self._headers)
-        )
-        return json
-
-    #
-    # http requests
-    #################################
-
-    #################################
-    # data preparing
-    #
-    @staticmethod
-    def _insert_first(
-            params: dict,
-            limit: int,
-            max_first: int
-    ) -> dict:
-        """
-        inserts 'first' param in `params`
-
-        ----------------
-
-        Args:
-        ================
-            params: `dict`
-                into that 'first' would be inserted
-
-            limit: `int`
-                value of limit, limit of yields
-
-            max_first: `int`
-                max value of 'first' for current request
-        ----------------
-
-        Returns:
-        ================
-            `dict`:
-                the same `dict` that we got in Args
-        ----------------
-        """
-
-        if limit > 0:
-            first = min(max_first, limit)
-            params['first'] = first
-        return params
-
-    @staticmethod
-    def _insert_count(
-            params: dict,
-            limit: int,
-            max_count: int
-    ) -> dict:
-        """
-        inserts 'count' param in `params`
-        `count` as opposed to `first` is global limit.
-        If 'first' is limit of results for every step, then 'count' is limit of all results(only one response).
-
-        ----------------
-
-        Args:
-        ================
-            params: `dict`
-                into that 'count' would be inserted
-
-            limit: `int`
-                value of limit, limit of yields
-
-            max_count: `int`
-                max value of 'count' for current request
-        ----------------
-
-        Returns:
-        ================
-            `dict`:
-                the same `dict` that we got in Args
-        ----------------
-        """
-
-        if limit > 0:
-            count = min(max_count, limit)
-            params['count'] = count
-        else:
-            params['count'] = max_count
-        return params
-
-    @staticmethod
-    def _mod_to_list(obj: Any) -> list:
-        """
-        The method converts `param` to `list`\n
-        Works as: \n
-        if any of Iterable - convert to `list`, except - `str`, if `str` put it in `list`,
-        others - convert to `str` and put in `list`
-
-        ----------------
-
-        Args:
-        =====================
-            param: `Any`
-                some variable to convert in `list`
-        ----------------
-
-        Returns:
-        =====================
-            `list` :
-                final list with `param`
-        ----------------
-        """
-
-        if type(obj) is str:  # if `str` - put in `list`
-            return [obj]
-        elif hasattr(obj, '__iter__'):  # else - if Iterable - converting to `list`
-            return list(obj)
-        else:  # we don't wait other types, but if so - convert to `str` and put in `list`
-            return [str(obj)]
-    #
-    # data preparing
-    #################################
-
-    @classmethod
-    async def close(cls):
-        await cls._session.close()
-
-    class SingleRequest(NamedTuple):
-        url: str
-        http_method: Callable
-        data_fields: Optional[List[str]] = None
-        param_fields: Optional[List[str]] = None
-        to_rename_fields: Optional[Tuple[str, str]] = None
-        custom_return_indexes: List[Any] = None
-        scope: Optional[str] = None
-
-    class PaginatedRequest(SingleRequest):
-        max_limit_for_step: int
+    def _get_user_active_extensions_json_preparer(json: Dict[str, Any]) -> List[dict]:
+        data: Dict[str, Dict[str, Dict[str, Any]]] = json['data']
+        for extension_type in data:
+            for extension_number in data[extension_type]:
+                extension = data[extension_type][extension_number]
+                extension['type'] = extension_type
+                extension['number'] = extension_number
+                yield extension
 
     single_requests: Dict[str, SingleRequest] = {
         'start_commercial': SingleRequest(
-            url='channels/commercial',
+            sub_url='/channels/commercial',
             http_method=_http_post,
-            data_fields=['broadcaster_id', 'length'],
+            data_params_keys=('broadcaster_id', 'length'),
             scope='channel:edit:commercial'
         ),
+        'modify_channel_information': SingleRequest(
+            sub_url='/channels',
+            http_method=_http_patch,
+            data_params_keys=('game_id', 'title', 'broadcaster_language'),
+            query_params_keys=('broadcaster_id', ),
+            scope='channel:manage:broadcast'
+        ),
+        'create_custom_rewards': SingleRequest(
+            sub_url='/channel_points/custom_rewards',
+            http_method=_http_post,
+            data_params_keys=('title',
+                              'prompt',
+                              'cost',
+                              'is_enabled',
+                              'background_color',
+                              'is_user_input_required',
+                              'is_max_per_stream_enabled',
+                              'max_per_stream',
+                              'is_max_per_user_per_stream_enabled',
+                              'max_per_user_per_stream',
+                              'is_global_cooldown_enabled',
+                              'global_cooldown_seconds',
+                              'should_redemptions_skip_request_queue'),
+            query_params_keys=('broadcaster_id',),
+            scope='channel:manage:redemptions'
+        ),
+        'delete_custom_reward': SingleRequest(
+            sub_url='/channel_points/custom_rewards',
+            http_method=_http_delete,
+            query_params_keys=('broadcaster_id', 'id'),
+            scope='channel:manage:redemptions'
+        ),
+        'update_custom_reward': SingleRequest(
+            sub_url='/channel_points/custom_rewards',
+            http_method=_http_patch,
+            data_params_keys=('title',
+                              'prompt',
+                              'cost',
+                              'is_enabled',
+                              'background_color',
+                              'is_user_input_required',
+                              'is_max_per_stream_enabled',
+                              'max_per_stream',
+                              'is_max_per_user_per_stream_enabled',
+                              'max_per_user_per_stream',
+                              'is_global_cooldown_enabled',
+                              'global_cooldown_seconds',
+                              'is_paused',
+                              'should_redemptions_skip_request_queue'),
+            query_params_keys=('broadcaster_id', 'id'),
+            scope='channel:manage:redemptions'
+        ),
+        'update_redemption_status': SingleRequest(
+            sub_url='/channel_points/custom_rewards/redemptions',
+            http_method=_http_patch,
+            data_params_keys=('status',),
+            query_params_keys=('broadcaster_id', 'reward_id', 'id'),
+            scope='channel:manage:redemptions'
+        ),
+        'create_clip': SingleRequest(
+            sub_url='/clips',
+            http_method=_http_post,
+            query_params_keys=('broadcaster_id', 'has_delay'),
+            scope='clips:edit'
+        ),
+        'redeem_code': SingleRequest(
+            sub_url='/entitlements/codes',
+            http_method=_http_post,
+            query_params_keys=('code', 'user_id'),
+        ),
+        'create_eventsub_subscription': SingleRequest(
+            sub_url='/eventsub/subscriptions',
+            http_method=_http_post,
+            data_params_keys=('type', 'version', 'condition', 'transport'),
+        ),
+        'delete_eventsub_subscription': SingleRequest(
+            sub_url='/eventsub/subscriptions',
+            http_method=_http_delete,
+            query_params_keys=('id',),
+        ),
+        'check_automod_status': SingleRequest(
+            sub_url='/moderation/enforcements/status',
+            http_method=_http_post,
+            data_params_keys=('data',),
+            query_params_keys=('broadcaster_id',),
+        ),
+        'create_stream_marker': SingleRequest(
+            sub_url='/streams/markers',
+            http_method=_http_post,
+            data_params_keys=('user_id', 'description'),
+            scope='channel:manage:broadcast'
+        ),
+        'check_user_subscription': SingleRequest(
+            sub_url='/subscriptions/user',
+            http_method=_http_get,
+            query_params_keys=('broadcaster_id', 'user_id'),
+            scope='user:read:subscriptions'
+        ),
+        'replace_stream_tags': SingleRequest(
+            sub_url='/streams/tags',
+            http_method=_http_put,
+            data_params_keys=('tag_ids',),
+            query_params_keys=('broadcaster_id',),
+            scope='channel:manage:broadcast'
+        ),
+        'update_user': SingleRequest(
+            sub_url='/users',
+            http_method=_http_put,
+            query_params_keys=('description',),
+            scope='user:edit'
+        ),
+        'create_user_follows': SingleRequest(
+            sub_url='/users/follows ',
+            http_method=_http_post,
+            query_params_keys=('from_id', 'to_id', 'allow_notifications'),
+            scope='user:edit:follows'
+        ),
+        'delete_user_follows': SingleRequest(
+            sub_url='users/follows',
+            http_method=_http_delete,
+            query_params_keys=('from_id', 'to_id'),
+            scope='user:edit:follows'
+        ),
+        'block_user': SingleRequest(
+            sub_url='/users/blocks',
+            http_method=_http_put,
+            query_params_keys=('target_user_id', 'source_context', 'reason'),
+            scope='user:manage:blocked_users'
+        ),
+        'unblock_user': SingleRequest(
+            sub_url='/users/blocks',
+            http_method=_http_delete,
+            query_params_keys=('target_user_id',),
+            scope='user:manage:blocked_users'
+        ),
+        'update_user_extensions': SingleRequest(
+            sub_url='/users/extensions',
+            http_method=_http_put,
+            data_params_keys=('data',),
+            scope='user:edit:broadcast'
+        ),
+        'delete_videos': SingleRequest(
+            sub_url='/videos',
+            http_method=_http_delete,
+            query_params_keys=('id',),
+            scope='channel:manage:videos'
+        )
+    }
+
+    paginated_requests: Dict[str, PaginatedRequest] = {
+        'get_extension_analytics': PaginatedRequest(
+            sub_url='/analytics/extensions',
+            max_first=100,
+            query_params_keys=('first', 'extension_id', 'started_at', 'ended_at', 'type'),
+            scope='analytics:read:extensions'
+        ),
+        'get_game_analytics': PaginatedRequest(
+            sub_url='/analytics/games',
+            max_first=100,
+            query_params_keys=('first', 'game_id', 'started_at', 'ended_at', 'type'),
+            scope='analytics:read:games'
+        ),
+        'get_bits_leaderboard': PaginatedRequest(
+            sub_url='/bits/leaderboard',
+            max_first=100,
+            query_params_keys=('count', 'user_id', 'started_at', 'period'),
+            scope='bits:read'
+        ),
+        'get_cheermotes': PaginatedRequest(
+            sub_url='/bits/cheermotes',
+            query_params_keys=('broadcaster_id',)
+        ),
+        'get_extension_transactions': PaginatedRequest(
+            sub_url='/extensions/transactions',
+            max_first=100,
+            query_params_keys=('first', 'extension_id', 'id'),
+        ),
+        'get_channel_information': PaginatedRequest(
+            sub_url='/channels',
+            query_params_keys=('broadcaster_id',),
+        ),
+        'get_channel_editors': PaginatedRequest(
+            sub_url='/channels/editors',
+            query_params_keys=('broadcaster_id',),
+            scope='channel:read:editors'
+        ),
+        'get_custom_reward': PaginatedRequest(
+            sub_url='/channel_points/custom_rewards',
+            query_params_keys=('broadcaster_id', 'id', 'only_manageable_rewards'),
+            scope='channel:read:redemptions'
+        ),
+        'get_custom_reward_redemption': PaginatedRequest(
+            sub_url='/channel_points/custom_rewards/redemptions',
+            max_first=50,
+            query_params_keys=('broadcaster_id', 'reward_id', 'id', 'status', 'sort'),
+            scope='channel:read:redemptions'
+        ),
+        'get_clips': PaginatedRequest(
+            sub_url='/clips',
+            max_first=100,
+            query_params_keys=('first', 'broadcaster_id', 'game_id', 'id', 'started_at', 'ended_at'),
+        ),
+        'get_code_status': PaginatedRequest(
+            sub_url='/entitlements/codes',
+            query_params_keys=('code', 'user_id'),
+        ),
+        'get_drops_entitlements': PaginatedRequest(
+            sub_url='/entitlements/drops',
+            max_first=1000,
+            query_params_keys=('first', 'id', 'user_id', 'game_id'),
+        ),
+        'get_top_games': PaginatedRequest(
+            sub_url='/games/top',
+            max_first=100,
+            query_params_keys=('first',),
+        ),
+        'get_games': PaginatedRequest(
+            sub_url='/games',
+            max_first=100,
+            query_params_keys=('id', 'name'),
+        ),
+        'get_eventsub_subscriptions': PaginatedRequest(
+            sub_url='eventsub/subscriptions',
+            query_params_keys=('status', 'type'),
+        ),
+        'get_hype_train_events': PaginatedRequest(
+            sub_url='/hypetrain/events',
+            max_first=100,
+            query_params_keys=('first', 'broadcaster_id', 'id'),
+            scope='channel:read:hype_train'
+        ),
+        'get_banned_events': PaginatedRequest(
+            sub_url='/moderation/banned/events',
+            max_first=100,
+            query_params_keys=('first', 'broadcaster_id'),
+            scope='moderation:read'
+        ),
+        'get_banned_users': PaginatedRequest(
+            sub_url='/moderation/banned',
+            max_first=100,
+            query_params_keys=('first', 'broadcaster_id', 'user_id'),
+            scope='moderation:read'
+        ),
+        'get_moderators': PaginatedRequest(
+            sub_url='/moderation/moderators',
+            max_first=100,
+            query_params_keys=('first', 'broadcaster_id', 'user_id'),
+            scope='moderation:read'
+        ),
+        'get_moderator_events': PaginatedRequest(
+            sub_url='/moderation/moderators/events',
+            max_first=100,
+            query_params_keys=('first', 'broadcaster_id', 'user_id'),
+            scope='moderation:read'
+        ),
+        'search_categories': PaginatedRequest(
+            sub_url='/search/categories',
+            max_first=100,
+            query_params_keys=('first', 'query')
+        ),
+        'search_channels': PaginatedRequest(
+            sub_url='/search/channels',
+            max_first=100,
+            query_params_keys=('first', 'query', 'live_only'),
+        ),
+        'get_stream_key': PaginatedRequest(
+            sub_url='/streams/key',
+            max_first=100,
+            query_params_keys=('first', 'broadcaster_id'),
+            scope='channel:read:stream_key'
+        ),
+        'get_streams': PaginatedRequest(
+            sub_url='/streams',
+            max_first=100,
+            query_params_keys=('first', 'game_id', 'language', 'user_id', 'user_login')
+        ),
+        'get_stream_markers': PaginatedRequest(
+            sub_url='/streams/markers',
+            max_first=100,
+            query_params_keys=('first', 'user_id', 'video_id'),
+            scope='user:read:broadcast',
+            response_json_preparer=_get_stream_markers_json_preparer
+        ),
+        'get_broadcaster_subscriptions': PaginatedRequest(
+            sub_url='/subscriptions',
+            max_first=100,
+            query_params_keys=('first', 'broadcaster_id', 'user_id'),
+            scope='channel:read:subscriptions'
+        ),
+        'get_all_stream_tags': PaginatedRequest(
+            sub_url='/tags/streams',
+            max_first=100,
+            query_params_keys=('first', 'tag_id'),
+        ),
+        'get_stream_tags': PaginatedRequest(
+            sub_url='/tags/streams',
+            max_first=100,
+            query_params_keys=('first', 'broadcaster_id'),
+        ),
+        'get_channel_teams': PaginatedRequest(
+            sub_url='/teams/channel',
+            query_params_keys=('broadcaster_id',),
+        ),
+        'get_teams': PaginatedRequest(
+            sub_url='/teams',
+            query_params_keys=('name', 'id'),
+        ),
+        'get_users': PaginatedRequest(
+            sub_url='/users',
+            query_params_keys=('id', 'login'),
+            scope='user:read:email'
+        ),
+        'get_users_follows': PaginatedRequest(
+            sub_url='/users/follows',
+            max_first=100,
+            query_params_keys=('first', 'from_id', 'to_id'),
+        ),
+        'get_user_block_list': PaginatedRequest(
+            sub_url='/users/blocks',
+            max_first=100,
+            query_params_keys=('first', 'broadcaster_id'),
+            scope='user:read:blocked_users'
+        ),
+        'get_user_extensions': PaginatedRequest(
+            sub_url='/users/extensions/list',
+            scope='user:read:broadcast'
+        ),
+        'get_user_active_extensions': PaginatedRequest(
+            sub_url='/users/extensions',
+            max_first=100,
+            query_params_keys=('user_id',),
+            # scope='user:read:broadcast' or 'user:edit:broadcast'
+            response_json_preparer=_get_user_active_extensions_json_preparer
+        ),
+        'get_videos': PaginatedRequest(
+            sub_url='/videos',
+            max_first=100,
+            query_params_keys=('first', 'id', 'user_id', 'game_id', 'language', 'period', 'sort', 'type'),
+        ),
+        'get_webhook_subscriptions': PaginatedRequest(
+            sub_url='/webhooks/subscriptions',
+            max_first=100,
+        )
     }
