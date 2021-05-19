@@ -1,9 +1,10 @@
 import asyncio
-import re
 from random import choice
 
+import config
 from irc_client import Client
-from config import token, nick, app_token2
+from irc_messages import WhisperMessage
+from config import token, nick
 from api import Api
 from time import time
 
@@ -12,6 +13,11 @@ from irc_channel import Channel
 bot = Client(token, nick)
 counter = 0
 room_update_counter = 0
+
+
+@bot.event
+async def on_whisper(wisper: WhisperMessage):
+    print(wisper.emote_only, wisper.content)
 
 
 @bot.event
@@ -29,16 +35,16 @@ async def on_login():
           f'Color = {bot.global_state.color}\n'
           f'Id = {bot.global_state.id}\n'
           f'Badges = {bot.global_state.badges}\n'
-          f'Emote = {bot.global_state.emotes}')
+          f'Emote = {bot.global_state.emote_sets}')
 
 
 room_join_counter = 0
 @bot.event
-async def on_self_join(channel):
+async def on_self_join(channel: Channel):
     global counter, room_join_counter
     counter += 1
     room_join_counter += 1
-    print(f'#{channel.name} has been joined ROOMSTATE')
+    print(f'#{channel.login} has been joined ROOMSTATE')
 
 
 join_counter = 0
@@ -63,7 +69,7 @@ async def on_clear_user(channel, user_name, ban_duration):
     global counter, clear_user_counter
     counter += 1
     clear_user_counter += 1
-    print(f'CLEARCHAT #{channel.name} has been cleared from @{user_name} after {ban_duration} seconds ban')
+    print(f'CLEARCHAT #{channel.login} has been cleared from @{user_name} after {ban_duration} seconds ban')
 
 
 clear_chat_counter = 0
@@ -72,7 +78,7 @@ async def on_clear_chat(channel):
     global counter, clear_chat_counter
     counter += 1
     clear_chat_counter += 1
-    print(f'CLEARCHAT #{channel.name} has been cleared')
+    print(f'CLEARCHAT #{channel.login} has been cleared')
 
 
 clear_message_counter = 0
@@ -81,7 +87,7 @@ async def on_message_delete(channel, user_name, text, message_id):
     global counter, clear_message_counter
     counter += 1
     clear_message_counter += 1
-    channel = channel.name
+    channel = channel.login
     print(f'CLEARMSG Message "{text}" by @{user_name} has been deleted',
           f'in #{channel} with id="{message_id}"')
 
@@ -92,7 +98,7 @@ async def on_start_host(channel, viewers, hosted):
     global counter, host_couter
     counter += 1
     host_couter += 1
-    channel = channel.name
+    channel = channel.login
     print(f'#{channel} got start HOSTTARGET with {viewers} by @{hosted}')
 
 
@@ -102,7 +108,7 @@ async def on_stop_host(channel, viewers):
     global counter, unhost_counter
     counter += 1
     unhost_counter += 1
-    channel = channel.name
+    channel = channel.login
     print(f'#{channel} got stop HOSTTARGET with {viewers} of viewers')
 
 
@@ -112,7 +118,7 @@ async def on_notice(channel, notice_id, notice_message):
     global counter, notice_counter
     counter += 1
     notice_counter += 1
-    channel = channel.name
+    channel = channel.login
     print(f'#{channel} got NOTICE with id="{notice_id}" and message="{notice_message}"')
 
 
@@ -122,7 +128,7 @@ async def on_user_event(event):
     global counter, user_event_counter
     counter += 1
     user_event_counter += 1
-    print(f'USERNOTICE {type(event).__name__} by {event.author.name} in #{event.channel.name}, '
+    print(f'USERNOTICE {type(event).__name__} by {event.author.name} in #{event.channel.login}, '
           f'sever said - "{event.system_msg}"')
 
 
@@ -152,20 +158,20 @@ async def on_message(message):
             await message.channel.send_message(f'{counter} after {time() - start_time}')
         elif message.content == '!delays':
             content = ''
-            for channel_name in bot._delayed_irc_parts:
+            for channel_name in bot._delayed_irc_messages:
                 content = channel_name + '\n'
-                for parts in bot._delayed_irc_parts[channel_name]:
+                for parts in bot._delayed_irc_messages[channel_name]:
                     command = parts[1]
                     content += '>>>>' + command[1] + '\n'
             else:
-                if len(bot._delayed_irc_parts) == 0:
+                if len(bot._delayed_irc_messages) == 0:
                     content = 'Just 0'
             await message.channel.send_message(content)
         elif message.content == '!disconnect':
             channels = list(bot._channels_by_login.values())
             channel = choice(channels)
-            await message.channel.send_message(f'have chosen {channel.name}')
-            await channel.disconnect()
+            await message.channel.send_message(f'have chosen {channel.login}')
+            await bot.part_channel(channel.login)
 
 
 # with open(r"D:\Users\I3rowser\Desktop\to distribute\py-twitch\src\TMP.txt", encoding="utf8") as file:
@@ -181,7 +187,7 @@ async def on_message(message):
 async def begin():
     do = input('processing type: ')
     if do.lower() == 'global':
-        api = await Api.create(app_token2)
+        api = await Api.create(config.app_token)
         ids = []
         async for stream in api.get_streams(99):
             ids.append(stream['user_id'])

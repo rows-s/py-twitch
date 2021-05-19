@@ -4,12 +4,12 @@ from asyncio import iscoroutinefunction, get_event_loop, AbstractEventLoop
 from websockets import connect, WebSocketClientProtocol, ConnectionClosedError
 
 from errors import *
+from irc_events import ClearChatFromUser
 from irc_user_events import *
-from irc_message import Message
-from irc_whisper import Whisper
-from irc_member import Member
+from irc_messages import ChannelMessage, WhisperMessage
+from irc_users import ChannelMember, GlobalUser
 from irc_channel import Channel, LocalState
-from utils import parse_raw_tags, parse_raw_badges
+from utils import parse_raw_irc_message, parse_raw_badges
 
 from typing import Coroutine, Iterable, Tuple, Union, Any, Awaitable, Callable, List, Optional
 
@@ -50,7 +50,7 @@ class Client:
         'on_login',  # GLOBALUSERSTATE
         'on_join',  # JOIN
         'on_left',  # PART
-        'on_clear_user', 'on_clear_chat',  # CLEARCHAT
+        'on_clear_chat_from_user', 'on_clear_chat',  # CLEARCHAT
         'on_message_delete',  # CLEARMSG
         'on_start_host', 'on_stop_host',  # HOSTTARGET
         'on_notice', 'on_join_error',  # NOTICE
@@ -90,9 +90,20 @@ class Client:
         # protected
         self._websocket: Optional[WebSocketClientProtocol] = None
         # channels prepare things
-        self._delayed_irc_parts: Dict[str, List[Tuple[Dict, List, str]]] = {}
+        self._delayed_irc_messages: Dict[str, List[Tuple[Dict, List, str]]] = {}
         self._channels_nameslists: Dict[str, Union[List[str], Tuple[str]]] = {}
         self._local_states: Dict[str, LocalState] = {}
+
+    @property
+    def token(self):
+        return self._token
+
+    @token.setter
+    def token(self, value: str):
+        if value.startswith('oauth:'):
+            self._token = value
+        else:
+            self._token = 'oauth:' + value
 
     #################################
     # getters and properties
@@ -101,7 +112,7 @@ class Client:
             self,
             channel_id: str,
             default: Any = None
-    ) -> Union[Channel, Any]:
+    ) -> Channel:
         """Returns :class:`Channel` by id if exists else - `default`"""
         return self._channels_by_id.get(channel_id, default)
 
@@ -109,7 +120,7 @@ class Client:
             self,
             channel_login: str,
             default: Any = None
-    ) -> Union[Channel, Any]:
+    ) -> Channel:
         """Returns :class:`Channel` by login if exists else - `default`"""
         return self._channels_by_login.get(channel_login, default)
 
@@ -143,7 +154,7 @@ class Client:
         Starts event listener, use this if you want to start 'Client' as a single worker.
 
         Notes:
-            If you want to start `Client` with any other async code - look 'start()'
+            If you want to start `Client` with another async code - look 'start()'
 
         Args:
             channels: Iterable[`str`]
@@ -152,6 +163,49 @@ class Client:
         self.loop.run_until_complete(
             self.start(channels)
         )
+
+    async def start(
+            self,
+            channels: Iterable[str]
+    ) -> None:
+        """
+        |Coroutine|
+        Starts event listener.
+
+        Notes:
+            If you won't combine this with any other async code - you can use sync method 'self.run()'.
+
+        Args:
+            channels: |Iterable[str]|
+                Iterable object with logins of channel to join
+        """
+
+        async def try_log_in():
+            """tries to log in twitch irc,
+            calls `self.on_login()` if successfully logged, otherwise raise `InvalidToken`"""
+            await self.connect_irc(channels)
+            async for tags, command, text in self._read_websocket():
+                # if successful login
+                if command[1] == 'GLOBALUSERSTATE':
+                    if 'user-login' not in tags:
+                        tags['user-login'] = self.login
+                    self.global_state = GlobalState(tags)
+                    # if has handler
+                    if hasattr(self, 'on_login'):
+                        self._do_later(self.on_login())
+                    return
+                # if logging error
+                elif command[1] == 'NOTICE' and command[-1] == '*':
+                    raise InvalidToken(text)
+                # if a command that we don't expect
+                elif command[1] not in ('001', '002', '003', '004', '372', '375', '376', 'CAP'):
+                    return
+
+        # try log in
+        await try_log_in()
+        # start main listener
+        async for tags, command, text in self._read_websocket():
+            self._do_later(self._select_handler(tags, command, text))
 
     async def connect_irc(
             self,
@@ -181,92 +235,31 @@ class Client:
         while True:
             # try read
             try:
-                irc_messages = await self._websocket.recv()
+                raw_irc_messages = await self._websocket.recv()
             # if websocket is closed
             except ConnectionClosedError:
                 if self.should_restart:
                     await self.reconnect_irc()
             # if no exeptions
             else:
-                for irc_message in irc_messages.split('\r\n'):
+                for raw_irc_message in raw_irc_messages.split('\r\n'):
                     # if empty
-                    if not irc_message:
+                    if not raw_irc_message:
                         continue
                     # if PING
-                    elif irc_message.startswith('PING'):
+                    elif raw_irc_message.startswith('PING'):
                         await self._send('PONG :tmi.twitch.tv')
                     # others
                     else:
-                        yield self._parse_irc_message(irc_message)  # tags, command, text
-
-    async def start(
-            self,
-            channels: Iterable[str]
-    ) -> None:
-        """
-        |Coroutine|
-        Starts event listener.
-
-        Notes:
-            If you won't combine this with any other async code - you can use sync method 'self.run()'.
-
-        Args:
-            channels: |Iterable[str]|
-                Iterable object with logins of channel to join
-        """
-
-        async def try_log_in():
-            """tries to log"""
-            await self.connect_irc(channels)
-            async for tags, command, text in self._read_websocket():
-                # if successful login
-                if command[1] == 'GLOBALUSERSTATE':
-                    self.global_state = GlobalState(self.login, tags)
-                    # if has handler
-                    if hasattr(self, 'on_login'):
-                        self._do_later(self.on_login())
-                    return
-                # if logging error
-                elif command[1] == 'NOTICE' and command[-1] == '*':
-                    raise InvalidToken(text)
-                # if a command that we don't expect
-                elif command[1] not in ('001', '002', '003', '004', '372', '375', '376', 'CAP'):
-                    return
-
-        # try log in
-        await try_log_in()
-        # start main listener
-        async for tags, command, text in self._read_websocket():
-            self._do_later(self._select_handler(tags, command, text))
-
-    @staticmethod
-    def _parse_irc_message(
-            message: str
-    ) -> Tuple[Dict[str, str], List[str], Optional[str]]:
-        raw_parts = message[1:].split(' :', 2)  # remove ':' or '@' in start of the irc_message
-        # if hasn't tags
-        if message.startswith(':'):
-            raw_parts.insert(0, '')  # easier to insert empty raw_tags than to make logic
-        # if has text
-        if len(raw_parts) == 3:
-            raw_tags, raw_command, text = raw_parts
-        # if hasn't text
-        elif len(raw_parts) == 2:
-            raw_tags, raw_command = raw_parts
-            text = ''
-        else:
-            raise InvalidMessageStruct(message)  # must be no other length
-        tags = parse_raw_tags(raw_tags)
-        command = raw_command.split(' ')
-        return tags, command, text
+                        yield parse_raw_irc_message(raw_irc_message)  # tags, command, text
 
     async def _select_handler(self, tags, command, text) -> None:
         command_type = command[1]
-        # if message in a channel
         try:
-            # if message in chat
+            # if message in a channel
             if command_type == 'PRIVMSG':
                 self._handle_privmsg(tags, command, text)
+            # if WHISPER
             elif command_type == 'WHISPER':
                 self._handle_whisper(tags, command, text)
             # if join
@@ -304,13 +297,15 @@ class Client:
                 self._handle_userstate(tags, command)
             # if our global state
             elif command_type == 'GLOBALUSERSTATE':
-                self.global_state = GlobalState(self.login, tags)
-
-            elif command_type == 'RECONNECT':  # still don't know what this is, but let's reconnct to all channels.
+                if 'login' not in tags:
+                    tags['login'] = self.login
+                self.global_state = GlobalState(tags)
+            # if RECCONECT
+            elif command_type == 'RECONNECT':  # TODO: still don't know what this is, but let's reconnct to all channels
                 self._do_later(self.join_channels(self.joined_channels_logins))
         except ChannelNotExists:
             channel_login = command[-1][1:]
-            await self._delay_this_message((tags, command, text), channel_login)
+            await self._delay_irc_message((tags, command, text), channel_login)
 
     #################################
     # channels prepare handlers
@@ -427,7 +422,7 @@ class Client:
     def _is_channel_ready(self, channel_login) -> bool:
         """
         Returns True if channel with `channel_login` is ready:
-            1. it in `self._unprepared_channels`
+            1. it's in `self._unprepared_channels`
             2. has localstate - `channel.my_state`
             3. has nameslist - `channel.nameslist`
 
@@ -454,6 +449,7 @@ class Client:
         2. Puts it in `self._channels_by_id` and `self._channels_by_login`
         3. Creates async task `on_self_join`
         4. Creates async tasks that will handle every delayed message
+
         Args:
             channel_login:
                 login of channel to save
@@ -470,10 +466,10 @@ class Client:
                 self.on_self_join(channel)
             )
         # handle delayed irc_messages
-        delayed_irc_parts = self._delayed_irc_parts.pop(channel_login, [])
-        for delayed_irc_part in delayed_irc_parts:
+        delayed_irc_messages = self._delayed_irc_messages.pop(channel_login, [])
+        for delayed_irc_message in delayed_irc_messages:
             self._do_later(
-                self._select_handler(*delayed_irc_part)  # unpack the parts as tags, command, text
+                self._select_handler(*delayed_irc_message)  # unpack the parts as tags, command, text
             )
     #
     # end of: channels prepare methods
@@ -486,10 +482,10 @@ class Client:
         if hasattr(self, 'on_message'):
             channel_login = command[-1][1:]
             channel = self._get_channel_if_exists(channel_login)
-            if 'login' not in tags:
-                tags['login'] = command[0].split('!', 1)[0]
-            author = Member(channel, tags)
-            message = Message(channel, author, text, tags)
+            if 'user-login' not in tags:
+                tags['user-login'] = command[0].split('!', 1)[0]
+            author = ChannelMember(channel, tags, self.send_whisper)
+            message = ChannelMessage(channel, author, text, tags)
             # if has hadler
             self._do_later(
                 self.on_message(message)
@@ -499,7 +495,8 @@ class Client:
         if hasattr(self, 'on_whisper'):
             if 'user-login' not in tags:
                 tags['user-login'] = command[0].split('!', 1)[0]
-            whisper = Whisper(tags, text, self.send_whisper)
+            author = GlobalUser(tags, self.send_whisper)
+            whisper = WhisperMessage(author, text, tags)
             self._do_later(
                 self.on_whisper(whisper)
             )
@@ -544,19 +541,22 @@ class Client:
 
     def _handle_clearchat(self, tags, command, text):
         # if clear user
-        if text:
-            if hasattr(self, 'on_clear_user'):
+        if text:  # text contains login of the user, but the
+            if hasattr(self, 'on_clear_chat_from_user'):
                 # channel
                 channel_login = command[-1][1:]
                 channel = self._get_channel_if_exists(channel_login)
                 # values
                 target_user_login = text
+                taget_user_id = tags.get('target-user-id')
+                taget_message_id = tags.get('target-msg-id')
                 ban_duration = int(tags.get('ban-duration', 0))
-                taget_message_id = tags.get('ban-duration')
-                taget_user_id = tags.get('ban-duration')
                 # handle later
                 self._do_later(
-                    self.on_clear_user(channel, target_user_login, taget_user_id, taget_message_id, ban_duration)
+                    self.on_clear_chat_from_user(
+                        channel,
+                        ClearChatFromUser(target_user_login, taget_user_id, taget_message_id, ban_duration)
+                    )
                 )
         # if clear chat
         else:
@@ -601,13 +601,13 @@ class Client:
         else:
             # if has specified event handler
             if hasattr(self, event_attr_name):
-                author = Member(channel, tags)
+                author = ChannelMember(channel, tags, self.send_whisper)
                 event_handler = getattr(self, event_attr_name)  # get the handler by its name
                 event = event_class(author, channel, text, tags)
                 self._do_later(event_handler(event))
             # if has global handler
             elif hasattr(self, 'on_user_event'):
-                author = Member(channel, tags)
+                author = ChannelMember(channel, tags, self.send_whisper)
                 event = event_class(author, channel, text, tags)
                 self._do_later(
                     self.on_user_event(event)
@@ -688,12 +688,11 @@ class Client:
             conntent: `str`
                 content to send
             via_channel: `str`
-                login of channel via which the whisper would be sent
+                login of channel via which the whisper must be sent
 
         Returns:
             `None`
         """
-        conntent = rf'/w {recipient_login} {conntent}'
         # if specified channel for the whisper
         if via_channel is not None:
             via_channel = via_channel
@@ -704,6 +703,7 @@ class Client:
         else:
             via_channel = self.login
         # send
+        conntent = rf'/w {recipient_login} {conntent}'
         await self.send_message(via_channel, conntent)
 
     async def join_channel(
@@ -898,17 +898,17 @@ class Client:
         """Creates a async task in `self.loop`"""
         self.loop.create_task(coro)
 
-    async def _delay_this_message(
+    async def _delay_irc_message(
             self,
-            parts: Tuple[dict, list, str],
+            irc_message: Tuple[dict, list, str],
             channel_login: str
     ) -> None:
         """
-        Delays the `parts`(as parts of irc_message).\n
-        Delayed messages will be handled after the channel with `channel_login` is created
+        Delays the `irc_message`.
+        Delayed message will be handled after the channel with `channel_login` is created
 
         Args:
-            parts: Tuple[dict, list, str]
+            irc_message: Tuple[dict, list, str]
                 parts of irc_message to delay
             channel_login: `str`
                 login of the channel, after creation of which the message must be handled
@@ -916,17 +916,17 @@ class Client:
         Returns:
             `None`
         """
-        delayed_parts = self._delayed_irc_parts.setdefault(channel_login, [])
-        if len(delayed_parts) == 10:
+        delayed_irc_messages = self._delayed_irc_messages.setdefault(channel_login, [])
+        if len(delayed_irc_messages) == 10:
             # something wrong if we've delayed 10 messages, let's try to reconnect to the channel
             await self.join_channel(channel_login)
             print('Try to rejoin')
-            delayed_parts.append(parts)
+            delayed_irc_messages.append(irc_message)
         # protection from memory overflow
-        elif len(delayed_parts) >= 30:
+        elif len(delayed_irc_messages) >= 30:
             pass
         else:
-            delayed_parts.append(parts)
+            delayed_irc_messages.append(irc_message)
 
 
 class GlobalState:
@@ -949,22 +949,14 @@ class GlobalState:
         self.badge_info: Dict[`str`, `str`]
             additional information of badges of `Client`
     """
-    def __init__(self, login, tags: Dict[str, str]):
-        """
-
-        Args:
-            login: `str`
-                login of `Client`
-            tags: Dict[`str`, `str`]
-                prepared tags from irc_message
-        """
+    def __init__(self, tags: Dict[str, str]):
         # prepared
-        self.login = login
+        self.login = tags.get('user-login')
+        # stable tags
+        self.id: str = tags.get('user-id')
+        self.display_name: str = tags.get('display-name')
+        self.color: str = tags.get('color')
+        self.emote_sets: Tuple[str] = tuple(tags.get('emote-sets', '').split(','))
         # badges
         self.badges: Dict[str, str] = parse_raw_badges(tags.get('badges', ''))
         self.badge_info: Dict[str, str] = parse_raw_badges(tags.get('badge-info', ''))
-        # stable tags
-        self.color: str = tags.get('color')
-        self.display_name: str = tags.get('display-name')
-        self.emote_sets: Tuple[str] = tuple(tags.get('emote-sets', '').split(','))
-        self.id: str = tags.get('user-id')

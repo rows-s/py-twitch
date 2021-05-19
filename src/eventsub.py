@@ -1,30 +1,29 @@
-import hmac
+# packages
 import asyncio
-
+# from packages
 from aiohttp import web
-from hashlib import sha256
-from datetime import datetime, timedelta
 from asyncio import iscoroutinefunction
 from dataclasses import dataclass
-
+from datetime import datetime, timedelta
+# project
 from eventsub_events import *
 from errors import UnknownEvent, FunctionIsNotCorutine
-from utils import normalize_ms
-
-from typing import Coroutine, Dict, Awaitable, Tuple, List, Iterable, Type, Any, Optional
+from utils import calc_sha256, str_to_datetime
+# type hints
+from typing import Coroutine, Dict, Awaitable, Tuple, List, Type, Callable
 
 __all__ = (
     'EventSub',
 )
 
 
-@dataclass
+@dataclass(frozen=True)
 class Event:
     handler_name: str
     spec_class: Type
 
 
-@dataclass
+@dataclass(frozen=True)
 class MessageDuplicate:
     id: str
     datetime: datetime = datetime(1, 1, 1)
@@ -36,7 +35,7 @@ class MessageDuplicate:
 class EventSub:
     """ Class to handle your webhooks verifications, notifications and revocations """
 
-    notification_events: Dict[str, Tuple[str, Any]] = {
+    notification_events: Dict[str, Event] = {
         # 'notification_type': Event
         'channel.follow': Event('on_follow', FollowEvent),
         'channel.subscribe': Event('on_subscribe', SubscribeEvent),
@@ -79,56 +78,71 @@ class EventSub:
             *,
             time_limit: float = 10 * 60,
             duplicates_save_period: float = 10 * 60,
-            disable_all_validation: bool = False,
             loop: asyncio.AbstractEventLoop = None
     ) -> None:
         self.secret: str = secret
         self.loop: asyncio.AbstractEventLoop = loop if loop is not None else asyncio.get_event_loop()
         # verifications
-        self.disable_all_validation: bool = disable_all_validation
+        self.disable_all_validation: bool = False
         self.should_verify_signature: bool = should_verify_signature
         # time limit
         self.should_limit_time_range: bool = should_limit_time_range
-        self.time_limit: timedelta = timedelta(seconds=time_limit)
+        self.time_limit = time_limit
         # duplicate control
         self.should_control_duplicates: bool = should_control_duplicates
-        self.duplicates_save_period: timedelta = timedelta(seconds=duplicates_save_period)
-        self._message_duplicates: List[MessageDuplicate] = []  # would be sorted by datetime ([0]-oldest, [-1]-newest)
+        self.duplicates_save_period = duplicates_save_period
+        self._message_duplicates: List[MessageDuplicate] = []  # would be sorted by datetime ([0]-newest, [-1]-oldest)
+
+    @property
+    def time_limit(self) -> float:
+        return self._time_limit.total_seconds()
+
+    @time_limit.setter
+    def time_limit(self, value: float):
+        self._time_limit: timedelta = timedelta(seconds=value)
+
+    @property
+    def duplicates_save_period(self) -> float:
+        return self._duplicates_save_period.total_seconds()
+
+    @duplicates_save_period.setter
+    def duplicates_save_period(self, value: float):
+        self._duplicates_save_period: timedelta = timedelta(seconds=value)
 
     async def handler(
             self,
             message: web.Request
     ) -> web.Response:
         # validation
-        if not self.is_message_valid(message):
+        if not await self.is_message_valid(message):
             return web.HTTPBadRequest()
         # selection
         message_type = message.headers.get('Twitch-Eventsub-Message-Type')
         if message_type == 'webhook_callback_verification':
-            return self.verify_subscription(message)
+            return await self.verify_subscription(message)
         elif message_type == 'notification':
-            return self.hanlde_notification(message)
+            return await self.hanlde_notification(message)
         elif message_type == 'revocation':
-            return self.handle_revocation(message)
+            return await self.handle_revocation(message)
         else:  # we don't expect anything else except verification, notification or revocation
             return web.HTTPBadRequest()
 
-    def is_message_valid(
+    async def is_message_valid(
             self,
             message: web.Request
     ) -> bool:
         if not self.disable_all_validation:
             message_id = message.headers.get('Twitch-Eventsub-Message-Id')
             message_datetime_str = message.headers.get('Twitch-Eventsub-Message-Timestamp')
-            message_datetime = self.str_to_datetime(message_datetime_str, normalize_milliseconds=True)
+            message_datetime = str_to_datetime(message_datetime_str, should_normalize_ms=True)
             if self.should_verify_signature:
                 message_body = await message.text()
-                message_sha256 = message.headers.get('Twitch-Eventsub-Message-Signature')[7:]  # remove 'sha256='
+                message_sha256 = message.headers.get('Twitch-Eventsub-Message-Signature')[7:]  # removing 'sha256='
                 extra_message_body = message_id + message_datetime_str + message_body
-                if message_sha256 != self.calc_sha256(extra_message_body, key=self.secret):
+                if message_sha256 != calc_sha256(extra_message_body, key=self.secret):
                     return False
             if self.should_limit_time_range:
-                if datetime.utcnow() - message_datetime > self.time_limit:
+                if datetime.utcnow() - message_datetime > self._time_limit:
                     return False
             if self.should_control_duplicates:
                 self._delete_out_of_range_duplicates()
@@ -138,47 +152,18 @@ class EventSub:
                     self._save_message_to_duplicates(message)
         return True
 
-    @staticmethod
-    def calc_sha256(
-            text: str,
-            key: str,
-    ) -> str:
-        """
-        Calculates sha256 hash of `text` with `key`
-
-        -------------
-
-        Args:
-        ============
-            text: `str`
-                text to hash
-            key: `str`
-                key to hash
-        ------------
-
-        Returns:
-        ============
-            `str`:
-                calculated sha256 hash
-        -----------
-        """
-        text_bytes = bytes(text, 'utf-8')
-        key_bytes = bytes(key, 'utf-8')
-        signature = hmac.new(key_bytes, text_bytes, sha256).hexdigest()
-        return signature
-
     def _delete_out_of_range_duplicates(self):
         """ Deletes all out of range duplicates. """
-        # Logic: duplicates are sorted by time ([0]-oldest, [-1]-newest)
-        # so if first is not out of range - others neither, so algorithm:
+        # Logic: duplicates are sorted by time ([0]-newest, [-1]-oldest)
+        # so if last is not out of range - others neither, so algorithm:
         #     while duplicates not empty:
-        #         if first is out of range:
+        #         if last is out of range:
         #             remove and do one more iteration
         #         else:
-        #             first is in range, others are too -> break loop
+        #             last is in range, others are too -> break loop
         while self._message_duplicates:
-            if datetime.utcnow() - self._message_duplicates[0].datetime > self.duplicates_save_period:
-                self._message_duplicates.pop(0)
+            if datetime.utcnow() - self._message_duplicates[-1].datetime > self._duplicates_save_period:
+                self._message_duplicates.pop()
             else:
                 break
 
@@ -189,18 +174,16 @@ class EventSub:
         """ saves message to `self._message_duplicates` to position that matching  request's time """
         message_id = message.headers.get('Twitch-Eventsub-Message-Id')
         message_datetime_str = message.headers.get('Twitch-Eventsub-Message-Timestamp')
-        message_datetime = str_to_datetime(message_datetime_str, normalize_milliseconds=True)
+        message_datetime = str_to_datetime(message_datetime_str, should_normalize_ms=True)
         message = MessageDuplicate(message_id, message_datetime)
-        index = len(self._message_duplicates)
-        for duplicate in reversed(self._message_duplicates):  # [-1]-newest. most of times the message would be newest
-            if message.datetime > duplicate.datetime:  # if newer than [n] -> save after ([n+1]), else -> check previous
-                self._message_duplicates.insert(index, message)
+        for index, duplicate in enumerate(self._message_duplicates):
+            if message.datetime > duplicate.datetime:
+                self._message_duplicates.insert(index, message)  # every dupl before - newer or equal, after - later.
                 break
-            index -= 1
-        else:  # if list is empty, or others are later than request - index is 0
-            self._message_duplicates.insert(0, message)
+        else:  # if list is empty, or others are later than request: current is oldest -> add to the end.
+            self._message_duplicates.append(message)
 
-    def verify_subscription(
+    async def verify_subscription(
             self,
             message: web.Request
     ) -> web.Response:
@@ -208,17 +191,17 @@ class EventSub:
         webhook_sub = WebhookSubcription(json['subscription'])
         if hasattr(self, 'custom_verification'):
             try:
-                is_verified = await self.custom_verification(webhook_sub, json)
+                is_verified = await self.custom_verification(webhook_sub)
             except:
                 return web.HTTPForbidden()
             else:
                 if not is_verified:
                     return web.HTTPForbidden()
         if hasattr(self, 'on_verification'):
-            self._do_later(self.on_verification(webhook_sub, json))
+            self._do_later(self.on_verification(webhook_sub))
         return web.Response(text=json['challenge'])
 
-    def hanlde_notification(
+    async def hanlde_notification(
             self,
             message: web.Request
     ) -> web.Response:
@@ -226,23 +209,23 @@ class EventSub:
         webhook_sub = WebhookSubcription(json['subscription'])
         event_type = webhook_sub.type  # type of current notification
         try:
-            event_attr, event_class = EventSub.notification_events.get(event_type)
+            event = EventSub.notification_events.get(event_type)
         except TypeError:  # None is non-iterable
             if hasattr(self, 'on_unknown_event'):
                 json['headers'] = message.headers  # add headers
                 self._do_later(self.on_unknown_event(json))
             return web.Response(status=200)
         else:
-            if hasattr(self, event_attr):  # here `event_attr` is just `str` of name
-                event_handler = getattr(self, event_attr)  # if `event_attr` exists - get the function
+            if hasattr(self, event.handler_name):  # here `event_attr` is just `str` of name
+                event_handler = getattr(self, event.handler_name)  # if `event_attr` exists - get the function
                 raw_event = json['event']  # get raw event data
                 raw_event['event_id'] = message.headers.get('Twitch-Eventsub-Message-Id')
                 raw_event['event_time'] = message.headers.get('Twitch-Eventsub-Message-Timestamp')
-                event = event_class(raw_event)
+                event = event.spec_class(raw_event)
                 self._do_later(event_handler(webhook_sub, event))
             return web.Response(status=200)
 
-    def handle_revocation(
+    async def handle_revocation(
             self,
             message: web.Request
     ) -> web.Response:
@@ -266,17 +249,17 @@ class EventSub:
 
     def events(
             self,
-            coro: Coroutine,
-            handler_names: Iterable[str]
-    ) -> Coroutine:
-        if not iscoroutinefunction(coro):
-            raise FunctionIsNotCorutine(coro.__name__)
-        for handler_name in handler_names:
-            if handler_name in EventSub._events_handlers_names:
-                setattr(self, handler_name, coro)
-            else:
-                raise UnknownEvent(f'{handler_name} is unknown name of event')
-        return coro
+            *handler_names: str
+    ) -> Callable:
+        def decorator(coro: Coroutine):
+            if not iscoroutinefunction(coro):
+                raise FunctionIsNotCorutine(coro.__name__)
+            for handler_name in handler_names:
+                if handler_name in EventSub._events_handlers_names:
+                    setattr(self, handler_name, coro)
+                else:
+                    raise UnknownEvent(f'{handler_name} is unknown name of event')
+        return decorator
 
     def _do_later(
             self,
@@ -284,12 +267,3 @@ class EventSub:
     ):
         """ creates task for event loop from attribute 'self.loop' """
         self.loop.create_task(task)
-
-
-def str_to_datetime(
-        datetime_str: str,
-        normalize_milliseconds: bool = True
-) -> datetime:
-    if normalize_milliseconds:
-        datetime_str = normalize_ms(datetime_str)
-    return datetime.strptime(datetime_str, '%Y-%m-%dT%H:%M:%S.%f')

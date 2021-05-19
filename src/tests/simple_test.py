@@ -2,13 +2,11 @@ import asyncio
 
 from time import time
 
-from irc_message import Message
+from irc_messages import ChannelMessage, WhisperMessage
 from irc_client import Client
 from irc_channel import Channel
-from irc_whisper import Whisper
 from api import Api
 from config import token, nick, app_token
-from errors import InvalidToken
 app_token = app_token
 
 bot = Client(token, nick)
@@ -29,7 +27,7 @@ async def handle_everything(*args):
 
 
 @bot.event
-async def on_message(message: Message):
+async def on_message(message: ChannelMessage):
     await handle_everything()
     if message.author.id == bot.global_state.id:  # if message from bot owner
         if message.content == '!state':  # if text of message == '!state'
@@ -46,9 +44,9 @@ async def on_message(message: Message):
 
 
 @bot.event
-async def on_whisper(wisper: Whisper):
+async def on_whisper(wisper: WhisperMessage):
     await handle_everything()
-    await wisper.answer(wisper.content)
+    await wisper.send_whisper(wisper.content)
 
 
 @bot.event

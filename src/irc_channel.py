@@ -35,7 +35,8 @@ class Channel:
             tags: Dict[str, str]
     ) -> None:
         # if unique-only
-        for key, value in tags.items():
+        for key in tags:
+            value = tags[key]
             if key == 'r9k':
                 self.is_unique_only: bool = value == '1'
             # if emote-only

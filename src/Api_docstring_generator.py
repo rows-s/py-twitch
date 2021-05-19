@@ -1,13 +1,13 @@
-from typing import NamedTuple, Iterable, Optional, Any, Type, List, Union, Dict
 from textwrap import wrap
-from copy import copy
+
+from typing import Iterable, Optional, Any, Type, List, Union, Dict
 
 
 def prepare_type(the_type: Any):
     if str(the_type).startswith('<class'):
         the_type: str = the_type.__name__  # name of the class
     else:
-        the_type: str = str(the_type).replace('typing.', '')  # delete prefixes if exists\
+        the_type: str = str(the_type).replace('typing.', '')  # delete prefixes if exists
     return the_type
 
 
@@ -141,6 +141,8 @@ class Return:
             return string + newline_indent[:-4] + '}'
         # main code branch
         return call_maker(self.return_object, spaces_before=16)
+
+
 Yield = Return
 
 

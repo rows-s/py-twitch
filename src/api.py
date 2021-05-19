@@ -3,7 +3,7 @@ from aiohttp.client import ClientResponse
 from aiohttp.client_exceptions import ContentTypeError
 from dataclasses import dataclass, InitVar
 
-from errors import HTTPError, InvalidToken, AccessError
+from errors import HTTPError, InvalidToken
 
 from typing import Dict, Union, Iterable, List, Optional, AsyncGenerator, Any, Callable, Tuple, Awaitable
 
@@ -17,7 +17,6 @@ class BaseRequest:
     sub_url: InitVar[str]
     data_params_keys: Iterable[str] = ()
     query_params_keys: Iterable[str] = ()
-    scope: Optional[str] = None
 
     def __post_init__(self, sub_url: str):
         helix_url: str = 'https://api.twitch.tv/helix'
@@ -176,9 +175,9 @@ class Api:
                 self._get_open_session().get(url, headers=self._headers)
             )
         except HTTPError as e:
-            response: ClientResponse = e.args[0]
-            if 399 < response.status < 500:  # 4XX - invalid token
-                raise InvalidToken(response)
+            json: dict = e.args[0]
+            if 399 < json['status'] < 500:  # 4XX - invalid token
+                raise InvalidToken(json)
             else:
                 raise
         else:
@@ -289,7 +288,7 @@ class Api:
                 except ContentTypeError:
                     return None
             else:
-                raise HTTPError(response)
+                raise HTTPError(await response.json())
 
     async def _http_get(
             self,
@@ -346,27 +345,6 @@ class Api:
         )
         return json
 
-    def _check_scope(
-            self,
-            scope: str
-    ) -> None:
-        """
-        Raises `AccessError` if current token hasn't required scope
-
-        Args:
-            scope: `str`
-                scope to check
-
-        Returns:
-            `None`
-
-        Raises:
-            `AccessError`: if the object hasn't required scope
-        """
-        if scope is not None:
-            if scope not in self.scopes:
-                raise AccessError(f'Current auth-token hasn\'t required scope: `{scope}`')
-
     @staticmethod
     def _set_additional_data(
             all_data: dict,
@@ -413,7 +391,6 @@ class Api:
         """Does single request based on url from `request.url`, with selected not None params from `raw_params`
         basing on `request.data_params_keys` and `request.query_params_keys`"""
         # prepare data
-        self._check_scope(request.scope)
         data, params = request.distribute_raw_params(raw_params)
         # get request
         json = await request.http_method(self, url=request.url, data=data, params=params)
@@ -431,7 +408,6 @@ class Api:
     ) -> AsyncGenerator[dict, None]:
         """Does single request based on url from `request.url`, with selected not None params from `raw_params`
         basing on `request.data_params_keys` and `request.query_params_keys`"""
-        self._check_scope(request.scope)
         data, params = request.distribute_raw_params(raw_params, limit)
         async for json_part in self._handle_pagination(request.url, limit, data, params,
                                                        response_json_preparer=request.response_json_preparer,
@@ -2171,7 +2147,8 @@ Input type:
                 Game ID. At most 100 id values can be specified
 
             name: `str`
-                Game name. The name must be an exact match. For example, “Pokemon” will not return a list of Pokemon games;
+                Game name. The name must be an exact match.
+                For example, “Pokemon” will not return a list of Pokemon games;
                 instead, query any specific Pokemon games in which you are interested.
                 At most 100 name values can be specified.
 
@@ -2414,7 +2391,7 @@ Input type:
                                limit: int,
                                broadcaster_id: str = None,
                                user_id: Union[Iterable[str], str] = None
-                               ) -> dict:
+                               ) -> AsyncGenerator[dict, None]:
         """
         |Async Generator|\n
         Yields banned and timed-out users in a channel.\n
@@ -2715,7 +2692,8 @@ Input type:
 
             language: `str`
                 Stream language. You can specify up to 100 languages.
-                A language value must be either the ISO 639-1 two-letter code for a supported stream language or “other”.
+                A language value must be either the ISO 639-1
+                two-letter code for a supported stream language or “other”.
 
             user_id: `str`
                 Returns streams broadcast by one or more specified user IDs. You can specify up to 100 IDs.
@@ -3688,15 +3666,13 @@ Input type:
         'start_commercial': SingleRequest(
             sub_url='/channels/commercial',
             http_method=_http_post,
-            data_params_keys=('broadcaster_id', 'length'),
-            scope='channel:edit:commercial'
+            data_params_keys=('broadcaster_id', 'length')
         ),
         'modify_channel_information': SingleRequest(
             sub_url='/channels',
             http_method=_http_patch,
             data_params_keys=('game_id', 'title', 'broadcaster_language'),
-            query_params_keys=('broadcaster_id', ),
-            scope='channel:manage:broadcast'
+            query_params_keys=('broadcaster_id', )
         ),
         'create_custom_rewards': SingleRequest(
             sub_url='/channel_points/custom_rewards',
@@ -3714,14 +3690,12 @@ Input type:
                               'is_global_cooldown_enabled',
                               'global_cooldown_seconds',
                               'should_redemptions_skip_request_queue'),
-            query_params_keys=('broadcaster_id',),
-            scope='channel:manage:redemptions'
+            query_params_keys=('broadcaster_id',)
         ),
         'delete_custom_reward': SingleRequest(
             sub_url='/channel_points/custom_rewards',
             http_method=_http_delete,
-            query_params_keys=('broadcaster_id', 'id'),
-            scope='channel:manage:redemptions'
+            query_params_keys=('broadcaster_id', 'id')
         ),
         'update_custom_reward': SingleRequest(
             sub_url='/channel_points/custom_rewards',
@@ -3740,103 +3714,90 @@ Input type:
                               'global_cooldown_seconds',
                               'is_paused',
                               'should_redemptions_skip_request_queue'),
-            query_params_keys=('broadcaster_id', 'id'),
-            scope='channel:manage:redemptions'
+            query_params_keys=('broadcaster_id', 'id')
         ),
         'update_redemption_status': SingleRequest(
             sub_url='/channel_points/custom_rewards/redemptions',
             http_method=_http_patch,
             data_params_keys=('status',),
-            query_params_keys=('broadcaster_id', 'reward_id', 'id'),
-            scope='channel:manage:redemptions'
+            query_params_keys=('broadcaster_id', 'reward_id', 'id')
         ),
         'create_clip': SingleRequest(
             sub_url='/clips',
             http_method=_http_post,
-            query_params_keys=('broadcaster_id', 'has_delay'),
-            scope='clips:edit'
+            query_params_keys=('broadcaster_id', 'has_delay')
         ),
         'redeem_code': SingleRequest(
             sub_url='/entitlements/codes',
             http_method=_http_post,
-            query_params_keys=('code', 'user_id'),
+            query_params_keys=('code', 'user_id')
         ),
         'create_eventsub_subscription': SingleRequest(
             sub_url='/eventsub/subscriptions',
             http_method=_http_post,
-            data_params_keys=('type', 'version', 'condition', 'transport'),
+            data_params_keys=('type', 'version', 'condition', 'transport')
         ),
         'delete_eventsub_subscription': SingleRequest(
             sub_url='/eventsub/subscriptions',
             http_method=_http_delete,
-            query_params_keys=('id',),
+            query_params_keys=('id',)
         ),
         'check_automod_status': SingleRequest(
             sub_url='/moderation/enforcements/status',
             http_method=_http_post,
             data_params_keys=('data',),
-            query_params_keys=('broadcaster_id',),
+            query_params_keys=('broadcaster_id',)
         ),
         'create_stream_marker': SingleRequest(
             sub_url='/streams/markers',
             http_method=_http_post,
-            data_params_keys=('user_id', 'description'),
-            scope='channel:manage:broadcast'
+            data_params_keys=('user_id', 'description')
         ),
         'check_user_subscription': SingleRequest(
             sub_url='/subscriptions/user',
             http_method=_http_get,
-            query_params_keys=('broadcaster_id', 'user_id'),
-            scope='user:read:subscriptions'
+            query_params_keys=('broadcaster_id', 'user_id')
         ),
         'replace_stream_tags': SingleRequest(
             sub_url='/streams/tags',
             http_method=_http_put,
             data_params_keys=('tag_ids',),
-            query_params_keys=('broadcaster_id',),
-            scope='channel:manage:broadcast'
+            query_params_keys=('broadcaster_id',)
         ),
         'update_user': SingleRequest(
             sub_url='/users',
             http_method=_http_put,
-            query_params_keys=('description',),
-            scope='user:edit'
+            query_params_keys=('description',)
         ),
         'create_user_follows': SingleRequest(
             sub_url='/users/follows ',
             http_method=_http_post,
-            query_params_keys=('from_id', 'to_id', 'allow_notifications'),
-            scope='user:edit:follows'
+            query_params_keys=('from_id', 'to_id', 'allow_notifications')
         ),
         'delete_user_follows': SingleRequest(
-            sub_url='users/follows',
+            sub_url='/users/follows',
             http_method=_http_delete,
-            query_params_keys=('from_id', 'to_id'),
-            scope='user:edit:follows'
+            query_params_keys=('from_id', 'to_id')
         ),
         'block_user': SingleRequest(
             sub_url='/users/blocks',
             http_method=_http_put,
-            query_params_keys=('target_user_id', 'source_context', 'reason'),
-            scope='user:manage:blocked_users'
+            query_params_keys=('target_user_id', 'source_context', 'reason')
         ),
         'unblock_user': SingleRequest(
             sub_url='/users/blocks',
             http_method=_http_delete,
-            query_params_keys=('target_user_id',),
-            scope='user:manage:blocked_users'
+            query_params_keys=('target_user_id',)
         ),
         'update_user_extensions': SingleRequest(
             sub_url='/users/extensions',
             http_method=_http_put,
-            data_params_keys=('data',),
-            scope='user:edit:broadcast'
+            data_params_keys=('data',)
         ),
         'delete_videos': SingleRequest(
             sub_url='/videos',
             http_method=_http_delete,
             query_params_keys=('id',),
-            scope='channel:manage:videos'
         )
     }
 
@@ -3844,20 +3805,17 @@ Input type:
         'get_extension_analytics': PaginatedRequest(
             sub_url='/analytics/extensions',
             max_first=100,
-            query_params_keys=('first', 'extension_id', 'started_at', 'ended_at', 'type'),
-            scope='analytics:read:extensions'
+            query_params_keys=('first', 'extension_id', 'started_at', 'ended_at', 'type')
         ),
         'get_game_analytics': PaginatedRequest(
             sub_url='/analytics/games',
             max_first=100,
-            query_params_keys=('first', 'game_id', 'started_at', 'ended_at', 'type'),
-            scope='analytics:read:games'
+            query_params_keys=('first', 'game_id', 'started_at', 'ended_at', 'type')
         ),
         'get_bits_leaderboard': PaginatedRequest(
             sub_url='/bits/leaderboard',
             max_first=100,
-            query_params_keys=('count', 'user_id', 'started_at', 'period'),
-            scope='bits:read'
+            query_params_keys=('count', 'user_id', 'started_at', 'period')
         ),
         'get_cheermotes': PaginatedRequest(
             sub_url='/bits/cheermotes',
@@ -3866,85 +3824,77 @@ Input type:
         'get_extension_transactions': PaginatedRequest(
             sub_url='/extensions/transactions',
             max_first=100,
-            query_params_keys=('first', 'extension_id', 'id'),
+            query_params_keys=('first', 'extension_id', 'id')
         ),
         'get_channel_information': PaginatedRequest(
             sub_url='/channels',
-            query_params_keys=('broadcaster_id',),
+            query_params_keys=('broadcaster_id',)
         ),
         'get_channel_editors': PaginatedRequest(
             sub_url='/channels/editors',
-            query_params_keys=('broadcaster_id',),
-            scope='channel:read:editors'
+            query_params_keys=('broadcaster_id',)
         ),
         'get_custom_reward': PaginatedRequest(
             sub_url='/channel_points/custom_rewards',
-            query_params_keys=('broadcaster_id', 'id', 'only_manageable_rewards'),
-            scope='channel:read:redemptions'
+            query_params_keys=('broadcaster_id', 'id', 'only_manageable_rewards')
         ),
         'get_custom_reward_redemption': PaginatedRequest(
             sub_url='/channel_points/custom_rewards/redemptions',
             max_first=50,
-            query_params_keys=('broadcaster_id', 'reward_id', 'id', 'status', 'sort'),
-            scope='channel:read:redemptions'
+            query_params_keys=('broadcaster_id', 'reward_id', 'id', 'status', 'sort')
         ),
         'get_clips': PaginatedRequest(
             sub_url='/clips',
             max_first=100,
-            query_params_keys=('first', 'broadcaster_id', 'game_id', 'id', 'started_at', 'ended_at'),
+            query_params_keys=('first', 'broadcaster_id', 'game_id', 'id', 'started_at', 'ended_at')
         ),
         'get_code_status': PaginatedRequest(
             sub_url='/entitlements/codes',
-            query_params_keys=('code', 'user_id'),
+            query_params_keys=('code', 'user_id')
         ),
         'get_drops_entitlements': PaginatedRequest(
             sub_url='/entitlements/drops',
             max_first=1000,
-            query_params_keys=('first', 'id', 'user_id', 'game_id'),
+            query_params_keys=('first', 'id', 'user_id', 'game_id')
         ),
         'get_top_games': PaginatedRequest(
             sub_url='/games/top',
             max_first=100,
-            query_params_keys=('first',),
+            query_params_keys=('first',)
         ),
         'get_games': PaginatedRequest(
             sub_url='/games',
             max_first=100,
-            query_params_keys=('id', 'name'),
+            query_params_keys=('id', 'name')
         ),
         'get_eventsub_subscriptions': PaginatedRequest(
-            sub_url='eventsub/subscriptions',
-            query_params_keys=('status', 'type'),
+            sub_url='/eventsub/subscriptions',
+            query_params_keys=('status', 'type')
         ),
         'get_hype_train_events': PaginatedRequest(
             sub_url='/hypetrain/events',
             max_first=100,
-            query_params_keys=('first', 'broadcaster_id', 'id'),
-            scope='channel:read:hype_train'
+            query_params_keys=('first', 'broadcaster_id', 'id')
         ),
         'get_banned_events': PaginatedRequest(
             sub_url='/moderation/banned/events',
             max_first=100,
-            query_params_keys=('first', 'broadcaster_id'),
-            scope='moderation:read'
+            query_params_keys=('first', 'broadcaster_id')
         ),
         'get_banned_users': PaginatedRequest(
             sub_url='/moderation/banned',
             max_first=100,
-            query_params_keys=('first', 'broadcaster_id', 'user_id'),
-            scope='moderation:read'
+            query_params_keys=('first', 'broadcaster_id', 'user_id')
         ),
         'get_moderators': PaginatedRequest(
             sub_url='/moderation/moderators',
             max_first=100,
-            query_params_keys=('first', 'broadcaster_id', 'user_id'),
-            scope='moderation:read'
+            query_params_keys=('first', 'broadcaster_id', 'user_id')
         ),
         'get_moderator_events': PaginatedRequest(
             sub_url='/moderation/moderators/events',
             max_first=100,
-            query_params_keys=('first', 'broadcaster_id', 'user_id'),
-            scope='moderation:read'
+            query_params_keys=('first', 'broadcaster_id', 'user_id')
         ),
         'search_categories': PaginatedRequest(
             sub_url='/search/categories',
@@ -3954,13 +3904,12 @@ Input type:
         'search_channels': PaginatedRequest(
             sub_url='/search/channels',
             max_first=100,
-            query_params_keys=('first', 'query', 'live_only'),
+            query_params_keys=('first', 'query', 'live_only')
         ),
         'get_stream_key': PaginatedRequest(
             sub_url='/streams/key',
             max_first=100,
-            query_params_keys=('first', 'broadcaster_id'),
-            scope='channel:read:stream_key'
+            query_params_keys=('first', 'broadcaster_id')
         ),
         'get_streams': PaginatedRequest(
             sub_url='/streams',
@@ -3971,52 +3920,47 @@ Input type:
             sub_url='/streams/markers',
             max_first=100,
             query_params_keys=('first', 'user_id', 'video_id'),
-            scope='user:read:broadcast',
             response_json_preparer=_get_stream_markers_json_preparer
         ),
         'get_broadcaster_subscriptions': PaginatedRequest(
             sub_url='/subscriptions',
             max_first=100,
-            query_params_keys=('first', 'broadcaster_id', 'user_id'),
-            scope='channel:read:subscriptions'
+            query_params_keys=('first', 'broadcaster_id', 'user_id')
         ),
         'get_all_stream_tags': PaginatedRequest(
             sub_url='/tags/streams',
             max_first=100,
-            query_params_keys=('first', 'tag_id'),
+            query_params_keys=('first', 'tag_id')
         ),
         'get_stream_tags': PaginatedRequest(
             sub_url='/tags/streams',
             max_first=100,
-            query_params_keys=('first', 'broadcaster_id'),
+            query_params_keys=('first', 'broadcaster_id')
         ),
         'get_channel_teams': PaginatedRequest(
             sub_url='/teams/channel',
-            query_params_keys=('broadcaster_id',),
+            query_params_keys=('broadcaster_id',)
         ),
         'get_teams': PaginatedRequest(
             sub_url='/teams',
-            query_params_keys=('name', 'id'),
+            query_params_keys=('name', 'id')
         ),
         'get_users': PaginatedRequest(
             sub_url='/users',
-            query_params_keys=('id', 'login'),
-            scope='user:read:email'
+            query_params_keys=('id', 'login')
         ),
         'get_users_follows': PaginatedRequest(
             sub_url='/users/follows',
             max_first=100,
-            query_params_keys=('first', 'from_id', 'to_id'),
+            query_params_keys=('first', 'from_id', 'to_id')
         ),
         'get_user_block_list': PaginatedRequest(
             sub_url='/users/blocks',
             max_first=100,
-            query_params_keys=('first', 'broadcaster_id'),
-            scope='user:read:blocked_users'
+            query_params_keys=('first', 'broadcaster_id')
         ),
         'get_user_extensions': PaginatedRequest(
-            sub_url='/users/extensions/list',
-            scope='user:read:broadcast'
+            sub_url='/users/extensions/list'
         ),
         'get_user_active_extensions': PaginatedRequest(
             sub_url='/users/extensions',
@@ -4028,7 +3972,7 @@ Input type:
         'get_videos': PaginatedRequest(
             sub_url='/videos',
             max_first=100,
-            query_params_keys=('first', 'id', 'user_id', 'game_id', 'language', 'period', 'sort', 'type'),
+            query_params_keys=('first', 'id', 'user_id', 'game_id', 'language', 'period', 'sort', 'type')
         ),
         'get_webhook_subscriptions': PaginatedRequest(
             sub_url='/webhooks/subscriptions',

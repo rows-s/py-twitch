@@ -1,16 +1,16 @@
-from irc_member import Member
+from irc_users import ChannelMember
 from irc_channel import Channel
 from utils import replace_slashes
-from abcs import AbstractMessage
+from irc_messages import ChannelMessage
 
 from typing import Dict
 
 
-class AbstractUserEvent(AbstractMessage):
+class AbstractUserEvent(ChannelMessage):
     """ Base class for all IRC user events """
     def __init__(
             self,
-            author: Member,
+            author: ChannelMember,
             channel: Channel,
             content: str,
             tags: Dict[str, str]
@@ -26,7 +26,7 @@ class AbstractUserEvent(AbstractMessage):
 class AbstractSub(AbstractUserEvent):
     def __init__(
             self,
-            author: Member,
+            author: ChannelMember,
             channel: Channel,
             content: str,
             tags: Dict[str, str]
@@ -51,7 +51,7 @@ class AbstractSub(AbstractUserEvent):
 class ReSub(AbstractSub):
     def __init__(
             self,
-            author: Member,
+            author: ChannelMember,
             channel: Channel,
             content: str,
             tags: Dict[str, str]
@@ -80,7 +80,7 @@ class Sub(AbstractSub):
 class AbstractGift(AbstractUserEvent):
     def __init__(
             self,
-            author: Member,
+            author: ChannelMember,
             channel: Channel,
             content: str,
             tags: Dict[str, str]
@@ -95,7 +95,7 @@ class AbstractGift(AbstractUserEvent):
 class SubMysteryGift(AbstractUserEvent):
     def __init__(
             self,
-            author: Member,
+            author: ChannelMember,
             channel: Channel,
             content: str,
             tags: Dict[str, str]
@@ -107,7 +107,7 @@ class SubMysteryGift(AbstractUserEvent):
 class SubGift(AbstractUserEvent):
     def __init__(
             self,
-            author: Member,
+            author: ChannelMember,
             channel: Channel,
             content: str,
             tags: Dict[str, str]
@@ -134,7 +134,7 @@ class SubGift(AbstractUserEvent):
 class GiftPaidUpgrade(AbstractUserEvent):
     def __init__(
             self,
-            author: Member,
+            author: ChannelMember,
             channel: Channel,
             content: str,
             tags: Dict[str, str]
@@ -148,7 +148,7 @@ class GiftPaidUpgrade(AbstractUserEvent):
 class PrimePaidUpgrade(AbstractUserEvent):
     def __init__(
             self,
-            author: Member,
+            author: ChannelMember,
             channel: Channel,
             content: str,
             tags: Dict[str, str]
@@ -166,7 +166,7 @@ class PrimePaidUpgrade(AbstractUserEvent):
 class AbstractPayForward(AbstractUserEvent):
     def __init__(
             self,
-            author: Member,
+            author: ChannelMember,
             channel: Channel,
             content: str,
             tags: Dict[str, str]
@@ -182,7 +182,7 @@ class AbstractPayForward(AbstractUserEvent):
 class StandardPayForward(AbstractPayForward):
     def __init__(
             self,
-            author: Member,
+            author: ChannelMember,
             channel: Channel,
             content: str,
             tags: Dict[str, str]
@@ -207,7 +207,7 @@ class CommunityPayForward(AbstractPayForward):
 class BitsBadgeTier(AbstractUserEvent):
     def __init__(
             self,
-            author: Member,
+            author: ChannelMember,
             channel: Channel,
             content: str,
             tags: Dict[str, str]
@@ -219,7 +219,7 @@ class BitsBadgeTier(AbstractUserEvent):
 class Ritual(AbstractUserEvent):
     def __init__(
             self,
-            author: Member,
+            author: ChannelMember,
             channel: Channel,
             content: str,
             tags: Dict[str, str]
@@ -237,7 +237,7 @@ class Ritual(AbstractUserEvent):
 class Raid(AbstractUserEvent):
     def __init__(
             self,
-            author: Member,
+            author: ChannelMember,
             channel: Channel,
             content: str,
             tags: Dict[str, str]

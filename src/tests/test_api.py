@@ -1,10 +1,6 @@
-from time import time
-
 import irc_client
 import config
 from api import Api
-import asyncio
-import re
 
 from errors import HTTPError
 
