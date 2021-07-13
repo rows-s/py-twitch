@@ -2,6 +2,11 @@ class FunctionIsNotCorutine(Exception):
     pass
 
 
+class LoginFailed(Exception):
+    """Is raised if token or login is incorrect"""
+    pass
+
+
 class UnknownEvent(Exception):
     pass
 

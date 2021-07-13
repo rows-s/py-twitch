@@ -1,17 +1,18 @@
-from utils import parse_raw_badges
+from .utils import parse_raw_badges
 
 from typing import Dict, Tuple, Optional, Callable
+
+__all__ = ('Channel',)
 
 
 class Channel:
     def __init__(
-        self, 
-        login: str,
+        self,
         _websocket_send: Callable,
         tags: Dict[str, str]
     ) -> None:
         # stable
-        self.login: str = login
+        self.login: str = tags.get('room-login')
         self.id: str = tags.get('room-id')
         # out of tags
         self.my_state: Optional[LocalState] = None
@@ -30,7 +31,7 @@ class Channel:
         # callback
         self._websocket_send: Callable = _websocket_send
 
-    def set_new_values(
+    def update_values(
             self,
             tags: Dict[str, str]
     ) -> None:

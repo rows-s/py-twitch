@@ -6,8 +6,8 @@ from asyncio import iscoroutinefunction
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 # project
-from eventsub_events import *
-from errors import UnknownEvent, FunctionIsNotCorutine
+from events import *
+from exceptions import UnknownEvent, FunctionIsNotCorutine
 from utils import calc_sha256, str_to_datetime
 # type hints
 from typing import Coroutine, Dict, Awaitable, Tuple, List, Type, Callable

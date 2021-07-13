@@ -1,13 +1,33 @@
-from irc_users import ChannelMember
-from irc_channel import Channel
-from utils import replace_slashes
-from irc_messages import ChannelMessage
+from .users import ChannelMember
+from .channel import Channel
 
-from typing import Dict
+from .utils import unescape_tag_value, parse_raw_emotes
+
+from abc import ABC
+from typing import Dict, List, Tuple
+
+__all__ = (
+    'BaseUserEvent',
+    'BaseSub',
+    'ReSub',
+    'Sub',
+    'BaseGift',
+    'SubMysteryGift',
+    'SubGift',
+    'GiftPaidUpgrade',
+    'PrimePaidUpgrade',
+    'BasePayForward',
+    'StandardPayForward',
+    'CommunityPayForward',
+    'Raid',
+    'UnRaid',
+    'BitsBadgeTier',
+    'Ritual',
+)
 
 
-class AbstractUserEvent(ChannelMessage):
-    """ Base class for all IRC user events """
+class BaseUserEvent(ABC):
+    """Base class for all IRC user events"""
     def __init__(
             self,
             author: ChannelMember,
@@ -15,15 +35,24 @@ class AbstractUserEvent(ChannelMessage):
             content: str,
             tags: Dict[str, str]
     ) -> None:
-        super().__init__(channel, author, content, tags)
-        self.system_message: str = replace_slashes(tags.get('system-msg', ''))
+        self.author: ChannelMember = author
+        self.channel: Channel = channel
+        self.content: str = content
+        # tags
+        self.id: str = tags.get('id')
+        self.time: int = int(tags.get('tmi-sent-ts', 0))
+        self.flags: str = tags.get('flags')
+        # emotes
+        self.emote_only: bool = tags.get('emote-only') == '1'
+        self.emotes: Dict[str, List[Tuple[int, int]]] = parse_raw_emotes(tags.get('emotes', ''))
+        self.system_message: str = unescape_tag_value(tags.get('system-msg', ''))
         self.event_type: str = tags.get('msg-id')
 
 
 #################################
 # SUBS
 #
-class AbstractSub(AbstractUserEvent):
+class BaseSub(BaseUserEvent):
     def __init__(
             self,
             author: ChannelMember,
@@ -43,12 +72,12 @@ class AbstractSub(AbstractUserEvent):
         self.streak_months: int = int(tags.get('msg-param-streak-months', 0))
         # plan
         self.plan: str = tags.get('msg-param-sub-plan')
-        self.plan_name: str = replace_slashes(tags.get('msg-param-sub-plan-name', ''))
+        self.plan_name: str = unescape_tag_value(tags.get('msg-param-sub-plan-name', ''))
         # is gifted
         self.is_gifted: bool = tags.get('msg-param-was-gifted') == 'true'
 
 
-class ReSub(AbstractSub):
+class ReSub(BaseSub):
     def __init__(
             self,
             author: ChannelMember,
@@ -67,7 +96,7 @@ class ReSub(AbstractSub):
         self.month_being_redeemed: int = int(tags.get('msg-param-gift-month-being-redeemed', 0))
 
 
-class Sub(AbstractSub):
+class Sub(BaseSub):
     pass
 #
 # end of SUBS
@@ -77,7 +106,7 @@ class Sub(AbstractSub):
 #################################
 # GIFTS
 #
-class AbstractGift(AbstractUserEvent):
+class BaseGift(BaseUserEvent):
     def __init__(
             self,
             author: ChannelMember,
@@ -88,11 +117,11 @@ class AbstractGift(AbstractUserEvent):
         super().__init__(author, channel, content, tags)
         self.is_gifter_anon = tags.get('login') == 'ananonymousgifter'
         self.plan: str = tags.get('msg-param-sub-plan')
-        self.origin_id: str = replace_slashes(tags.get('msg-param-origin-id', ''))
+        self.origin_id: str = unescape_tag_value(tags.get('msg-param-origin-id', ''))
         self.sender_count: int = int(tags.get('msg-param-sender-count', 0))
 
 
-class SubMysteryGift(AbstractUserEvent):
+class SubMysteryGift(BaseUserEvent):
     def __init__(
             self,
             author: ChannelMember,
@@ -104,7 +133,7 @@ class SubMysteryGift(AbstractUserEvent):
         self.gift_count: int = int(tags.get('gift-count', 0))
 
 
-class SubGift(AbstractUserEvent):
+class SubGift(BaseUserEvent):
     def __init__(
             self,
             author: ChannelMember,
@@ -118,7 +147,7 @@ class SubGift(AbstractUserEvent):
         self.recipient_login: str = tags.get('msg-param-recipient-user-name')
         self.recipient_display_name: str = tags.get('msg-param-recipient-display-name')
         # plan
-        self.plan_name: str = replace_slashes(tags.get('msg-param-sub-plan-name'))
+        self.plan_name: str = unescape_tag_value(tags.get('msg-param-sub-plan-name'))
         # other
         self.months: int = int(tags.get('msg-param-months', 0))
         self.gift_months: int = int(tags.get('msg-param-gift-months', 0))
@@ -131,7 +160,7 @@ class SubGift(AbstractUserEvent):
 #################################
 # UPGRADES
 #
-class GiftPaidUpgrade(AbstractUserEvent):
+class GiftPaidUpgrade(BaseUserEvent):
     def __init__(
             self,
             author: ChannelMember,
@@ -145,7 +174,7 @@ class GiftPaidUpgrade(AbstractUserEvent):
         self.gifter_display_name: str = tags.get('msg-param-sender-name')
 
 
-class PrimePaidUpgrade(AbstractUserEvent):
+class PrimePaidUpgrade(BaseUserEvent):
     def __init__(
             self,
             author: ChannelMember,
@@ -163,7 +192,7 @@ class PrimePaidUpgrade(AbstractUserEvent):
 #################################
 # PAYS FORWARD
 #
-class AbstractPayForward(AbstractUserEvent):
+class BasePayForward(BaseUserEvent):
     def __init__(
             self,
             author: ChannelMember,
@@ -179,7 +208,7 @@ class AbstractPayForward(AbstractUserEvent):
         self.is_gifter_anon: bool = tags.get('msg-param-prior-gifter-anonymous') == 'true'
 
 
-class StandardPayForward(AbstractPayForward):
+class StandardPayForward(BasePayForward):
     def __init__(
             self,
             author: ChannelMember,
@@ -194,7 +223,7 @@ class StandardPayForward(AbstractPayForward):
         self.recipient_display_name: str = tags.get('msg-param-recipient-display-name')
 
 
-class CommunityPayForward(AbstractPayForward):
+class CommunityPayForward(BasePayForward):
     pass
 #
 # end of PAYS FORWARD
@@ -202,39 +231,9 @@ class CommunityPayForward(AbstractPayForward):
 
 
 #################################
-# OTHERS
-#
-class BitsBadgeTier(AbstractUserEvent):
-    def __init__(
-            self,
-            author: ChannelMember,
-            channel: Channel,
-            content: str,
-            tags: Dict[str, str]
-    ) -> None:
-        super().__init__(author, channel, content, tags)
-        self.threshold: int = int(tags.get('msg-param-threshold', 0))
-
-
-class Ritual(AbstractUserEvent):
-    def __init__(
-            self,
-            author: ChannelMember,
-            channel: Channel,
-            content: str,
-            tags: Dict[str, str]
-    ) -> None:
-        super().__init__(author, channel, content, tags)
-        self.ritual_name: str = tags.get('msg-param-ritual-name')
-#
-# end of OTHERS
-#################################
-
-
-#################################
 # RAIDS
 #
-class Raid(AbstractUserEvent):
+class Raid(BaseUserEvent):
     def __init__(
             self,
             author: ChannelMember,
@@ -249,8 +248,38 @@ class Raid(AbstractUserEvent):
         self.profile_image_url: str = tags.get('msg-param-profileImageURL')
 
 
-class UnRaid(AbstractUserEvent):
+class UnRaid(BaseUserEvent):
     pass
 #
 # end of RAIDS
+#################################
+
+
+#################################
+# OTHERS
+#
+class BitsBadgeTier(BaseUserEvent):
+    def __init__(
+            self,
+            author: ChannelMember,
+            channel: Channel,
+            content: str,
+            tags: Dict[str, str]
+    ) -> None:
+        super().__init__(author, channel, content, tags)
+        self.threshold: int = int(tags.get('msg-param-threshold', 0))
+
+
+class Ritual(BaseUserEvent):
+    def __init__(
+            self,
+            author: ChannelMember,
+            channel: Channel,
+            content: str,
+            tags: Dict[str, str]
+    ) -> None:
+        super().__init__(author, channel, content, tags)
+        self.ritual_name: str = tags.get('msg-param-ritual-name')
+#
+# end of OTHERS
 #################################

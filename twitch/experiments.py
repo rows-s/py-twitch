@@ -423,7 +423,7 @@
 #       type(me).__name__)  # Human
 
 
-# path = r"D:\Users\I3rowser\Desktop\to distribute\py-twitch\src\api.py"
+# path = r"D:\Users\I3rowser\Desktop\to distribute\py-twitch\src\client.py"
 #
 # import re
 #

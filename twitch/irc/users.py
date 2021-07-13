@@ -1,9 +1,9 @@
+from .channel import Channel
+from .utils import parse_raw_badges
+
 from abc import ABC
-
-from irc_channel import Channel
-from utils import parse_raw_badges
-
 from typing import Dict, Optional, Callable
+
 
 __all__ = (
     'UserABC',
@@ -104,7 +104,8 @@ class ParentMessageUser(UserABC):
             tags,
             send_wishper_callback: Callable
     ):
-        # TODO: create new dict with new keys seems good. Cause we not need to add expressions in code.
+        # TODO: to create new dict with new keys seems like a good action.
+        #  Because we not need to add expressions in code.
         #  But maybe can be better?
         new_tags = {
             'user-id': tags['reply-parent-user-id'],

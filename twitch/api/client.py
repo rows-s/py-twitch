@@ -1,9 +1,9 @@
 import aiohttp
 from aiohttp.client import ClientResponse
 from aiohttp.client_exceptions import ContentTypeError
-from dataclasses import dataclass, InitVar
 
-from errors import HTTPError, InvalidToken
+from .requests import SingleRequest, PaginatedRequest
+from .exceptions import HTTPError, InvalidToken
 
 from typing import Dict, Union, Iterable, List, Optional, AsyncGenerator, Any, Callable, Tuple, Awaitable
 
@@ -12,99 +12,15 @@ __all__ = (
 )
 
 
-@dataclass()
-class BaseRequest:
-    sub_url: InitVar[str]
-    data_params_keys: Iterable[str] = ()
-    query_params_keys: Iterable[str] = ()
-
-    def __post_init__(self, sub_url: str):
-        helix_url: str = 'https://api.twitch.tv/helix'
-        self.url: str = helix_url + sub_url
-
-    @staticmethod
-    def not_none_fromkeys(
-            raw_dict: dict,
-            keys_to_select: Iterable[Any]
-    ):
-        final_dict: Dict[str, Any] = {}
-        for key in keys_to_select:
-            if raw_dict.get(key) is not None:
-                final_dict[key] = raw_dict[key]
-        return final_dict
-
-    def distribute_raw_params(
-            self,
-            raw_params: Dict[str, Any],
-            *args,
-            **kwargs
-    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-        raw_params = raw_params.copy()
-        raw_params.update(kwargs)
-        data_params = self.not_none_fromkeys(raw_params, self.data_params_keys)
-        query_params = self.not_none_fromkeys(raw_params, self.query_params_keys)
-        return data_params, query_params
-
-
-@dataclass()
-class SingleRequest(BaseRequest):
-    http_method: Callable = None
-    response_json_preparer: Callable[[dict], Any] = lambda json: json['data'][0] if (json is not None) else json
-
-    def __post_init__(self, sub_url: str):
-        super().__post_init__(sub_url)
-        if self.http_method is None:
-            raise NotImplementedError('http_method must be specified')
-
-
-@dataclass()
-class PaginatedRequest(BaseRequest):
-    max_first: int = 100
-    response_json_preparer: Callable[[dict], Iterable] = lambda json: json['data'] if (json is not None) else ()
-
-    def calc_first_param(
-            self,
-            limit: int
-    ) -> Optional[int]:
-        if limit > 0:
-            first: int = min(limit, self.max_first)
-            return first
-        else:
-            return None
-
-    def distribute_raw_params(
-            self,
-            raw_params: Dict[str, Any],
-            limit: int,
-            *args,
-            **kwargs
-    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-        if 'first' in self.query_params_keys:
-            first = self.calc_first_param(limit=limit)
-            if first is not None:
-                kwargs['first'] = first
-        return super(PaginatedRequest, self).distribute_raw_params(raw_params, *args, **kwargs)
-
-
 class Api:
     """
         This class gives you ability to easy use twtich-API.
-
-        Attrs:
-            token: `Optional[str]`
-                Authorization-Token, would be set in set_token() method
-            client_id: `Optional[str]`
-                client id of current token, would be set in set_token() method
-            scopes: `List[str]`
-                scopes of current token, would be set in set_token() method
-            expires_in: `Optional[int]`
-                count of seconds of rest of life of current token since set_token() called
 
         Notes:
             1st:
                 Before calling a request, Authorization-Token must be set, see self.set_token() and Api.create() methods
             2nd:
-                All object attributes is None before set_token() is successfully called
+                All object's attributes is None before set_token() is successfully called
         """
 
     def __init__(self):

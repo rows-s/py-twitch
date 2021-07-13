@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+__all__ = ('ClearChatFromUser',)
+
 
 @dataclass
 class ClearChatFromUser:
