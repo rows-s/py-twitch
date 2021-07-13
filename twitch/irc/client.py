@@ -1,11 +1,10 @@
-# global
 import asyncio
 from asyncio import iscoroutinefunction, get_event_loop, AbstractEventLoop
 import websockets
 from websockets import WebSocketClientProtocol, ConnectionClosedError
 from copy import copy
 from time import time
-# local
+
 from .irc_message import IRCMessage
 from .messages import ChannelMessage, WhisperMessage
 from .channel import Channel
@@ -14,7 +13,7 @@ from .user_states import GlobalState, LocalState
 from .events import ClearChatFromUser
 from .user_events import *
 from .exceptions import *
-# typing
+
 from typing import Coroutine, Iterable, Tuple, Union, Any, Awaitable, Callable, List, Optional, Dict, AsyncGenerator, \
     Set, Generator
 
