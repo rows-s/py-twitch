@@ -189,11 +189,11 @@ class Client:
         """Creates new websocket connection if not open, requires capabilities and login into ttv IRC"""
         if self._websocket is None or not self._websocket.open:
             self._websocket = await websockets.connect(uri)
-        # capabilities
-        await self._send('CAP REQ :ttv.tv/membership ttv.tv/commands ttv.tv/tags')
         # loging
         await self._send(f'PASS {self.token}')
         await self._send(f'NICK {self.login}')
+        # capabilities
+        await self._send('CAP REQ :ttv.tv/membership ttv.tv/commands ttv.tv/tags')
 
     async def restart(self):
         """
@@ -913,11 +913,11 @@ class Client:
         if len(delayed_irc_messages) == 10:
             # something wrong if 10 messages has been delayed, let's try to reconnect to the channel
             await self.join_channel(channel_login)
-            print('Try to rejoin')
+            print(f'Try to rejoin #{channel_login}')
             delayed_irc_messages.append(irc_msg)
         # protection from memory overflow
         elif len(delayed_irc_messages) >= 30:
-            pass
+            print(f'#{channel_login} has delayed msgs overflow')
         else:
             delayed_irc_messages.append(irc_msg)
 
