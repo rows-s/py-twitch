@@ -1,6 +1,6 @@
 import pytest
-from twitch.utils import *
-from twitch.irc.utils import *
+from ttv.utils import *
+from ttv.irc.utils import *
 
 
 def test_parse_raw_emotes():

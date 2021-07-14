@@ -1,8 +1,8 @@
 import websockets
 import pytest
 from time import sleep
-from twitch.irc import Client, IRCMessage, Channel
-from twitch.irc.exceptions import ChannelNotExists, FunctionIsNotCorutine, UnknownEvent, LoginFailed
+from ttv.irc import Client, IRCMessage, Channel
+from ttv.irc.exceptions import ChannelNotExists, FunctionIsNotCorutine, UnknownEvent, LoginFailed
 
 
 def test_event_registration():
@@ -14,17 +14,17 @@ def test_event_registration():
 
     with pytest.raises(FunctionIsNotCorutine):
         @ttv_bot.events('on_message')
-        def some_name():
+        def foo():
             pass
 
     with pytest.raises(UnknownEvent):
         @ttv_bot.event
-        async def foo():
+        async def baz():
             pass
 
     with pytest.raises(UnknownEvent):
-        @ttv_bot.events('baz')
-        async def bar():
+        @ttv_bot.events('bar')
+        async def on_message():
             pass
 
     @ttv_bot.event
@@ -84,8 +84,8 @@ async def test_start():
 async def test_read_websocket():
     ttv_bot = Client('token', 'login', should_restart=False)
     await ttv_bot._log_in_irc()
-    capabilities = IRCMessage(':tmi.twitch.tv CAP * ACK :twitch.tv/membership twitch.tv/commands twitch.tv/tags')
-    login_failed = IRCMessage(':tmi.twitch.tv NOTICE * :Login authentication failed')
+    capabilities = IRCMessage(':tmi.ttv.tv CAP * ACK :ttv.tv/membership ttv.tv/commands ttv.tv/tags')
+    login_failed = IRCMessage(':tmi.ttv.tv NOTICE * :Login authentication failed')
     irc_msgs = (capabilities, login_failed)
     index = 0
     async for irc_msg in ttv_bot._read_websocket():
@@ -101,5 +101,16 @@ async def test_read_websocket():
 
 @pytest.mark.asyncio
 async def test_first_log_in_irc():
-    pass
+    ttv_bot = Client('token', 'login', should_restart=False)
+    # logined = False
+    with pytest.raises(LoginFailed):
+        await ttv_bot._first_log_in_irc()
+    #
+    # @ttv_bot.event
+    # async def on_login():
+    #     nonlocal logined
+    #     logined = True
+    #
+    # await ttv_bot._first_log_in_irc()
+    # assert logined
 

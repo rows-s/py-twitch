@@ -6,7 +6,7 @@ __all__ = ('GlobalState', 'LocalState')
 
 
 class GlobalState:
-    """This class represent global state of twitch-user (`irc.Client`)"""
+    """This class represent global state of ttv-user (`irc.Client`)"""
 
     def __init__(self, tags: Dict[str, str]):
         self.id: str = tags.get('user-id')
@@ -20,7 +20,7 @@ class GlobalState:
 
 
 class LocalState:
-    """This class represent global state of twitch-user (`irc.Client`)"""
+    """This class represent global state of ttv-user (`irc.Client`)"""
 
     def __init__(self, tags: Dict[str, str]) -> None:
         self.id: str = tags.get('user-id')

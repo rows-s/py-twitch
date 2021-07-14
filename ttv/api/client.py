@@ -2737,7 +2737,7 @@ Input type:
             video_id: `str`
                 ID of the VOD/video whose stream markers are returned.
 
-            Yields:(differ of twitch-API)\n
+            Yields:(differ of ttv-API)\n
             `dict` {
                 'id': `str`
                     ID of the marker.

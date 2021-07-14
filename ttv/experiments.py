@@ -423,7 +423,7 @@
 #       type(me).__name__)  # Human
 
 
-# path = r"D:\Users\I3rowser\Desktop\to distribute\py-twitch\src\client.py"
+# path = r"D:\Users\I3rowser\Desktop\to distribute\py-ttv\src\client.py"
 #
 # import re
 #
@@ -463,7 +463,7 @@
 #             pass
 #
 # app = web.Application()
-# app.add_routes([web.post('twitch/events/subscriptions', event_listener)])
+# app.add_routes([web.post('ttv/events/subscriptions', event_listener)])
 #
 #
 # web.run_app(app, port=9028)
@@ -512,8 +512,8 @@
 #             pass
 #
 # app = web.Application()
-# app.add_routes([web.post('/twitch/events/subscriptions', twitch_event_handler),
-#                 web.get('/twitch/events/subscriptions', twitch_event_handler)])
+# app.add_routes([web.post('/ttv/events/subscriptions', twitch_event_handler),
+#                 web.get('/ttv/events/subscriptions', twitch_event_handler)])
 #
 # web.run_app(app, port=8080)
 
@@ -549,7 +549,7 @@
 
 # import re
 #
-# path = r"D:\Users\I3rowser\Desktop\twitch.htm"
+# path = r"D:\Users\I3rowser\Desktop\ttv.htm"
 # start = '<div class="language-json highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="p"'
 # end = '</span><span class="w">\n</span></code></pre></div></div>'
 # result = []
@@ -800,7 +800,7 @@
 #
 # tags = {'emote-only': '0', 'followers-only': '15', 'r9k': '0', 'rituals': '0',
 #         'room-id': '192827780', 'slow': '0', 'subs-only': '0'}
-# command = ['tmi.twitch.tv', 'ROOMSTATE', '#rows_s']
+# command = ['tmi.ttv.tv', 'ROOMSTATE', '#rows_s']
 #
 # class Client1(Client):
 #     def _handle_roomstate1(self, tags: dict, command: list):

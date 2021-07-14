@@ -1,11 +1,5 @@
-try:
-    import twitch
-except ImportError:
-    import sys
-    sys.path.append('../../..')
-
 import config
-from twitch.irc import Client, ChannelMessage
+from ttv.irc import Client, ChannelMessage
 
 ttv_chat_bot = Client(config.token, config.nick)
 

@@ -1,4 +1,4 @@
 *__pycache__*
 *.pytest_cache*
-/twitch/api/Api_docstring_generator.py
-/twitch/examples/config.py
+/ttv/api/Api_docstring_generator.py
+/ttv/examples/config.py

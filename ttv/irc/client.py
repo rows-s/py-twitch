@@ -49,7 +49,7 @@ class Client:
         self.global_state: Optional[GlobalState] = None
         self.loop: AbstractEventLoop = get_event_loop()
         # protected
-        self._websocket: WebSocketClientProtocol = WebSocketClientProtocol()
+        self._websocket: WebSocketClientProtocol = None
         self._delay_gen: Generator[int, None] = Client._delay_gen()
 
     @property
@@ -186,11 +186,11 @@ class Client:
             *,
             uri: str = 'wss://irc-ws.chat.twitch.tv:443'
     ):
-        """Creates new websocket connection if not open, requires capabilities and login into twitch IRC"""
-        if not self._websocket.open:
+        """Creates new websocket connection if not open, requires capabilities and login into ttv IRC"""
+        if self._websocket is None or not self._websocket.open:
             self._websocket = await websockets.connect(uri)
         # capabilities
-        await self._send('CAP REQ :twitch.tv/membership twitch.tv/commands twitch.tv/tags')
+        await self._send('CAP REQ :ttv.tv/membership ttv.tv/commands ttv.tv/tags')
         # loging
         await self._send(f'PASS {self.token}')
         await self._send(f'NICK {self.login}')
@@ -198,7 +198,7 @@ class Client:
     async def restart(self):
         """
         1. Reopens websocket connection if not open.
-        2. Relogin into twitch IRC
+        2. Relogin into ttv IRC
         3. Rejoins(joins) channel from `self.joined_channels_logins`
         4. Calls `self.on_reconnect` event handler if registered.
         """
@@ -652,7 +652,7 @@ class Client:
             self,
             irc_msg: IRCMessage
     ):
-        self._do_later(self._send('PONG :tmi.twitch.tv'))
+        self._do_later(self._send('PONG :tmi.ttv.tv'))
     #
     # end of: handlers
     #################################
