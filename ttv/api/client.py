@@ -52,10 +52,10 @@ class Api:
             1. >>>> ttv_api = await Api.create(api_token)
 
         Returns:
-            `Api` created and initialized object
+            `cls` created and initialized object
         """
 
-        api = Api()
+        api = cls()
         await api.set_token(token)
         return api
 

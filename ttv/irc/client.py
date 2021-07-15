@@ -101,8 +101,8 @@ class Client:
         except KeyError:
             raise ChannelNotExists(login)
 
-    @staticmethod
-    def _delay_gen() -> Generator[int, None, None]:
+    @classmethod
+    def _delay_gen(cls) -> Generator[int, None, None]:
         delay = 0
         while True:
             last_delayed = time()
@@ -186,19 +186,19 @@ class Client:
             *,
             uri: str = 'wss://irc-ws.chat.twitch.tv:443'
     ):
-        """Creates new websocket connection if not open, requires capabilities and login into ttv IRC"""
+        """Creates new websocket connection if not open, requires capabilities and login into twitch IRC"""
         if self._websocket is None or not self._websocket.open:
             self._websocket = await websockets.connect(uri)
+        # capabilities
+        await self._send('CAP REQ :twitch.tv/membership twitch.tv/commands twitch.tv/tags')
         # loging
         await self._send(f'PASS {self.token}')
         await self._send(f'NICK {self.login}')
-        # capabilities
-        await self._send('CAP REQ :ttv.tv/membership ttv.tv/commands ttv.tv/tags')
 
     async def restart(self):
         """
         1. Reopens websocket connection if not open.
-        2. Relogin into ttv IRC
+        2. Relogin into twitch IRC
         3. Rejoins(joins) channel from `self.joined_channels_logins`
         4. Calls `self.on_reconnect` event handler if registered.
         """
@@ -652,7 +652,7 @@ class Client:
             self,
             irc_msg: IRCMessage
     ):
-        self._do_later(self._send('PONG :tmi.ttv.tv'))
+        self._do_later(self._send('PONG :tmi.twitch.tv'))
     #
     # end of: handlers
     #################################
@@ -948,7 +948,7 @@ class Client:
     }
 
     _user_event_types: Dict[str, Tuple[str, Any]] = {
-        # event_type(or 'msg-id'): (handler_name, event_class)
+        # event_type(or 'msg-id'): (event_handler, event_class)
         'sub': ('on_sub', Sub),
         'resub': ('on_resub', ReSub),
         'subgift': ('on_sub_gift', SubGift),
@@ -977,7 +977,7 @@ class Client:
         'on_message_delete',  # CLEARMSG
         'on_start_host', 'on_stop_host',  # HOSTTARGET
         'on_notice', 'on_join_error',  # NOTICE
-        'on_user_event', 'on_unknown_user_event', # USERNOTICE
+        'on_user_event', 'on_unknown_user_event',  # USERNOTICE
         'on_reconnect', 'on_unknown_command'
     )
 

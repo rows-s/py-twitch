@@ -10,12 +10,6 @@ channel_count = int(os.getenv('TTV_IRC_CHANNEL_COUNT'))
 api_token = os.getenv('TTV_API_TOKEN')
 ttv_chat_bot = Client(irc_token, irc_nick)
 
-scope = 'analytics:read:extensions analytics:read:games bits:read channel:edit:commercial channel:manage:broadcast ' \
-        'channel:manage:extensions channel:manage:redemptions channel:read:hype_train channel:read:redemptions ' \
-        'channel:read:stream_key channel:read:subscriptions clips:edit moderation:read user:edit user:edit:follows ' \
-        'user:read:broadcast user:read:email channel:manage:broadcast channel:moderate chat:edit chat:read ' \
-        'whispers:read whispers:edit user:edit:broadcast'
-
 
 @ttv_chat_bot.event
 async def on_login():
@@ -25,11 +19,6 @@ async def on_login():
 @ttv_chat_bot.event
 async def on_self_join(channel: Channel):
     print(f'Has join #{channel.login}')
-
-
-@ttv_chat_bot.event
-async def on_reconnect():
-    print('\n\n\nRECONNECTED\n\n\n')
 
 
 @ttv_chat_bot.event
