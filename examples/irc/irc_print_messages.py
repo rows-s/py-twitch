@@ -1,7 +1,10 @@
-import config
+import os
+
 from ttv.irc import Client, ChannelMessage
 
-ttv_chat_bot = Client(config.token, config.nick)
+irc_token = os.getenv('TTV_IRC_TOKEN')
+irc_nick = os.getenv('TTV_IRC_NICK')
+ttv_chat_bot = Client(irc_token, irc_nick)
 
 
 @ttv_chat_bot.event
@@ -14,4 +17,4 @@ async def on_notice(channel, notice_id, text):
     print(f'#{channel}, {notice_id}, :{text}')
 
 
-ttv_chat_bot.run((config.nick,))
+ttv_chat_bot.run((irc_nick,))
