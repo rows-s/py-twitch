@@ -1,5 +1,5 @@
 from .utils import unescape_tag_value
-from typing import Dict, Tuple, Optional
+from typing import Tuple, Optional
 
 __all__ = ('IRCMessage',)
 
@@ -114,13 +114,16 @@ class IRCMessage:
         return tuple(params), tuple(middles), trailing
 
     def __eq__(self, other) -> bool:
-        if type(other) is IRCMessage:
+        if isinstance(other, IRCMessage):
             return self.raw_irc_message == other.raw_irc_message
         return False
 
     def __contains__(self, item) -> bool:
         if type(item) is str:
             return item in self.raw_irc_message
+        elif isinstance(item, IRCMessage):
+            if item.raw_irc_message in self.raw_irc_message:
+                return True
         return False
 
     def __repr__(self):

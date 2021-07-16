@@ -1,63 +1,58 @@
-class FunctionIsNotCorutine(Exception):
-    pass
+class TTVException(Exception):
+    """Base exception for all package's exceptions"""
 
 
-class LoginFailed(Exception):
+class FunctionIsNotCorutine(TTVException):
+    """Is raised if expected an async function but got not an async function"""
+
+
+class LoginFailed(TTVException):
     """Is raised if token or login is incorrect"""
+
+
+class UnknownEvent(TTVException):
+    """Is raised if got not known event name"""
+
+
+class UnknownRoomState(TTVException):
     pass
 
 
-class UnknownEvent(Exception):
+class UnknownHostTarget(TTVException):
     pass
 
 
-class UnknownRoomState(Exception):
+class UnknownCommand(TTVException):
     pass
 
 
-class UnknownIntCommand(Exception):
+class HTTPError(TTVException):
     pass
 
 
-class InvalidMessageStruct(Exception):
+class InvalidToken(TTVException):
     pass
 
 
-class UnknownUserNotice(Exception):
+class WrongIterObjects(TTVException):
     pass
 
 
-class UnknownHostTarget(Exception):
+class ServerError(TTVException):
     pass
 
 
-class UnknownCommand(Exception):
+class AccessError(TTVException):
     pass
 
 
-class HTTPError(Exception):
+class ChannelNotExists(TTVException):
     pass
 
 
-class InvalidToken(Exception):
+class InvalidChannelName(TTVException):
     pass
 
 
-class WrongIterObjects(Exception):
-    pass
-
-
-class ServerError(Exception):
-    pass
-
-
-class AccessError(Exception):
-    pass
-
-
-class ChannelNotExists(Exception):
-    pass
-
-
-class InvalidChannelName(Exception):
+class CapabilitiesReqError(TTVException):
     pass

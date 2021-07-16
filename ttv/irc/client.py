@@ -1,7 +1,7 @@
 import asyncio
 from asyncio import iscoroutinefunction, get_event_loop, AbstractEventLoop
 import websockets
-from websockets import WebSocketClientProtocol, ConnectionClosedError
+from websockets import WebSocketClientProtocol, ConnectionClosedError, ConnectionClosedOK
 from copy import copy
 from time import time
 
@@ -18,7 +18,7 @@ from typing import Coroutine, Iterable, Tuple, Union, Any, Awaitable, Callable, 
     Set, Generator
 
 __all__ = (
-    'Client'
+    'Client',
 )
 
 
@@ -34,8 +34,8 @@ class Client:
     ) -> None:
         # channels
         self.joined_channel_logins: Set[str] = set()
-        self._channels_by_id: Dict[str, Channel] = {}  # dict of id_channel: Channel
-        self._channels_by_login: Dict[str, Channel] = {}  # dict of channel_login: Channel
+        self._channels_by_id: Dict[str, Channel] = {}  # id_channel: Channel
+        self._channels_by_login: Dict[str, Channel] = {}  # channel_login: Channel
         self._unprepared_channels: Dict[str, Channel] = {}  # channel_login: unprepared_channel
         self._nameslists: Dict[str, Union[List[str], Tuple[str]]] = {}  # channel_login: nameslists
         self._local_states: Dict[str, LocalState] = {}  # channel_login: local_state
@@ -49,7 +49,7 @@ class Client:
         self.global_state: Optional[GlobalState] = None
         self.loop: AbstractEventLoop = get_event_loop()
         # protected
-        self._websocket: WebSocketClientProtocol = None
+        self._websocket: WebSocketClientProtocol = WebSocketClientProtocol()
         self._delay_gen: Generator[int, None] = Client._delay_gen()
 
     @property
@@ -58,10 +58,9 @@ class Client:
 
     @token.setter
     def token(self, value: str):
-        if value.startswith('oauth:'):
-            self._token = value
-        else:
-            self._token = 'oauth:' + value
+        if not value.startswith('oauth:'):
+            value = 'oauth:' + value
+        self._token = value
 
     #################################
     # getters and properties
@@ -108,7 +107,7 @@ class Client:
             last_delayed = time()
             yield delay
             # increase
-            delay = min(8, max(1, delay * 2))  # if 0 - then 1, no greater then 8
+            delay = min(16, max(1, delay * 2))  # if 0 - then 1, no greater then 16
             # reset
             if time() - last_delayed > 60:
                 delay = 0  # resetting overwrites increasing
@@ -158,43 +157,6 @@ class Client:
         async for irc_msg in self._read_websocket():
             await self._handle_command(irc_msg)
 
-    async def _first_log_in_irc(
-            self,
-            *,
-            expected_commands: Iterable[str] = ('001', '002', '003', '004', '372', '375', '376', 'CAP')
-            ):
-        await self._log_in_irc()
-        async for irc_msg in self._read_websocket():
-            # if successful login
-            if irc_msg.command == 'GLOBALUSERSTATE':
-                if 'user-login' not in irc_msg.tags:
-                    irc_msg.tags['user-login'] = self.login
-                self.global_state = GlobalState(irc_msg.tags)
-                # if has handler
-                if hasattr(self, 'on_login'):
-                    self._do_later(self.on_login())
-                return
-            # if logging error
-            elif irc_msg.command == 'NOTICE' and irc_msg.params[0] == '*':
-                raise LoginFailed(irc_msg.content)
-            # if a command we don't expect
-            elif irc_msg.command not in expected_commands:
-                return
-
-    async def _log_in_irc(
-            self,
-            *,
-            uri: str = 'wss://irc-ws.chat.twitch.tv:443'
-    ):
-        """Creates new websocket connection if not open, requires capabilities and login into twitch IRC"""
-        if self._websocket is None or not self._websocket.open:
-            self._websocket = await websockets.connect(uri)
-        # capabilities
-        await self._send('CAP REQ :twitch.tv/membership twitch.tv/commands twitch.tv/tags')
-        # loging
-        await self._send(f'PASS {self.token}')
-        await self._send(f'NICK {self.login}')
-
     async def restart(self):
         """
         1. Reopens websocket connection if not open.
@@ -209,6 +171,45 @@ class Client:
         if hasattr(self, 'on_reconnect'):
             self._do_later(self.on_reconnect())
 
+    async def _first_log_in_irc(
+            self,
+            *,
+            expected_commands: Iterable[str] = ('001', '002', '003', '004', '372', '375', '376', 'CAP')
+            ):
+        await self._log_in_irc()
+        async for irc_msg in self._read_websocket():
+            # if successfully logged in
+            if irc_msg.command == 'GLOBALUSERSTATE':
+                if 'user-login' not in irc_msg.tags:
+                    irc_msg.tags['user-login'] = self.login
+                self.global_state = GlobalState(irc_msg.tags)
+                # if has handler
+                if hasattr(self, 'on_login'):
+                    self._do_later(self.on_login())
+                return
+            # if login error
+            elif irc_msg.command == 'NOTICE' and irc_msg.params[0] == '*':
+                raise LoginFailed(irc_msg.content)
+            elif irc_msg.command == 'CAP' and irc_msg.params[1] == 'NAK':
+                raise CapabilitiesReqError(irc_msg)
+            # if a command we don't expect
+            elif irc_msg.command not in expected_commands:
+                return
+
+    async def _log_in_irc(
+            self,
+            *,
+            uri: str = 'wss://irc-ws.chat.twitch.tv:443'
+    ):
+        """Creates new websocket connection if not open, requires capabilities and login into twitch IRC"""
+        if not self._websocket.open:
+            self._websocket = await websockets.connect(uri)
+        # capabilities
+        await self._send('CAP REQ :twitch.tv/membership twitch.tv/commands twitch.tv/tags')
+        # loging
+        await self._send(f'PASS {self.token}')
+        await self._send(f'NICK {self.login}')
+
     async def _read_websocket(
             self
     ) -> AsyncGenerator[IRCMessage, None]:
@@ -221,6 +222,8 @@ class Client:
         while True:
             try:
                 raw_irc_messages = await self._websocket.recv()
+            except ConnectionClosedOK:
+                return
             # if websocket is closed
             except ConnectionClosedError:
                 if self.should_restart:

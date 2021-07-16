@@ -4,9 +4,12 @@ __all__ = (
     'ChannelNotExists',
     'LoginFailed',
     'UnknownEvent',
-    'FunctionIsNotCorutine',
-    'InvalidMessageStruct'
+    'FunctionIsNotCorutine'
 )
+
+
+class IRCException(exceptions.TTVException):
+    pass
 
 
 class ChannelNotExists(exceptions.ChannelNotExists):
@@ -23,7 +26,3 @@ class UnknownEvent(exceptions.UnknownEvent):
 
 class FunctionIsNotCorutine(exceptions.FunctionIsNotCorutine):
     """Is raised if trying to register an event handler that is not a coroutine"""
-
-
-class InvalidMessageStruct(exceptions.InvalidMessageStruct):
-    """Is raised if raw irc message has unexpected structure"""
