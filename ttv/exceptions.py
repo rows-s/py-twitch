@@ -1,3 +1,15 @@
+__all__ = (
+    'TTVException',
+    'FunctionIsNotCorutine',
+    'LoginFailed',
+    'UnknownEvent',
+    'HTTPError',
+    'InvalidToken',
+    'ChannelNotExists',
+    'CapabilitiesReqError'
+)
+
+
 class TTVException(Exception):
     """Base exception for all package's exceptions"""
 
@@ -14,18 +26,6 @@ class UnknownEvent(TTVException):
     """Is raised if got not known event name"""
 
 
-class UnknownRoomState(TTVException):
-    pass
-
-
-class UnknownHostTarget(TTVException):
-    pass
-
-
-class UnknownCommand(TTVException):
-    pass
-
-
 class HTTPError(TTVException):
     pass
 
@@ -34,23 +34,7 @@ class InvalidToken(TTVException):
     pass
 
 
-class WrongIterObjects(TTVException):
-    pass
-
-
-class ServerError(TTVException):
-    pass
-
-
-class AccessError(TTVException):
-    pass
-
-
 class ChannelNotExists(TTVException):
-    pass
-
-
-class InvalidChannelName(TTVException):
     pass
 
 

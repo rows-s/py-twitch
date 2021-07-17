@@ -5,11 +5,12 @@ import websockets
 from websockets import ConnectionClosedError
 import pytest
 from time import sleep, time
-from ttv.irc import Client, IRCMessage, Channel
+from ttv.irc import Client, IRCMessage, Channel, GlobalState, LocalState
 from ttv.irc.exceptions import ChannelNotExists, FunctionIsNotCorutine, UnknownEvent, LoginFailed
 
-irc_token = os.getenv('TTV_IRC_TOKEN')
-irc_nick = os.getenv('TTV_IRC_NICK')
+IRC_TOKEN = os.getenv('TTV_IRC_TOKEN')
+IRC_USERNAME = os.getenv('TTV_IRC_NICK')
+IRC_URI = 'wss://irc-ws.chat.twitch.tv:443'
 
 
 def test_event_registration():
@@ -41,7 +42,7 @@ def test_event_registration():
 
 def test_channel_getters():
     ttv_bot = Client('token', 'login')
-    channel = Channel(lambda _: None, {'room-id': '0123', 'room-login': 'login'})
+    channel = Channel({'room-id': '0123', 'room-login': 'login'}, lambda _: None)
     ttv_bot._channels_by_id[channel.id] = channel
     ttv_bot._channels_by_login[channel.login] = channel
     # id
@@ -53,9 +54,9 @@ def test_channel_getters():
     assert ttv_bot.get_channel_by_login('') is None
     assert ttv_bot.get_channel_by_login('', channel) is channel
     # if exists
-    assert ttv_bot._get_channel_if_exists(channel.login) is channel
+    assert ttv_bot._get_prepared_channel(channel.login) is channel
     with pytest.raises(ChannelNotExists):
-        ttv_bot._get_channel_if_exists('')
+        ttv_bot._get_prepared_channel('')
 
 
 def test_get_reconnect_delay():
@@ -69,7 +70,7 @@ def test_get_reconnect_delay():
             index += 1
         else:
             if not has_sleept:
-                sleep(61)  # TODO: it's not good waiting 60 seconds
+                sleep(60.2)  # TODO: it's not good waiting 60 seconds
                 has_sleept = True
             else:
                 assert delay == 0
@@ -83,7 +84,7 @@ async def test_start():
     with pytest.raises(LoginFailed):
         await ttv_bot.start([])
     # valid one
-    valid_bot = Client(irc_token, irc_nick, should_restart=False)
+    valid_bot = Client(IRC_TOKEN, IRC_USERNAME, should_restart=False)
     logged_in = got_join = joined_channel = False
 
     @valid_bot.event
@@ -94,20 +95,20 @@ async def test_start():
     @valid_bot.event
     async def on_join(channel: Channel, user_login: str):
         nonlocal got_join
-        if user_login == irc_nick:
+        if user_login == IRC_USERNAME:
             got_join = True
 
     @valid_bot.event
     async def on_self_join(channel: Channel):
         nonlocal joined_channel
         joined_channel = True
-        assert channel.login == irc_nick
+        assert channel.login == IRC_USERNAME
         assert channel.my_state.is_broadcaster
-        assert channel.my_state.display_name.lower() == irc_nick
+        assert channel.my_state.display_name.lower() == IRC_USERNAME
         assert channel.my_state.badges['broadcaster'] == '1'
         await valid_bot._websocket.close(1000)
 
-    await valid_bot.start([irc_nick])
+    await valid_bot.start([IRC_USERNAME])
     assert logged_in
     assert got_join
     assert joined_channel
@@ -134,22 +135,22 @@ async def test_read_websocket():
         await ttv_bot._read_websocket().__anext__()
     # coonection closed
     with pytest.raises(StopAsyncIteration):
-        ttv_bot._websocket = await websockets.connect('wss://irc-ws.chat.twitch.tv:443')
+        ttv_bot._websocket = await websockets.connect(IRC_URI)
         assert ttv_bot._websocket.open
         await ttv_bot._websocket.close()
         await ttv_bot._read_websocket().__anext__()
     # valid logging
-    valid_bot = Client(irc_token, irc_nick, should_restart=False)
+    valid_bot = Client(IRC_TOKEN, IRC_USERNAME, should_restart=False)
     await valid_bot._log_in_irc()
     irc_msgs = (
         IRCMessage(':tmi.twitch.tv CAP * ACK :twitch.tv/membership twitch.tv/commands twitch.tv/tags'),
-        IRCMessage(f':tmi.twitch.tv 001 {irc_nick} :Welcome, GLHF!'),
-        IRCMessage(f':tmi.twitch.tv 002 {irc_nick} :Your host is tmi.twitch.tv'),
-        IRCMessage(f':tmi.twitch.tv 003 {irc_nick} :This server is rather new'),
-        IRCMessage(f':tmi.twitch.tv 004 {irc_nick} :-'),
-        IRCMessage(f':tmi.twitch.tv 375 {irc_nick} :-'),
-        IRCMessage(f':tmi.twitch.tv 372 {irc_nick} :You are in a maze of twisty passages, all alike.'),
-        IRCMessage(f':tmi.twitch.tv 376 {irc_nick} :>')
+        IRCMessage(f':tmi.twitch.tv 001 {IRC_USERNAME} :Welcome, GLHF!'),
+        IRCMessage(f':tmi.twitch.tv 002 {IRC_USERNAME} :Your host is tmi.twitch.tv'),
+        IRCMessage(f':tmi.twitch.tv 003 {IRC_USERNAME} :This server is rather new'),
+        IRCMessage(f':tmi.twitch.tv 004 {IRC_USERNAME} :-'),
+        IRCMessage(f':tmi.twitch.tv 375 {IRC_USERNAME} :-'),
+        IRCMessage(f':tmi.twitch.tv 372 {IRC_USERNAME} :You are in a maze of twisty passages, all alike.'),
+        IRCMessage(f':tmi.twitch.tv 376 {IRC_USERNAME} :>')
     )
     index = 0
     async for irc_msg in valid_bot._read_websocket():
@@ -158,7 +159,7 @@ async def test_read_websocket():
             index += 1
         else:
             assert irc_msg.command == 'GLOBALUSERSTATE'
-            assert irc_msg.tags['display-name'].lower() == irc_nick
+            assert irc_msg.tags['display-name'].lower() == IRC_USERNAME
             break
 
 
@@ -168,7 +169,7 @@ async def test_first_log_in_irc():
     with pytest.raises(LoginFailed):
         await ttv_bot._first_log_in_irc()
 
-    valid_bot = Client(irc_token, irc_nick, should_restart=False)
+    valid_bot = Client(IRC_TOKEN, IRC_USERNAME, should_restart=False)
     logined = False
 
     @valid_bot.event
@@ -181,37 +182,84 @@ async def test_first_log_in_irc():
     assert logined
 
 
-# @pytest.mark.asyncio
-# async def test_restart():
-#     valid_bot = Client(irc_token, irc_nick, should_restart=False)
-#     valid_bot.joined_channel_logins.add(irc_nick)
-#     is_reconnected = is_joined = False
-#
-#     @valid_bot.event
-#     async def on_reconnect():
-#         nonlocal is_reconnected
-#         is_reconnected = True
-#
-#     @valid_bot.event
-#     async def on_self_join():
-#         nonlocal is_joined
-#         is_joined = True
-#
-#     async def handler():
-#         async for irc_msg in valid_bot._read_websocket():
-#             await valid_bot._handle_command(irc_msg)
-#
-#     asyncio.get_event_loop().create_task(handler())
-#     for delay in (0, 1, 2, 4, 8, 16, 16):
-#         t0 = time()
-#         await valid_bot.restart()
-#         assert delay - 0.2 < time() - t0 < delay + 5  # might sleep less than specified
-#         await asyncio.sleep(0.1)
-#         assert is_reconnected
-#         assert is_joined
-#         is_reconnected = False
-#         is_joined = False
-#         valid_bot._channels_by_login.pop(irc_nick)
+@pytest.mark.parametrize('', [()]*20)
+@pytest.mark.asyncio
+async def test_restart():
+    valid_bot = Client(IRC_TOKEN, IRC_USERNAME)
+    is_loged_in = False
+    is_reconnected = False
+    is_joined = False
+    is_updated = False
+    is_global_state_updated = False
+    is_local_state_updated = False
+    is_nameslist_updated = False
+
+    @valid_bot.event
+    async def on_login():
+        nonlocal is_loged_in
+        assert not is_loged_in
+        is_loged_in = True
+        assert valid_bot.is_running
+
+    @valid_bot.event
+    async def on_reconnect():
+        nonlocal is_reconnected
+        is_reconnected = True
+
+    @valid_bot.event
+    async def on_self_join(channel: Channel):
+        nonlocal is_joined
+        assert not is_joined
+        is_joined = True
+        assert channel.login == IRC_USERNAME
+        assert channel.my_state.is_broadcaster
+
+    @valid_bot.event
+    async def on_channel_update(before: Channel, after: Channel):
+        nonlocal is_updated
+        is_updated = True
+        assert before.login == after.login == IRC_USERNAME
+        assert before.my_state.display_name.lower() == after.my_state.display_name.lower() == IRC_USERNAME
+
+    @valid_bot.event
+    async def on_global_state_update(before: GlobalState, after: GlobalState):
+        nonlocal is_global_state_updated
+        is_global_state_updated = True
+        assert before.login == after.login == IRC_USERNAME
+
+    @valid_bot.event
+    async def on_my_state_update(channel: Channel, before: LocalState, after: LocalState):
+        nonlocal is_local_state_updated
+        is_local_state_updated = True
+        assert channel.login == IRC_USERNAME
+        assert before.login == after.login == IRC_USERNAME
+        assert before.is_broadcaster and after.is_broadcaster
+
+    @valid_bot.event
+    async def on_nameslist_update(channel: Channel, before, after):
+        nonlocal is_nameslist_updated
+        is_nameslist_updated = True
+        assert channel.login == IRC_USERNAME
+        assert IRC_USERNAME in before and IRC_USERNAME in after
+
+    valid_bot.loop.create_task(valid_bot.start([IRC_USERNAME]))
+    await asyncio.sleep(3)  # let the task work
+
+    for delay in (0, 1, 2, 4, 8, 16, 16):
+        await valid_bot._websocket.close(3000)  # restart will be called within start()
+        await asyncio.sleep(delay + 10)  # delay + time for handlers (had troubles using 5)
+        assert is_loged_in
+        assert is_joined
+        assert is_reconnected
+        is_reconnected = False
+        assert is_updated
+        is_updated = False
+        assert is_global_state_updated
+        is_global_state_updated = False
+        assert is_local_state_updated
+        is_local_state_updated = False
+        assert is_nameslist_updated
+        is_nameslist_updated = False
 
 
 

@@ -62,9 +62,6 @@ class Client:
             value = 'oauth:' + value
         self._token = value
 
-    #################################
-    # getters and properties
-    #
     def get_channel_by_id(
             self,
             channel_id: str,
@@ -81,7 +78,7 @@ class Client:
         """Returns :class:`Channel` by login if exists else - `default`"""
         return self._channels_by_login.get(login, default)
 
-    def _get_channel_if_exists(
+    def _get_prepared_channel(
             self,
             login: str
     ) -> Channel:
@@ -90,7 +87,7 @@ class Client:
 
         Args:
             login: `str`
-                login of channel that want to be received
+                login of channel that must be returned
 
         Returns:
             Channel
@@ -111,10 +108,6 @@ class Client:
             # reset
             if time() - last_delayed > 60:
                 delay = 0  # resetting overwrites increasing
-
-    #
-    # end of getters and properties
-    #################################
 
     def run(
             self,
@@ -155,7 +148,8 @@ class Client:
         # start main listener
         self.is_running = True
         async for irc_msg in self._read_websocket():
-            await self._handle_command(irc_msg)
+            self._do_later(self._handle_command(irc_msg))  # protection from a shut down caused by an exception
+        self.is_running = False
 
     async def restart(self):
         """
@@ -187,12 +181,10 @@ class Client:
                 if hasattr(self, 'on_login'):
                     self._do_later(self.on_login())
                 return
-            # if login error
             elif irc_msg.command == 'NOTICE' and irc_msg.params[0] == '*':
                 raise LoginFailed(irc_msg.content)
             elif irc_msg.command == 'CAP' and irc_msg.params[1] == 'NAK':
                 raise CapabilitiesReqError(irc_msg)
-            # if a command we don't expect
             elif irc_msg.command not in expected_commands:
                 return
 
@@ -204,11 +196,11 @@ class Client:
         """Creates new websocket connection if not open, requires capabilities and login into twitch IRC"""
         if not self._websocket.open:
             self._websocket = await websockets.connect(uri)
-        # capabilities
-        await self._send('CAP REQ :twitch.tv/membership twitch.tv/commands twitch.tv/tags')
-        # loging
-        await self._send(f'PASS {self.token}')
-        await self._send(f'NICK {self.login}')
+            # capabilities
+            await self._send('CAP REQ :twitch.tv/membership twitch.tv/commands twitch.tv/tags')
+            # loging
+            await self._send(f'PASS {self.token}')
+            await self._send(f'NICK {self.login}')
 
     async def _read_websocket(
             self
@@ -252,9 +244,6 @@ class Client:
                 channel_login = irc_msg.middles[-1][1:]
                 await self._delay_irc_message(irc_msg, channel_login)
 
-    #################################
-    # channels prepare handlers
-    #
     def _handle_nameslist_part(
             self,
             irc_msg: IRCMessage
@@ -269,42 +258,58 @@ class Client:
             irc_msg: IRCMessage
     ) -> None:
         channel_login = irc_msg.middles[-1][1:]
-        nameslist = self._nameslists.pop(channel_login)
         # if prepared
-        if channel_login in self._channels_by_login:
-            channel = self._channels_by_login[channel_login]
-            # if has not handler
-            if not hasattr(self, 'on_nameslist_update'):
-                channel.nameslist = tuple(nameslist)
-            # if has handler
-            elif hasattr(self, 'on_nameslist_update'):
-                before = channel.nameslist
-                channel.nameslist = tuple(nameslist)
-                after = channel.nameslist
-                self._do_later(
-                    self.on_nameslist_update(channel, before, after)
-                )
+        if channel_login in self._channels_by_login or channel_login in self._unprepared_channels:
+            self._handle_nameslist_update(irc_msg)
         # if unprepared
         elif channel_login in self._unprepared_channels:
-            channel = self._unprepared_channels[channel_login]
-            channel.nameslist = tuple(nameslist)
-            # save if ready
-            if self._is_channel_ready(channel_login):  # isn't ready if isn't in unprepared
-                self._save_channel(channel_login)
+            self._handle_new_nameslist(irc_msg)
         # if not exists
         else:
+            nameslist = self._nameslists.pop(channel_login)
             self._nameslists[channel_login] = tuple(nameslist)  # save for set it later
+
+    def _handle_nameslist_update(
+            self,
+            irc_msg: IRCMessage
+    ):
+        channel_login = irc_msg.middles[-1][1:]
+        channel = self._channels_by_login[channel_login]
+        nameslist = self._nameslists.pop(channel_login)
+        # if has handler
+        if hasattr(self, 'on_nameslist_update'):
+            before = channel.nameslist
+            channel.nameslist = tuple(nameslist)
+            after = channel.nameslist
+            self._do_later(
+                self.on_nameslist_update(channel, before, after)
+            )
+        # if has not handler
+        else:
+            channel.nameslist = tuple(nameslist)
+
+    def _handle_new_nameslist(
+            self,
+            irc_msg: IRCMessage
+    ):
+        channel_login = irc_msg.middles[-1][1:]
+        nameslist = self._nameslists.pop(channel_login)
+        channel = self._unprepared_channels[channel_login]
+        channel.nameslist = tuple(nameslist)
+        # save if ready
+        if self._is_channel_ready(channel_login):  # isn't ready if isn't in unprepared
+            self._save_channel(channel_login)
 
     def _handle_roomstate(
             self,
             irc_msg: IRCMessage
     ) -> None:
         channel_login = irc_msg.middles[-1][1:]
+        if 'room-login' not in irc_msg.tags:
+            irc_msg.tags['room-login'] = channel_login
         # if exists
-        if channel_login in self._channels_by_login:
+        if channel_login in self._channels_by_login or channel_login in self._unprepared_channels:
             self._handle_channel_update(irc_msg)
-        elif channel_login in self._unprepared_channels:
-            self._handle_channel_update(irc_msg)  # should not loose updates
         # if not exists
         else:
             self._handle_new_channel(irc_msg)
@@ -314,12 +319,9 @@ class Client:
             irc_msg: IRCMessage
     ) -> None:
         channel_login = irc_msg.middles[-1][1:]
-        # create channel
-        irc_msg.tags['room-login'] = channel_login
-        channel = Channel(self._send, irc_msg.tags)
-        # insert my_state if exists
+        channel = Channel(irc_msg.tags, self._send)
         channel.my_state = self._local_states.pop(channel_login, None)
-        # insert nameslist if exists
+        # nameslist
         nameslist = self._nameslists.get(channel_login)
         if type(nameslist) == tuple:
             channel.nameslist = nameslist
@@ -365,27 +367,277 @@ class Client:
             irc_msg.tags['user-id'] = self.global_state.id
         # if prepared
         if channel_login in self._channels_by_login:
-            channel = self._channels_by_login[channel_login]
-            # if hasn't handler
-            if not hasattr(self, 'on_my_state_update'):
-                channel.my_state = LocalState(irc_msg.tags)
-            # if has handler
-            elif hasattr(self, 'on_my_state_update'):
-                before = channel.my_state
-                channel.my_state = LocalState(irc_msg.tags)
-                after = channel.my_state
-                self._do_later(
-                    self.on_my_state_update(channel, before, after)
-                )
+            self._handle_userstate_update(irc_msg)
         # if unprepared
         elif channel_login in self._unprepared_channels:
-            channel = self._unprepared_channels[channel_login]
-            channel.my_state = LocalState(irc_msg.tags)
-            if self._is_channel_ready(channel_login):
-                self._save_channel(channel_login)
+            self._handle_new_userstate(irc_msg)
         # if not exists
         else:
             self._local_states[channel_login] = LocalState(irc_msg.tags)
+
+    def _handle_userstate_update(
+            self,
+            irc_msg: IRCMessage
+    ):
+        channel_login = irc_msg.middles[-1][1:]
+        channel = self._channels_by_login[channel_login]
+        # if has handler
+        if hasattr(self, 'on_my_state_update'):
+            before = channel.my_state
+            channel.my_state = LocalState(irc_msg.tags)
+            after = channel.my_state
+            self._do_later(
+                self.on_my_state_update(channel, before, after)
+            )
+        # if hasn't handler
+        else:
+            channel.my_state = LocalState(irc_msg.tags)
+
+    def _handle_new_userstate(
+            self,
+            irc_msg: IRCMessage
+    ):
+        channel_login = irc_msg.middles[-1][1:]
+        channel = self._unprepared_channels[channel_login]
+        channel.my_state = LocalState(irc_msg.tags)
+        if self._is_channel_ready(channel_login):
+            self._save_channel(channel_login)
+
+    def _handle_privmsg(
+            self,
+            irc_msg: IRCMessage
+    ) -> None:
+        if hasattr(self, 'on_message'):
+            channel_login = irc_msg.middles[-1][1:]
+            channel = self._get_prepared_channel(channel_login)
+            if 'user-login' not in irc_msg.tags:
+                irc_msg.tags['user-login'] = irc_msg.nickname
+            author = ChannelMember(irc_msg.tags, channel, self.send_whisper)
+            message = ChannelMessage(channel, author, irc_msg.content, irc_msg.tags)
+            # if has hadler
+            self._do_later(
+                self.on_message(message)
+            )
+
+    def _handle_whisper(
+            self,
+            irc_msg: IRCMessage
+    ) -> None:
+        if hasattr(self, 'on_whisper'):
+            if 'user-login' not in irc_msg.tags:
+                irc_msg.tags['user-login'] = irc_msg.nickname
+            author = GlobalUser(irc_msg.tags, self.send_whisper)
+            whisper = WhisperMessage(author, irc_msg.content, irc_msg.tags)
+            self._do_later(
+                self.on_whisper(whisper)
+            )
+
+    def _handle_join(
+            self,
+            irc_msg: IRCMessage
+    ) -> None:
+        if hasattr(self, 'on_join'):
+            channel_login = irc_msg.middles[-1][1:]
+            channel = self._get_prepared_channel(channel_login)
+            user_login = irc_msg.nickname
+            # if has hadler
+            self._do_later(
+                self.on_join(channel, user_login)
+            )
+
+    def _handle_part(
+            self,
+            irc_msg: IRCMessage
+    ) -> None:
+        if hasattr(self, 'on_part'):
+            user_login = irc_msg.nickname
+            channel_login = irc_msg.middles[-1][1:]
+            channel = self._get_prepared_channel(channel_login)
+            # if has hadler
+            self._do_later(
+                self.on_part(channel, user_login)
+            )
+
+    def _handle_notice(
+            self,
+            irc_msg: IRCMessage
+    ) -> None:
+        notice_id = irc_msg.tags.get('msg-id')
+        # if channel join error
+        if notice_id == 'msg_room_not_found':
+            channel_login = irc_msg.middles[-1][1:]
+            self.joined_channel_logins.discard(channel_login)
+            if hasattr(self, 'on_self_join_error'):
+                self._do_later(
+                    self.on_self_join_error(channel_login)
+                )
+        elif hasattr(self, 'on_notice'):
+            channel_login = irc_msg.middles[-1][1:]
+            channel = self._get_prepared_channel(channel_login)
+            # if has hadler
+            self._do_later(
+                self.on_notice(channel, notice_id, irc_msg.content)
+            )
+
+    def _handle_clearchat(
+            self,
+            irc_msg: IRCMessage
+    ) -> None:
+        # if clear user
+        if irc_msg.content:  # text contains login of the user
+            self._handle_clear_chat_from_user(irc_msg)
+        # if clear chat
+        else:
+            self._handle_clear_chat(irc_msg)
+
+    def _handle_clear_chat_from_user(
+            self,
+            irc_msg: IRCMessage
+    ) -> None:
+        if hasattr(self, 'on_clear_chat_from_user'):
+            # channel
+            channel_login = irc_msg.middles[-1][1:]
+            channel = self._get_prepared_channel(channel_login)
+            # values
+            target_user_login = irc_msg.content
+            taget_user_id = irc_msg.tags.get('target-user-id')
+            taget_message_id = irc_msg.tags.get('target-msg-id')
+            ban_duration = int(irc_msg.tags.get('ban-duration', 0))
+            # handle later
+            self._do_later(
+                self.on_clear_chat_from_user(
+                    channel,
+                    ClearChatFromUser(target_user_login, taget_user_id, taget_message_id, ban_duration)
+                )
+            )
+
+    def _handle_clear_chat(
+            self,
+            irc_msg: IRCMessage
+    ) -> None:
+        if hasattr(self, 'on_clear_chat'):
+            channel_login = irc_msg.middles[-1][1:]
+            channel = self._get_prepared_channel(channel_login)
+            # if has hadler
+            self._do_later(
+                self.on_clear_chat(channel)
+            )
+
+    def _handle_clearmsg(
+            self,
+            irc_msg: IRCMessage
+    ) -> None:
+        if hasattr(self, 'on_message_delete'):
+            # channel
+            channel_login = irc_msg.middles[-1][1:]
+            channel = self._get_prepared_channel(channel_login)
+            # values
+            user_login = irc_msg.tags.get('login')
+            message_id = irc_msg.tags.get('target-msg-id')
+            tmi_time = int(irc_msg.tags.get('tmi-sent-ts', '0'))
+            # handle later
+            self._do_later(
+                self.on_message_delete(channel, user_login, irc_msg.content, message_id, tmi_time)
+            )
+
+    def _handle_usernotice(
+            self,
+            irc_msg: IRCMessage
+    ) -> None:
+        # channel
+        channel_login = irc_msg.middles[-1][1:]
+        channel = self._get_prepared_channel(channel_login)
+        # select handler
+        event_type = irc_msg.tags.get('msg-id')
+        try:
+            event_name, event_class = self._USER_EVENT_TYPES[event_type]
+        # if unknown event
+        except KeyError:
+            if hasattr(self, 'on_unknown_user_event'):
+                self._do_later(
+                    self.on_unknown_user_event(irc_msg)
+                )
+            return
+        # if known event
+        else:
+            # if has specified event handler
+            if hasattr(self, event_name):
+                author = ChannelMember(irc_msg.tags, channel, self.send_whisper)
+                event_handler = getattr(self, event_name)  # get the handler by its name
+                event = event_class(author, channel, irc_msg.content, irc_msg.tags)
+                self._do_later(event_handler(event))
+            # if has global handler
+            elif hasattr(self, 'on_user_event'):
+                author = ChannelMember(irc_msg.tags, channel, self.send_whisper)
+                event = event_class(author, channel, irc_msg.content, irc_msg.tags)
+                self._do_later(
+                    self.on_user_event(event)
+                )
+
+    def _handle_hosttarget(
+            self,
+            irc_msg: IRCMessage
+    ) -> None:
+        if hasattr(self, 'on_host_start') or hasattr(self, 'on_host_stop'):
+            hoster_login, viewers_count = irc_msg.content.split(' ', 1)
+            if hoster_login == '-':
+                self._hanlde_host_start(irc_msg)
+            else:
+                self._hanlde_host_stop(irc_msg)
+
+    def _hanlde_host_start(
+            self,
+            irc_msg: IRCMessage
+    ) -> None:
+        if hasattr(self, 'on_host_start'):
+            channel_login = irc_msg.middles[-1][1:]
+            channel = self._get_prepared_channel(channel_login)
+            hoster_login, viewers_count = irc_msg.content.split(' ', 1)
+            viewers_count = int(viewers_count) if (viewers_count != '-') else 0
+            self._do_later(
+                self.on_host_start(channel, viewers_count, hoster_login)
+            )
+
+    def _hanlde_host_stop(
+            self,
+            irc_msg: IRCMessage
+    ) -> None:
+        if hasattr(self, 'on_host_stop'):
+            channel_login = irc_msg.middles[-1][1:]
+            channel = self._get_prepared_channel(channel_login)
+            hoster_login, viewers_count = irc_msg.content.split(' ', 1)
+            viewers_count = int(viewers_count) if (viewers_count != '-') else 0
+            self._do_later(
+                self.on_host_stop(channel, viewers_count)
+            )
+
+    def _handle_globaluserstate(
+            self,
+            irc_msg: IRCMessage
+    ):
+        if 'user-login' not in irc_msg.tags:
+            irc_msg.tags['user-login'] = self.login
+        if hasattr(self, 'on_global_state_update'):
+            before = self.global_state
+            self.global_state = GlobalState(irc_msg.tags)
+            after = self.global_state
+            self._do_later(
+                self.on_global_state_update(before, after)
+            )
+        else:
+            self.global_state = GlobalState(irc_msg.tags)
+
+    def _handle_reconnect(
+            self,
+            irc_msg: IRCMessage
+    ):
+        self._do_later(self.restart())
+
+    def _handle_ping(
+            self,
+            irc_msg: IRCMessage
+    ):
+        self._do_later(self._send('PONG :tmi.twitch.tv'))
 
     def _is_channel_ready(
             self,
@@ -445,224 +697,7 @@ class Client:
             self._do_later(
                 self._handle_command(delayed_irc_message)
             )
-    #
-    # end of: channels prepare methods
-    #################################
 
-    #################################
-    # handlers
-    #
-    def _handle_privmsg(
-            self,
-            irc_msg: IRCMessage
-    ) -> None:
-        if hasattr(self, 'on_message'):
-            channel_login = irc_msg.middles[-1][1:]
-            channel = self._get_channel_if_exists(channel_login)
-            if 'user-login' not in irc_msg.tags:
-                irc_msg.tags['user-login'] = irc_msg.nickname
-            author = ChannelMember(channel, irc_msg.tags, self.send_whisper)
-            message = ChannelMessage(channel, author, irc_msg.content, irc_msg.tags)
-            # if has hadler
-            self._do_later(
-                self.on_message(message)
-            )
-
-    def _handle_whisper(
-            self,
-            irc_msg: IRCMessage
-    ) -> None:
-        if hasattr(self, 'on_whisper'):
-            if 'user-login' not in irc_msg.tags:
-                irc_msg.tags['user-login'] = irc_msg.nickname
-            author = GlobalUser(irc_msg.tags, self.send_whisper)
-            whisper = WhisperMessage(author, irc_msg.content, irc_msg.tags)
-            self._do_later(
-                self.on_whisper(whisper)
-            )
-
-    def _handle_join(
-            self,
-            irc_msg: IRCMessage
-    ) -> None:
-        if hasattr(self, 'on_join'):
-            channel_login = irc_msg.middles[-1][1:]
-            channel = self._get_channel_if_exists(channel_login)
-            user_login = irc_msg.nickname
-            # if has hadler
-            self._do_later(
-                self.on_join(channel, user_login)
-            )
-
-    def _handle_part(
-            self,
-            irc_msg: IRCMessage
-    ) -> None:
-        if hasattr(self, 'on_part'):
-            user_login = irc_msg.nickname
-            channel_login = irc_msg.middles[-1][1:]
-            channel = self._get_channel_if_exists(channel_login)
-            # if has hadler
-            self._do_later(
-                self.on_part(channel, user_login)
-            )
-
-    def _handle_notice(
-            self,
-            irc_msg: IRCMessage
-    ) -> None:
-        notice_id = irc_msg.tags.get('msg-id')
-        # if channel join error
-        if notice_id == 'msg_room_not_found':
-            channel_login = irc_msg.middles[-1][1:]
-            self.joined_channel_logins.discard(channel_login)
-            if hasattr(self, 'on_self_join_error'):
-                self._do_later(
-                    self.on_self_join_error(channel_login)
-                )
-        elif hasattr(self, 'on_notice'):
-            channel_login = irc_msg.middles[-1][1:]
-            channel = self._get_channel_if_exists(channel_login)
-            # if has hadler
-            self._do_later(
-                self.on_notice(channel, notice_id, irc_msg.content)
-            )
-
-    def _handle_clearchat(
-            self,
-            irc_msg: IRCMessage
-    ) -> None:
-        # if clear user
-        if irc_msg.content:  # text contains login of the user, but the
-            if hasattr(self, 'on_clear_chat_from_user'):
-                # channel
-                channel_login = irc_msg.middles[-1][1:]
-                channel = self._get_channel_if_exists(channel_login)
-                # values
-                target_user_login = irc_msg.content
-                taget_user_id = irc_msg.tags.get('target-user-id')
-                taget_message_id = irc_msg.tags.get('target-msg-id')
-                ban_duration = int(irc_msg.tags.get('ban-duration', 0))
-                # handle later
-                self._do_later(
-                    self.on_clear_chat_from_user(
-                        channel,
-                        ClearChatFromUser(target_user_login, taget_user_id, taget_message_id, ban_duration)
-                    )
-                )
-        # if clear chat
-        else:
-            if hasattr(self, 'on_clear_chat'):
-                channel_login = irc_msg.middles[-1][1:]
-                channel = self._get_channel_if_exists(channel_login)
-                # if has hadler
-                self._do_later(
-                    self.on_clear_chat(channel)
-                )
-
-    def _handle_clearmsg(
-            self,
-            irc_msg: IRCMessage
-    ) -> None:
-        if hasattr(self, 'on_message_delete'):
-            # channel
-            channel_login = irc_msg.middles[-1][1:]
-            channel = self._get_channel_if_exists(channel_login)
-            # values
-            user_login = irc_msg.tags.get('login')
-            message_id = irc_msg.tags.get('target-msg-id')
-            tmi_time = int(irc_msg.tags.get('tmi-sent-ts', '0'))
-            # handle later
-            self._do_later(
-                self.on_message_delete(channel, user_login, irc_msg.content, message_id, tmi_time)
-            )
-
-    def _handle_usernotice(
-            self,
-            irc_msg: IRCMessage
-    ) -> None:
-        # channel
-        channel_login = irc_msg.middles[-1][1:]
-        channel = self._get_channel_if_exists(channel_login)
-        # select handler
-        event_type = irc_msg.tags.get('msg-id')
-        try:
-            event_name, event_class = self._user_event_types[event_type]
-        # if unknown event
-        except KeyError:
-            if hasattr(self, 'on_unknown_user_event'):
-                self._do_later(
-                    self.on_unknown_user_event(irc_msg)
-                )
-            return
-        # if known event
-        else:
-            # if has specified event handler
-            if hasattr(self, event_name):
-                author = ChannelMember(channel, irc_msg.tags, self.send_whisper)
-                event_handler = getattr(self, event_name)  # get the handler by its name
-                event = event_class(author, channel, irc_msg.content, irc_msg.tags)
-                self._do_later(event_handler(event))
-            # if has global handler
-            elif hasattr(self, 'on_user_event'):
-                author = ChannelMember(channel, irc_msg.tags, self.send_whisper)
-                event = event_class(author, channel, irc_msg.content, irc_msg.tags)
-                self._do_later(
-                    self.on_user_event(event)
-                )
-
-    def _handle_hosttarget(
-            self,
-            irc_msg: IRCMessage
-    ) -> None:
-        if hasattr(self, 'on_start_host') or hasattr(self, 'on_stop_host'):
-            channel_login = irc_msg.middles[-1][1:]
-            channel = self._get_channel_if_exists(channel_login)
-            # values
-            hoster_login, viewers_count = irc_msg.content.split(' ', 1)
-            viewers_count = int(viewers_count) if (viewers_count != '-') else 0
-            # if start
-            if hoster_login != '-' and hasattr(self, 'on_start_host'):
-                self._do_later(
-                    self.on_start_host(channel, viewers_count, hoster_login)
-                )
-            # if stop
-            elif hoster_login == '-' and hasattr(self, 'on_stop_host'):
-                self._do_later(
-                    self.on_stop_host(channel, viewers_count)
-                )
-
-    def _handle_globaluserstate(
-            self,
-            irc_msg: IRCMessage
-    ):
-        if 'user-login' not in irc_msg.tags:
-            irc_msg.tags['user-login'] = self.login
-        if not hasattr(self, 'on_global_state_update'):
-            self.global_state = GlobalState(irc_msg.tags)
-        elif hasattr(self, 'on_global_state_update'):
-            before = self.global_state
-            self.global_state = GlobalState(irc_msg.tags)
-            after = self.global_state
-
-    def _handle_reconnect(
-            self,
-            irc_msg: IRCMessage
-    ):
-        self.restart()
-
-    def _handle_ping(
-            self,
-            irc_msg: IRCMessage
-    ):
-        self._do_later(self._send('PONG :tmi.twitch.tv'))
-    #
-    # end of: handlers
-    #################################
-
-    #################################
-    # IRC commands
-    #
     async def _send(
             self,
             irc_message: str
@@ -763,9 +798,10 @@ class Client:
         Returns:
             `None`
         """
-        self.joined_channel_logins.update(logins)
-        logins_str = ',#'.join(logins)
-        await self._send(f'JOIN #{logins_str}')
+        if logins:
+            self.joined_channel_logins.update(logins)
+            logins_str = ',#'.join(logins)
+            await self._send(f'JOIN #{logins_str}')
 
     async def part_channel(
             self,
@@ -789,16 +825,10 @@ class Client:
         Returns:
             `None`
         """
-        self.joined_channel_logins.difference_update(logins)
-        logins_str = ',#'.join(logins)
-        await self._send(f'PART #{logins_str}')
-    #
-    # end of: IRC commands
-    #################################
-
-    #################################
-    # event's things
-    #
+        if logins:
+            self.joined_channel_logins.difference_update(logins)
+            logins_str = ',#'.join(logins)
+            await self._send(f'PART #{logins_str}')
 
     def event(self, coro: Callable[[], Coroutine]) -> Callable[[], Coroutine]:
         """
@@ -883,16 +913,13 @@ class Client:
         if not iscoroutinefunction(coro):
             raise FunctionIsNotCorutine(coro.__name__)
         # if event
-        if handler_name in self.event_names:
+        if handler_name in self.EVENTS:
             setattr(self, handler_name, coro)
         # if user event
-        elif handler_name in self.user_event_names:
+        elif handler_name in self.USER_EVENTS:
             setattr(self, handler_name, coro)
         else:  # what for a developer will register unknown event? better tell that person about
             raise UnknownEvent(handler_name)
-    #
-    # end of: event's things
-    #################################
 
     async def _delay_irc_message(
             self,
@@ -914,13 +941,16 @@ class Client:
         """
         delayed_irc_messages = self._delayed_irc_msgs.setdefault(channel_login, [])
         if len(delayed_irc_messages) == 10:
-            # something wrong if 10 messages has been delayed, let's try to reconnect to the channel
+            # something's wrong if there are 10 delayed messages, better reconnect
             await self.join_channel(channel_login)
-            print(f'Try to rejoin #{channel_login}')
+            print(f'Try to rejoin #{channel_login}')  # TODO: modify the print into logging
             delayed_irc_messages.append(irc_msg)
         # protection from memory overflow
-        elif len(delayed_irc_messages) >= 30:
-            print(f'#{channel_login} has delayed msgs overflow')
+        elif len(delayed_irc_messages) == 30:
+            print(f'#{channel_login} has delayed msgs overflow')  # TODO: modify the print into logging
+            delayed_irc_messages.append(irc_msg)
+        elif len(delayed_irc_messages) > 30:
+            pass
         else:
             delayed_irc_messages.append(irc_msg)
 
@@ -950,7 +980,7 @@ class Client:
         '366': _handle_nameslist_end
     }
 
-    _user_event_types: Dict[str, Tuple[str, Any]] = {
+    _USER_EVENT_TYPES: Dict[str, Tuple[str, Any]] = {
         # event_type(or 'msg-id'): (event_handler, event_class)
         'sub': ('on_sub', Sub),
         'resub': ('on_resub', ReSub),
@@ -967,24 +997,24 @@ class Client:
         'unraid': ('on_unraid', UnRaid)
     }
 
-    event_names = (
+    EVENTS = (
         'on_message',  # PRIVMSG
         'on_whisper',  # WHISPER
         'on_channel_update', 'on_self_join',  # ROOMSTATE
         'on_my_state_update',  # USERSTATE
         'on_nameslist_update',  # 366
-        'on_login',  # GLOBALUSERSTATE
+        'on_login', 'on_global_state_update',  # GLOBALUSERSTATE
         'on_join',  # JOIN
         'on_part',  # PART
         'on_clear_chat_from_user', 'on_clear_chat',  # CLEARCHAT
         'on_message_delete',  # CLEARMSG
-        'on_start_host', 'on_stop_host',  # HOSTTARGET
+        'on_host_start', 'on_host_stop',  # HOSTTARGET
         'on_notice', 'on_join_error',  # NOTICE
         'on_user_event', 'on_unknown_user_event',  # USERNOTICE
-        'on_reconnect', 'on_unknown_command'
+        'on_reconnect', 'on_unknown_command', 'on_self_join_error'
     )
 
-    user_event_names = (
+    USER_EVENTS = (
         'on_sub', 'on_resub', 'on_sub_gift', 'on_sub_mistery_gift',  # subs
         'on_prime_paid_upgrade', 'on_gift_paid_upgrade',  # upgrades
         'on_standard_pay_forward', 'on_community_pay_forward',  # payments forward

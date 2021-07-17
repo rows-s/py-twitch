@@ -37,12 +37,7 @@ class UserABC(ABC):
 
 
 class ChannelMember(UserABC):
-    def __init__(
-            self,
-            channel: Channel,
-            tags: Dict[str, str],
-            send_wishper_callback: Callable
-    ) -> None:
+    def __init__(self, tags: Dict[str, str], channel: Channel, send_wishper_callback: Callable) -> None:
         super().__init__(tags, send_wishper_callback)
         # prepared
         self.channel: Channel = channel

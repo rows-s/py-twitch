@@ -1,6 +1,13 @@
 from .. import exceptions
 
 
+__all__ = (
+    'APIException',
+    'InvalidToken',
+    'HTTPError'
+)
+
+
 class APIException(exceptions.TTVException):
     """Base exception for all package's exceptions"""
 

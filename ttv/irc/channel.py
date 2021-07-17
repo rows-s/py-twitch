@@ -7,9 +7,9 @@ __all__ = ('Channel',)
 
 class Channel:
     def __init__(
-        self,
-        _websocket_send: Callable,
-        tags: Dict[str, str]
+            self,
+            tags: Dict[str, str],
+            _websocket_send: Callable
     ) -> None:
         # stable
         self.login: str = tags.get('room-login')
