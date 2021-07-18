@@ -1,6 +1,6 @@
 __all__ = (
     'TTVException',
-    'FunctionIsNotCorutine',
+    'FunctionIsNotCoroutine',
     'LoginFailed',
     'UnknownEvent',
     'HTTPError',
@@ -14,7 +14,7 @@ class TTVException(Exception):
     """Base exception for all package's exceptions"""
 
 
-class FunctionIsNotCorutine(TTVException):
+class FunctionIsNotCoroutine(TTVException):
     """Is raised if expected an async function but got not an async function"""
 
 

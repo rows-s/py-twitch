@@ -1,4 +1,5 @@
 from .utils import unescape_tag_value
+
 from typing import Tuple, Optional
 
 __all__ = ('IRCMessage',)

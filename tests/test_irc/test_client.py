@@ -247,7 +247,7 @@ async def test_restart():
 
     for delay in (0, 1, 2, 4, 8, 16, 16):
         await valid_bot._websocket.close(3000)  # restart will be called within start()
-        await asyncio.sleep(delay + 10)  # delay + time for handlers (had troubles using 5)
+        await asyncio.sleep(delay + 12)  # delay + time for handlers (had troubles using 10 and less)
         assert is_loged_in
         assert is_joined
         assert is_reconnected

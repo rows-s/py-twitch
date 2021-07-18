@@ -198,7 +198,7 @@ class Client:
             self._websocket = await websockets.connect(uri)
             # capabilities
             await self._send('CAP REQ :twitch.tv/membership twitch.tv/commands twitch.tv/tags')
-            # loging
+            # log in
             await self._send(f'PASS {self.token}')
             await self._send(f'NICK {self.login}')
 
@@ -233,7 +233,7 @@ class Client:
             irc_msg: IRCMessage
     ) -> None:
         try:
-            handler = self._command_hanldes[irc_msg.command]
+            handler = self._command_handles[irc_msg.command]
         except KeyError:
             if hasattr(self, 'on_unknown_command'):
                 self.on_unknown_command(irc_msg)
@@ -414,7 +414,7 @@ class Client:
                 irc_msg.tags['user-login'] = irc_msg.nickname
             author = ChannelMember(irc_msg.tags, channel, self.send_whisper)
             message = ChannelMessage(channel, author, irc_msg.content, irc_msg.tags)
-            # if has hadler
+            # if has handler
             self._do_later(
                 self.on_message(message)
             )
@@ -440,7 +440,7 @@ class Client:
             channel_login = irc_msg.middles[-1][1:]
             channel = self._get_prepared_channel(channel_login)
             user_login = irc_msg.nickname
-            # if has hadler
+            # if has handler
             self._do_later(
                 self.on_join(channel, user_login)
             )
@@ -453,7 +453,7 @@ class Client:
             user_login = irc_msg.nickname
             channel_login = irc_msg.middles[-1][1:]
             channel = self._get_prepared_channel(channel_login)
-            # if has hadler
+            # if has handler
             self._do_later(
                 self.on_part(channel, user_login)
             )
@@ -474,7 +474,7 @@ class Client:
         elif hasattr(self, 'on_notice'):
             channel_login = irc_msg.middles[-1][1:]
             channel = self._get_prepared_channel(channel_login)
-            # if has hadler
+            # if has handler
             self._do_later(
                 self.on_notice(channel, notice_id, irc_msg.content)
             )
@@ -500,14 +500,14 @@ class Client:
             channel = self._get_prepared_channel(channel_login)
             # values
             target_user_login = irc_msg.content
-            taget_user_id = irc_msg.tags.get('target-user-id')
-            taget_message_id = irc_msg.tags.get('target-msg-id')
+            target_user_id = irc_msg.tags.get('target-user-id')
+            target_message_id = irc_msg.tags.get('target-msg-id')
             ban_duration = int(irc_msg.tags.get('ban-duration', 0))
             # handle later
             self._do_later(
                 self.on_clear_chat_from_user(
                     channel,
-                    ClearChatFromUser(target_user_login, taget_user_id, taget_message_id, ban_duration)
+                    ClearChatFromUser(target_user_login, target_user_id, target_message_id, ban_duration)
                 )
             )
 
@@ -518,7 +518,7 @@ class Client:
         if hasattr(self, 'on_clear_chat'):
             channel_login = irc_msg.middles[-1][1:]
             channel = self._get_prepared_channel(channel_login)
-            # if has hadler
+            # if has handler
             self._do_later(
                 self.on_clear_chat(channel)
             )
@@ -579,33 +579,33 @@ class Client:
             irc_msg: IRCMessage
     ) -> None:
         if hasattr(self, 'on_host_start') or hasattr(self, 'on_host_stop'):
-            hoster_login, viewers_count = irc_msg.content.split(' ', 1)
-            if hoster_login == '-':
-                self._hanlde_host_start(irc_msg)
+            host_login, viewers_count = irc_msg.content.split(' ', 1)
+            if host_login == '-':
+                self._handle_host_start(irc_msg)
             else:
-                self._hanlde_host_stop(irc_msg)
+                self._handle_host_stop(irc_msg)
 
-    def _hanlde_host_start(
+    def _handle_host_start(
             self,
             irc_msg: IRCMessage
     ) -> None:
         if hasattr(self, 'on_host_start'):
             channel_login = irc_msg.middles[-1][1:]
             channel = self._get_prepared_channel(channel_login)
-            hoster_login, viewers_count = irc_msg.content.split(' ', 1)
+            host_login, viewers_count = irc_msg.content.split(' ', 1)
             viewers_count = int(viewers_count) if (viewers_count != '-') else 0
             self._do_later(
-                self.on_host_start(channel, viewers_count, hoster_login)
+                self.on_host_start(channel, viewers_count, host_login)
             )
 
-    def _hanlde_host_stop(
+    def _handle_host_stop(
             self,
             irc_msg: IRCMessage
     ) -> None:
         if hasattr(self, 'on_host_stop'):
             channel_login = irc_msg.middles[-1][1:]
             channel = self._get_prepared_channel(channel_login)
-            hoster_login, viewers_count = irc_msg.content.split(' ', 1)
+            host_login, viewers_count = irc_msg.content.split(' ', 1)
             viewers_count = int(viewers_count) if (viewers_count != '-') else 0
             self._do_later(
                 self.on_host_stop(channel, viewers_count)
@@ -629,13 +629,13 @@ class Client:
 
     def _handle_reconnect(
             self,
-            irc_msg: IRCMessage
+            _: IRCMessage
     ):
         self._do_later(self.restart())
 
     def _handle_ping(
             self,
-            irc_msg: IRCMessage
+            _: IRCMessage
     ):
         self._do_later(self._send('PONG :tmi.twitch.tv'))
 
@@ -703,7 +703,7 @@ class Client:
             irc_message: str
     ) -> None:
         """
-        Sends raw irc message through websocket connection
+        Sends irc message to twitch irc server
 
         Args:
             irc_message: `str`
@@ -714,9 +714,10 @@ class Client:
         """
         while True:
             try:
-                await self._websocket.send(irc_message + '\r\n')  # TODO: check does it work
+                await self._websocket.send(irc_message + '\r\n')
             except websockets.ConnectionClosed:
                 if self.should_restart:
+                    # TODO: there is not a script for cases when restart is working because of _read_websocket()
                     await self.restart()
                 else:
                     raise
@@ -842,7 +843,7 @@ class Client:
         Raises:
             errors.UnknownEvent
                 if got unknown event's name
-            errors.FunctionIsNotCorutine
+            errors.FunctionIsNotCoroutine
                 if `coro` is not Coroutine
 
         Returns:
@@ -877,7 +878,7 @@ class Client:
         Raises:
             errors.UnknownEvent
                 if got unknown name of event
-            errors.FunctionIsNotCorutine
+            errors.FunctionIsNotCoroutine
                 if object is not Coroutine
 
         Returns:
@@ -905,7 +906,7 @@ class Client:
             handler_name: `str`
                 name of handler, should be known
             coro: Coroutine
-                coroutine that must hundle specified event.
+                coroutine that must handle specified event.
 
         Returns:
             `None`
@@ -961,7 +962,7 @@ class Client:
         """Creates an async task in `self.loop`"""
         self.loop.create_task(coro)
 
-    _command_hanldes: Dict[str, Callable[[Any, IRCMessage], Any]] = {
+    _command_handles: Dict[str, Callable[[Any, IRCMessage], Any]] = {
         'PRIVMSG': _handle_privmsg,
         'WHISPER': _handle_whisper,
         'JOIN': _handle_join,
@@ -985,7 +986,7 @@ class Client:
         'sub': ('on_sub', Sub),
         'resub': ('on_resub', ReSub),
         'subgift': ('on_sub_gift', SubGift),
-        'submysterygift': ('on_sub_mistery_gift', SubMysteryGift),
+        'submysterygift': ('on_sub_mystery_gift', SubMysteryGift),
         'primepaidupgrade': ('on_prime_paid_upgrade', PrimePaidUpgrade),
         'giftpaidupgrade': ('on_gift_paid_upgrade', GiftPaidUpgrade),
         'anongiftpaidupgrade': ('on_gift_paid_upgrade', GiftPaidUpgrade),
@@ -1015,7 +1016,7 @@ class Client:
     )
 
     USER_EVENTS = (
-        'on_sub', 'on_resub', 'on_sub_gift', 'on_sub_mistery_gift',  # subs
+        'on_sub', 'on_resub', 'on_sub_gift', 'on_sub_mystery_gift',  # subs
         'on_prime_paid_upgrade', 'on_gift_paid_upgrade',  # upgrades
         'on_standard_pay_forward', 'on_community_pay_forward',  # payments forward
         'on_bits_badge_tier',  # bits badges tier
