@@ -46,9 +46,9 @@ def parse_raw_badges(
     if not badges:
         return {}
     result = {}
-    # for exampe: badges = 'predictions/KEENY\sDEYY,vip/1'
-    for badge in badges.split(','):  # badge = 'predictions/KEENY\\sDEYY' from ('predictions/KEENY\sDEYY', 'vip/1')
-        key, value = badge.split('/', 1)  # key = 'predictions', value = 'KEENY\sDEYY'
+    # for exampe: badges = 'predictions/KEENY DEYY,vip/1'
+    for badge in badges.split(','):  # badge = 'predictions/KEENY DEYY'
+        key, value = badge.split('/', 1)  # key = 'predictions', value = 'KEENY DEYY'
         result[key] = value  # result = {'predictions': 'KEENY DEYY'}
     return result  # result = {'predictions': 'KEENY DEYY', 'vip': '1'}
 

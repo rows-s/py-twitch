@@ -12,11 +12,26 @@ class GlobalState:
         self.id: str = tags.get('user-id')
         self.login: str = tags.get('user-login')
         self.display_name: str = tags.get('display-name')
-        self.color: str = tags.get('color')
         self.emote_sets: Tuple[str] = tuple(tags.get('emote-sets', '').split(','))
+        self.color: str = tags.get('color')
         # badges
         self.badges: Dict[str, str] = parse_raw_badges(tags.get('badges', ''))
         self.badge_info: Dict[str, str] = parse_raw_badges(tags.get('badge-info', ''))
+
+    def __eq__(self, other):
+        if isinstance(other, GlobalState):
+            try:
+                assert self.id == other.id
+                assert self.login == other.login
+                assert self.display_name == other.display_name
+                assert self.emote_sets == other.emote_sets
+                assert self.color == other.color
+                assert self.badges == other.badges
+                assert self.badge_info == other.badge_info
+                return True
+            except AssertionError:
+                return False
+        return False
 
 
 class LocalState:

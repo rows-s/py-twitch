@@ -343,18 +343,18 @@ class Client:
             # if has handler
             if hasattr(self, 'on_channel_update'):
                 before = copy(channel)
-                channel.update_values(irc_msg.tags)
+                channel.set_new_values(irc_msg.tags)
                 after = copy(channel)
                 self._do_later(
                     self.on_channel_update(before, after)
                 )
             # if hasn't handler
             else:
-                channel.update_values(irc_msg.tags)
+                channel.set_new_values(irc_msg.tags)
         # if channel is not prepared
         elif channel_login in self._unprepared_channels:
             channel = self._unprepared_channels[channel_login]
-            channel.update_values(irc_msg.tags)
+            channel.set_new_values(irc_msg.tags)
 
     def _handle_userstate(
             self,

@@ -12,8 +12,8 @@ class Channel:
             _websocket_send: Callable
     ) -> None:
         # stable
-        self.login: str = tags.get('room-login')  # TODO: tests using properties
         self.id: str = tags.get('room-id')
+        self.login: str = tags.get('room-login')  # TODO: tests using properties
         # out of tags
         self.my_state: Optional[LocalState] = None
         self.nameslist: Optional[Tuple[str]] = None
@@ -31,7 +31,7 @@ class Channel:
         # callback
         self._websocket_send: Callable = _websocket_send
 
-    def update_values(
+    def set_new_values(
             self,
             tags: Dict[str, str]
     ) -> None:
