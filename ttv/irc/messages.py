@@ -2,7 +2,7 @@ from abc import ABC
 
 from .channel import Channel
 from .users import UserABC, ChannelMember, ParentMessageUser, GlobalUser
-from .utils import unescape_tag_value, parse_raw_emotes, is_emote_only
+from .utils import parse_raw_emotes, is_emote_only
 
 from typing import Dict, Optional, Tuple, List
 
@@ -42,7 +42,7 @@ class ParentMessage:
     ) -> None:
         self.channel: Channel = channel
         self.author = author
-        self.content: str = unescape_tag_value(tags.get('reply-parent-msg-body', ''))
+        self.content: str = tags.get('reply-parent-msg-body', '')
         self.id: str = tags.get('reply-parent-msg-id')
 
     async def delete(self):

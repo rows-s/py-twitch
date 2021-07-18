@@ -12,7 +12,7 @@ class Channel:
             _websocket_send: Callable
     ) -> None:
         # stable
-        self.login: str = tags.get('room-login')
+        self.login: str = tags.get('room-login')  # TODO: tests using properties
         self.id: str = tags.get('room-id')
         # out of tags
         self.my_state: Optional[LocalState] = None
@@ -35,25 +35,19 @@ class Channel:
             self,
             tags: Dict[str, str]
     ) -> None:
-        # if unique-only
         for key in tags:
             value = tags[key]
             if key == 'r9k':
                 self.is_unique_only: bool = value == '1'
-            # if emote-only
             elif key == 'emote-only':
                 self.is_emote_only: bool = value == '1'
-            # if subs-only
             elif key == 'subs-only':
                 self.is_subs_only: bool = value == '1'
-            # if rituals
             elif key == 'rituals':
                 self.has_rituals: bool = value == '1'
-            # if slow
             elif key == 'slow':
                 self.slow_seconds: int = int(value)
                 self.is_slow: bool = self.slow_seconds != 0
-            # if followers-only
             elif key == 'followers-only':
                 self.followers_only_minutes: int = int(value)
                 self.is_followers_only: bool = self.followers_only_minutes != -1

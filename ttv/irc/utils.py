@@ -49,7 +49,7 @@ def parse_raw_badges(
     # for exampe: badges = 'predictions/KEENY\sDEYY,vip/1'
     for badge in badges.split(','):  # badge = 'predictions/KEENY\\sDEYY' from ('predictions/KEENY\sDEYY', 'vip/1')
         key, value = badge.split('/', 1)  # key = 'predictions', value = 'KEENY\sDEYY'
-        result[key] = unescape_tag_value(value)  # result = {'predictions': 'KEENY DEYY'}
+        result[key] = value  # result = {'predictions': 'KEENY DEYY'}
     return result  # result = {'predictions': 'KEENY DEYY', 'vip': '1'}
 
 
@@ -57,8 +57,8 @@ def unescape_tag_value(
         value: str
 ) -> str:
     r"""
-    Unescapes escaped value: '\s' -> ' ', '\:' -> ';', '\\' -> '\'. '\r' and '\n' (CR and LF) don't need to be unescaped
-    Also deletes single slashes as a not valid escaping
+    Unescapes escaped value: '\s' -> ' ', '\:' -> ';', '\\' -> '\', '\' -> ''.
+    '\r' and '\n' (CR and LF) don't need to be unescaped
     """
     if value:
         i = 0

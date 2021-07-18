@@ -1,7 +1,7 @@
 from .users import ChannelMember
 from .channel import Channel
 
-from .utils import unescape_tag_value, parse_raw_emotes
+from .utils import parse_raw_emotes
 
 from abc import ABC
 from typing import Dict, List, Tuple
@@ -45,7 +45,7 @@ class BaseUserEvent(ABC):
         # emotes
         self.emote_only: bool = tags.get('emote-only') == '1'
         self.emotes: Dict[str, List[Tuple[int, int]]] = parse_raw_emotes(tags.get('emotes', ''))
-        self.system_message: str = unescape_tag_value(tags.get('system-msg', ''))
+        self.system_message: str = tags.get('system-msg', '')
         self.event_type: str = tags.get('msg-id')
 
 
@@ -72,7 +72,7 @@ class BaseSub(BaseUserEvent):
         self.streak_months: int = int(tags.get('msg-param-streak-months', 0))
         # plan
         self.plan: str = tags.get('msg-param-sub-plan')
-        self.plan_name: str = unescape_tag_value(tags.get('msg-param-sub-plan-name', ''))
+        self.plan_name: str = tags.get('msg-param-sub-plan-name', '')
         # is gifted
         self.is_gifted: bool = tags.get('msg-param-was-gifted') == 'true'
 
@@ -117,7 +117,7 @@ class BaseGift(BaseUserEvent):
         super().__init__(author, channel, content, tags)
         self.is_gifter_anon = tags.get('login') == 'ananonymousgifter'
         self.plan: str = tags.get('msg-param-sub-plan')
-        self.origin_id: str = unescape_tag_value(tags.get('msg-param-origin-id', ''))
+        self.origin_id: str = tags.get('msg-param-origin-id', '')
         self.sender_count: int = int(tags.get('msg-param-sender-count', 0))
 
 
@@ -147,7 +147,7 @@ class SubGift(BaseUserEvent):
         self.recipient_login: str = tags.get('msg-param-recipient-user-name')
         self.recipient_display_name: str = tags.get('msg-param-recipient-display-name')
         # plan
-        self.plan_name: str = unescape_tag_value(tags.get('msg-param-sub-plan-name'))
+        self.plan_name: str = tags.get('msg-param-sub-plan-name')
         # other
         self.months: int = int(tags.get('msg-param-months', 0))
         self.gift_months: int = int(tags.get('msg-param-gift-months', 0))

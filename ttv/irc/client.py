@@ -259,7 +259,7 @@ class Client:
     ) -> None:
         channel_login = irc_msg.middles[-1][1:]
         # if prepared
-        if channel_login in self._channels_by_login or channel_login in self._unprepared_channels:
+        if channel_login in self._channels_by_login:
             self._handle_nameslist_update(irc_msg)
         # if unprepared
         elif channel_login in self._unprepared_channels:

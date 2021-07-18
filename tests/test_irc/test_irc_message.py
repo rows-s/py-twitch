@@ -126,11 +126,21 @@ def test_parse_raw_params():
     assert irc_message.params == ('middle', 'trailing')
     assert irc_message.middles == ('middle',)
     assert irc_message.trailing == 'trailing'
+    # same and trailing contains separators
+    irc_message = IRCMessage('COMMAND middle :trai :ling')
+    assert irc_message.params == ('middle', 'trai :ling')
+    assert irc_message.middles == ('middle',)
+    assert irc_message.trailing == 'trai :ling'
     # middle, trailing (no ':')
     irc_message = IRCMessage('COMMAND ' + 'middle '*14 + 'trailing')
     assert irc_message.params == ('middle',) * 14 + ('trailing',)
     assert irc_message.middles == ('middle',) * 14
     assert irc_message.trailing == 'trailing'
+    # same and trailing contains separators
+    irc_message = IRCMessage('COMMAND ' + 'middle '*14 + 'trai :ling')
+    assert irc_message.params == ('middle',) * 14 + ('trai :ling',)
+    assert irc_message.middles == ('middle',) * 14
+    assert irc_message.trailing == 'trai :ling'
     # trailing
     irc_message = IRCMessage('COMMAND :trailing')
     assert irc_message.params == ('trailing',)

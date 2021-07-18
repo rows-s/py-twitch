@@ -41,7 +41,7 @@ class IRCMessage:
         return raw_tags, prefix, command, raw_params
 
     def _parse_raw_tags(self):
-        tags = {}  # not is None if raw_params is None to exclude any checking before: for, in, __index__ and other
+        tags = {}  # is not None if raw_params is None to exclude exceptions from: for, in, [key] etc.
         if self.raw_tags:  # parses only if there is raw_tags
             parsed_tags = self.raw_tags.split(';')
             for raw_tag in parsed_tags:
@@ -58,11 +58,11 @@ class IRCMessage:
 
     def _parse_prefix(self):
         prefix = self.prefix
-        servername = None
+        servername = None  # better than do it within conditions
         nickname = None
         user = None
         host = None
-        if prefix:  # may ne None
+        if prefix:  # may be None
             if '@' in prefix:
                 prefix, host = prefix.split('@', 1)
                 if '!' in prefix:
@@ -70,7 +70,7 @@ class IRCMessage:
                 else:
                     nickname = prefix
             else:
-                if '.' in prefix:
+                if '.' in prefix:  # local agreement that there are not dots in nicknames
                     servername = prefix
                 else:
                     nickname = prefix
@@ -81,7 +81,9 @@ class IRCMessage:
         # None                        # no params
         # 'middle'                    # middles, no trailing
         # 'middle :trailing'          # middles, trailing (starts with ':')
+        # 'middle :trai :ling'        # same and trailing contains separators (' ', ':', ' :')
         # 'middle '*14 + 'trailing'   # middles(max), trailing (starts without ':')
+        # 'middle '*14 + 'trai :ling' # same and trailing contains separators (' ', ':', ' :')
         # ':trailing'                 # no middle, trailing
 
         # if has not params
@@ -96,21 +98,21 @@ class IRCMessage:
                 # if trailing exists and starts with ':'
                 if param.startswith(':'):
                     trailing = ' '.join(raw_parsed_params[index:])
-                    trailing = trailing[1:]
+                    trailing = trailing.removeprefix(':')
                     middles = raw_parsed_params[:index]
                     params = middles + [trailing]
                     break
             else:
                 # if trailing exists and starts without ':' (only if there is 14 of middles)
                 if len(raw_parsed_params) == 15:
-                    trailing = raw_parsed_params[14]
+                    trailing = raw_parsed_params[14]  # not startswith ':'
                     middles = raw_parsed_params[:14]
                     params = raw_parsed_params
                 # if trailing not exists
                 else:
                     trailing = None
-                    middles = raw_parsed_params
-                    params = raw_parsed_params
+                    params = middles = raw_parsed_params
+
         return tuple(params), tuple(middles), trailing
 
     def __eq__(self, other) -> bool:
