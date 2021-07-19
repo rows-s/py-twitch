@@ -185,6 +185,38 @@ def test_update_tags():
     assert_tags(irc_msg, new_msg)
 
 
+def test_set_tags():
+    def assert_tags(irc_msg1, irc_msg2):
+        assert irc_msg2 == irc_msg1
+        assert irc_msg2.raw_tags == irc_msg1.raw_tags
+        assert irc_msg2.tags == irc_msg1.tags
+    # set empty to empty
+    irc_msg = IRCMessage(r'COMMAND')
+    new_msg = IRCMessage(r'COMMAND')
+    irc_msg.set_tags({})
+    assert_tags(irc_msg, new_msg)
+    # set empty to not empty
+    irc_msg = IRCMessage(r'@key=value;key2=value2 COMMAND')
+    new_msg = IRCMessage(r'COMMAND')
+    irc_msg.set_tags({})
+    assert_tags(irc_msg, new_msg)
+    # set not empty to empty
+    irc_msg = IRCMessage(r'COMMAND')
+    new_msg = IRCMessage(r'@key=value;key2=value2 COMMAND')
+    irc_msg.set_tags({'key': 'value', 'key2': 'value2'})
+    assert_tags(irc_msg, new_msg)
+    # set not empty to not empty
+    irc_msg = IRCMessage(r'@key=value;key2=value2 COMMAND')
+    new_msg = IRCMessage(r'@key3=value3;key4=value4 COMMAND')
+    irc_msg.set_tags({'key3': 'value3', 'key4': 'value4'})
+    assert_tags(irc_msg, new_msg)
+    # set value that requires escaping
+    irc_msg = IRCMessage(r'@key=some-value COMMAND')
+    new_msg = IRCMessage(r'@key=val\:ue\s\\ COMMAND')
+    irc_msg.set_tags({'key': 'val;ue \\'})
+    assert_tags(irc_msg, new_msg)
+
+
 def test_pop_tag():
     def assert_tags(irc_msg1, irc_msg2):
         assert irc_msg1 == irc_msg2
