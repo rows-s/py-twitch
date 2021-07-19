@@ -5,7 +5,7 @@ __all__ = (
     'UnknownEvent',
     'HTTPError',
     'InvalidToken',
-    'ChannelNotExists',
+    'ChannelNotPrepared',
     'CapabilitiesReqError'
 )
 
@@ -34,7 +34,7 @@ class InvalidToken(TTVException):
     pass
 
 
-class ChannelNotExists(TTVException):
+class ChannelNotPrepared(TTVException):
     pass
 
 

@@ -153,6 +153,55 @@ def test_parse_raw_params():
     assert irc_message.trailing is None
 
 
+def test_pop_tag():
+    def assert_tags(irc_msg1, irc_msg2):
+        assert irc_msg1 == irc_msg2
+        assert irc_msg1.raw_tags == irc_msg2.raw_tags
+        assert irc_msg1.tags == irc_msg2.tags
+    # pop one tag from multiple tags
+    irc_msg = IRCMessage(r'@no-value-tag;key=value;key2=escaped\svalue\\\: COMMAND')
+    new_msg = IRCMessage(r'@no-value-tag;key2=escaped\svalue\\\: COMMAND')
+    assert irc_msg.pop_tag('key') == 'value'
+    assert_tags(irc_msg, new_msg)
+    # pop one tag from one-tag tags
+    irc_msg = IRCMessage(r'@beginig-key=beginig-value COMMAND')
+    new_msg = IRCMessage(r'COMMAND')
+    assert irc_msg.pop_tag('beginig-key') == 'beginig-value'
+    assert_tags(irc_msg, new_msg)
+    # pop from begining
+    irc_msg = IRCMessage(r'@beginig-key=beginig-value;middle-key=middle-value;end-key=end-value COMMAND')
+    new_msg = IRCMessage(r'@middle-key=middle-value;end-key=end-value COMMAND')
+    assert irc_msg.pop_tag('beginig-key') == 'beginig-value'
+    assert_tags(irc_msg, new_msg)
+    # pop from middle
+    irc_msg = IRCMessage(r'@beginig-key=beginig-value;middle-key=middle-value;end-key=end-value COMMAND')
+    new_msg = IRCMessage(r'@beginig-key=beginig-value;end-key=end-value COMMAND')
+    assert irc_msg.pop_tag('middle-key') == 'middle-value'
+    assert_tags(irc_msg, new_msg)
+    # pop from end
+    irc_msg = IRCMessage(r'@beginig-key=beginig-value;middle-key=middle-value;end-key=end-value COMMAND')
+    new_msg = IRCMessage(r'@beginig-key=beginig-value;middle-key=middle-value COMMAND')
+    assert irc_msg.pop_tag('end-key') == 'end-value'
+    assert_tags(irc_msg, new_msg)
+    # pop no-value-tag
+    irc_msg = IRCMessage(r'@no-value-tag :tmi.twitch.tv COMMAND')
+    new_msg = IRCMessage(r':tmi.twitch.tv COMMAND')
+    assert irc_msg.pop_tag('no-value-tag') is None
+    assert_tags(irc_msg, new_msg)
+    # pop value-tag
+    irc_msg = IRCMessage(r'@value-tag=value :tmi.twitch.tv COMMAND')
+    new_msg = IRCMessage(r':tmi.twitch.tv COMMAND')
+    assert irc_msg.pop_tag('value-tag') == 'value'
+    # escaped value
+    irc_msg = IRCMessage(r'@escaped-tag=val\:ue\s\\;no-value-tag :tmi.twitch.tv COMMAND')
+    new_msg = IRCMessage(r'@escaped-tag=val\:ue\s\\ :tmi.twitch.tv COMMAND')
+    assert irc_msg.pop_tag('no-value-tag') is None
+    assert_tags(irc_msg, new_msg)
+    assert irc_msg.pop_tag('escaped-tag') == 'val;ue \\'
+    new_msg = IRCMessage(r':tmi.twitch.tv COMMAND')
+    assert_tags(irc_msg, new_msg)
+
+
 def test_eq():
     assert IRCMessage('COMMAND') == IRCMessage('COMMAND')
     assert IRCMessage('COMMAND') != IRCMessage('ERROR')

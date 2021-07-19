@@ -6,7 +6,7 @@ from websockets import ConnectionClosedError
 import pytest
 from time import sleep, time
 from ttv.irc import Client, IRCMessage, Channel, GlobalState, LocalState
-from ttv.irc.exceptions import ChannelNotExists, FunctionIsNotCorutine, UnknownEvent, LoginFailed
+from ttv.irc.exceptions import ChannelNotPrepared, FunctionIsNotCorutine, UnknownEvent, LoginFailed, CapabilitiesReqError
 
 IRC_TOKEN = os.getenv('TTV_IRC_TOKEN')
 IRC_USERNAME = os.getenv('TTV_IRC_NICK')
@@ -55,7 +55,7 @@ def test_channel_getters():
     assert ttv_bot.get_channel_by_login('', channel) is channel
     # if exists
     assert ttv_bot._get_prepared_channel(channel.login) is channel
-    with pytest.raises(ChannelNotExists):
+    with pytest.raises(ChannelNotPrepared):
         ttv_bot._get_prepared_channel('')
 
 
@@ -159,7 +159,7 @@ async def test_read_websocket():
             index += 1
         else:
             assert irc_msg.command == 'GLOBALUSERSTATE'
-            assert irc_msg.tags['display-name'].lower() == IRC_USERNAME
+            assert irc_msg.tags['display-name'].lower() == IRC_USERNAME  # would work only with latin names
             break
 
 
@@ -167,6 +167,10 @@ async def test_read_websocket():
 async def test_first_log_in_irc():
     ttv_bot = Client('token', 'login', should_restart=False)
     with pytest.raises(LoginFailed):
+        await ttv_bot._first_log_in_irc()
+    with pytest.raises(CapabilitiesReqError):
+        ttv_bot._websocket = await websockets.connect(IRC_URI)
+        await ttv_bot._send('CAP REQ :ttv.tv/membership ttv.tv/commands ttv.tv/tags')  # !ttv.tv!
         await ttv_bot._first_log_in_irc()
 
     valid_bot = Client(IRC_TOKEN, IRC_USERNAME, should_restart=False)
@@ -243,11 +247,11 @@ async def test_restart():
         assert IRC_USERNAME in before and IRC_USERNAME in after
 
     valid_bot.loop.create_task(valid_bot.start([IRC_USERNAME]))
-    await asyncio.sleep(3)  # let the task work
+    await asyncio.sleep(5)  # let the task work
 
     for delay in (0, 1, 2, 4, 8, 16, 16):
         await valid_bot._websocket.close(3000)  # restart will be called within start()
-        await asyncio.sleep(delay + 12)  # delay + time for handlers (had troubles using 10 and less)
+        await asyncio.sleep(delay + 15)  # delay + time for handlers (had troubles using 15 and less)
         assert is_loged_in
         assert is_joined
         assert is_reconnected
@@ -262,5 +266,7 @@ async def test_restart():
         is_nameslist_updated = False
 
 
-
-
+@pytest.mark.asyncio
+def test_handle_command():
+    pass
+    # delay msg

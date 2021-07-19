@@ -95,7 +95,7 @@ class Client:
         try:
             return self._channels_by_login[login]
         except KeyError:
-            raise ChannelNotExists(login)
+            raise ChannelNotPrepared(login)
 
     @classmethod
     def _delay_gen(cls) -> Generator[int, None, None]:
@@ -198,7 +198,7 @@ class Client:
             self._websocket = await websockets.connect(uri)
             # capabilities
             await self._send('CAP REQ :twitch.tv/membership twitch.tv/commands twitch.tv/tags')
-            # log in
+            # logging in
             await self._send(f'PASS {self.token}')
             await self._send(f'NICK {self.login}')
 
@@ -240,7 +240,7 @@ class Client:
         else:
             try:
                 handler(self, irc_msg)
-            except ChannelNotExists:
+            except ChannelNotPrepared:
                 channel_login = irc_msg.middles[-1][1:]
                 await self._delay_irc_message(irc_msg, channel_login)
 

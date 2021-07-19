@@ -1,6 +1,6 @@
-from .utils import unescape_tag_value
+from .utils import escape_tag_value, unescape_tag_value
 
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Any, Dict, List, Iterable
 
 __all__ = ('IRCMessage',)
 
@@ -13,12 +13,79 @@ class IRCMessage:
     ) -> None:
         # message
         self.raw_irc_message: str = raw_irc_message
-
+        # parts
+        self.raw_tags: Optional[str]
+        self.prefix: Optional[str]
+        self.command: str
+        self.raw_params: Optional[str]
         self.raw_tags, self.prefix, self.command, self.raw_params = self._parse_raw_irc_message()
+        # tags
+        self.tags: Dict[str, Optional[str]]
         self.tags = self._parse_raw_tags()
+        # prefix
+        self.servername: Optional[str]
+        self.nickname: Optional[str]
+        self.user: Optional[str]
+        self.host: Optional[str]
         self.servername, self.nickname, self.user, self.host = self._parse_prefix()
+        # params
+        self.params: List[str]
+        self.middles: List[str]
+        self.trailing: Optional[str]
         self.params, self.middles, self.trailing = self._parse_raw_params()
-        self.content = self.trailing
+        self.content: Optional[str] = self.trailing
+
+    def update_tags(
+            self,
+            tags: Dict[str, Any]
+    ) -> None:
+        if not tags:
+            return
+        self.tags.update(tags)
+        self.set_new_tags(self.tags)
+
+    def set_new_tags(
+            self,
+            tags: Dict[str, Optional[str]]
+    ) -> None:
+        # tags
+        self.tags = tags
+        # raw_tags
+        if not tags:
+            self.raw_tags = None
+        else:
+            raw_tags_list = []
+            for key, value in tags.items():
+                if value is not None:
+                    value = escape_tag_value(value)
+                    raw_tag = f'{key}={value}'
+                else:
+                    raw_tag = key
+                raw_tags_list.append(raw_tag)
+            self.raw_tags = ';'.join(raw_tags_list)
+        # raw_irc_message
+        if self.raw_irc_message.startswith('@'):
+            no_tag_raw_irc_message = self.raw_irc_message.split(' ', 1)[1]
+        else:
+            no_tag_raw_irc_message = self.raw_irc_message
+        if self.raw_tags is None:
+            self.raw_irc_message = no_tag_raw_irc_message
+        else:
+            self.raw_irc_message = f'@{self.raw_tags} {no_tag_raw_irc_message}'
+
+    def pop_tag(
+            self,
+            key: str
+    ) -> Optional[str]:
+        value = self.tags.pop(key)
+        self.set_new_tags(self.tags)
+        return value
+
+    def remove_tags(
+            self,
+            keys: Iterable[str]
+    ) -> None:
+        pass
 
     def _parse_raw_irc_message(self) -> Tuple[Optional[str], Optional[str], str, Optional[str]]:
         raw_irc_message = self.raw_irc_message
@@ -41,7 +108,7 @@ class IRCMessage:
             raw_params = None
         return raw_tags, prefix, command, raw_params
 
-    def _parse_raw_tags(self):
+    def _parse_raw_tags(self) -> Dict[str, Optional[str]]:
         tags = {}  # is not None if raw_params is None to exclude exceptions from: for, in, [key] etc.
         if self.raw_tags:  # parses only if there is raw_tags
             parsed_tags = self.raw_tags.split(';')
@@ -57,7 +124,7 @@ class IRCMessage:
                 tags[key] = value
         return tags
 
-    def _parse_prefix(self):
+    def _parse_prefix(self) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
         prefix = self.prefix
         servername = None  # better than do it within conditions
         nickname = None
@@ -115,6 +182,21 @@ class IRCMessage:
                     params = middles = raw_parsed_params
 
         return tuple(params), tuple(middles), trailing
+
+    @staticmethod
+    def _join_tags(tags: Dict[str, Any]):
+        raw_tags = []
+        if not tags:
+            return None
+        else:
+            for key, value in tags.items():
+                if value is not None:
+                    value = escape_tag_value(value)
+                    raw_tag = f'{key}={value}'
+                else:
+                    raw_tag = key
+                raw_tags.append(raw_tag)
+            return ';'.join(raw_tags)
 
     def __eq__(self, other) -> bool:
         if isinstance(other, IRCMessage):

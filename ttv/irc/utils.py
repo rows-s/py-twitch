@@ -5,6 +5,7 @@ __all__ = (
     'parse_raw_emotes',
     'is_emote_only',
     'parse_raw_badges',
+    'escape_tag_value',
     'unescape_tag_value'
 )
 
@@ -53,27 +54,32 @@ def parse_raw_badges(
     return result  # result = {'predictions': 'KEENY DEYY', 'vip': '1'}
 
 
-def unescape_tag_value(
-        value: str
-) -> str:
+def escape_tag_value(value: str):
+    if value:
+        replacements = {' ': r'\s', ';': r'\:', '\\': '\\\\'}
+        value = list(value)
+        for i, symbol in enumerate(value):
+            if symbol in replacements:
+                value[i] = replacements[value[i]]
+        return ''.join(value)
+
+
+def unescape_tag_value(value: str) -> str:
     r"""
     Unescapes escaped value: '\s' -> ' ', '\:' -> ';', '\\' -> '\', '\' -> ''.
-    '\r' and '\n' (CR and LF) don't need to be unescaped
+    '\r' and '\n' (CR and LF) don't need to be unescaped.
     """
     if value:
         i = 0
-        value = list(value)  # some symbols would be removed, simplier to do that with list
-        while i < len(value) - 1:
+        replacements = {'s': ' ', ':': ';'}
+        value = list(value)
+        while i < len(value):  # don't check the last
             if value[i] == '\\':
-                value.pop(i)  # important: after the pop [i+1] would be [i]
-                if value[i] == 's':  # if '\s' replace to ' '
-                    value[i] = ' '
-                elif value[i] == ':':  # if '\:' replace to ';'
-                    value[i] = ';'
-                elif value[i] == '\\':  # if '\\' replace to '\'
-                    pass
+                if i+1 == len(value):
+                    value.pop()
+                else:
+                    value.pop(i)
+                    if value[i] in replacements:
+                        value[i] = replacements[value[i]]
             i += 1
-        else:
-            if value[-1] == '\\':  # delete last slash if exists
-                value.pop()
     return ''.join(value)  # return str

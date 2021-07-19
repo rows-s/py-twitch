@@ -2,7 +2,8 @@ from .. import exceptions
 
 
 __all__ = (
-    'ChannelNotExists',
+    'IRCException',
+    'ChannelNotPrepared',
     'LoginFailed',
     'UnknownEvent',
     'FunctionIsNotCorutine',
@@ -14,7 +15,7 @@ class IRCException(exceptions.TTVException):
     """Base exception for all package's exceptions"""
 
 
-class ChannelNotExists(IRCException, exceptions.ChannelNotExists):
+class ChannelNotPrepared(IRCException, exceptions.ChannelNotPrepared):
     """Is raised if channel not exists"""
 
 
