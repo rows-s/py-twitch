@@ -41,9 +41,9 @@ class IRCMessage:
         if not tags:
             return
         self.tags.update(tags)
-        self.set_new_tags(self.tags)
+        self.set_tags(self.tags)
 
-    def set_new_tags(
+    def set_tags(
             self,
             tags: Dict[str, Optional[str]]
     ) -> None:
@@ -66,7 +66,7 @@ class IRCMessage:
             key: str
     ) -> Optional[str]:
         value = self.tags.pop(key)
-        self.set_new_tags(self.tags)
+        self.set_tags(self.tags)
         return value
 
     def remove_tags(
@@ -75,7 +75,7 @@ class IRCMessage:
     ) -> None:
         for key in keys:
             self.tags.pop(key, None)
-        self.set_new_tags(self.tags)
+        self.set_tags(self.tags)
 
     def _parse_raw_irc_message(self) -> Tuple[Optional[str], Optional[str], str, Optional[str]]:
         raw_irc_message = self.raw_irc_message
@@ -190,15 +190,23 @@ class IRCMessage:
 
     def __eq__(self, other) -> bool:
         if isinstance(other, IRCMessage):
-            return self.raw_irc_message == other.raw_irc_message
-        return False
+            try:
+                assert self.tags == other.tags
+                assert self.prefix == other.prefix
+                assert self.command == other.command
+                assert set(self.params) == set(other.params)  # sets to neglect params' positions. faster than sorted
+            except AssertionError:
+                return False
+            else:
+                return True
+        else:
+            return False
 
     def __contains__(self, item) -> bool:
         if type(item) is str:
             return item in self.raw_irc_message
         elif isinstance(item, IRCMessage):
-            if item.raw_irc_message in self.raw_irc_message:
-                return True
+            return item.raw_irc_message in self.raw_irc_message
         return False
 
     def __repr__(self):

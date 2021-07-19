@@ -241,6 +241,7 @@ def test_eq():
 
 def test_contains():
     assert 'COMMAND' in IRCMessage('COMMAND')
+    assert IRCMessage('COMMAND') in IRCMessage('COMMAND')
     assert 'COM' in IRCMessage('COMMAND')
     assert 'MMA' in IRCMessage('COMMAND')
     assert 'AND' in IRCMessage('COMMAND')
