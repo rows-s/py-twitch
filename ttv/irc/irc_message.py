@@ -6,7 +6,6 @@ __all__ = ('IRCMessage',)
 
 
 class IRCMessage:
-    # noinspection PyTypeChecker
     def __init__(
             self,
             raw_irc_message: str
@@ -51,27 +50,16 @@ class IRCMessage:
         # tags
         self.tags = tags
         # raw_tags
-        if not tags:
-            self.raw_tags = None
-        else:
-            raw_tags_list = []
-            for key, value in tags.items():
-                if value is not None:
-                    value = escape_tag_value(value)
-                    raw_tag = f'{key}={value}'
-                else:
-                    raw_tag = key
-                raw_tags_list.append(raw_tag)
-            self.raw_tags = ';'.join(raw_tags_list)
+        self.raw_tags = self._join_tags(self.tags)
         # raw_irc_message
         if self.raw_irc_message.startswith('@'):
             no_tag_raw_irc_message = self.raw_irc_message.split(' ', 1)[1]
         else:
             no_tag_raw_irc_message = self.raw_irc_message
-        if self.raw_tags is None:
-            self.raw_irc_message = no_tag_raw_irc_message
-        else:
+        if self.raw_tags is not None:
             self.raw_irc_message = f'@{self.raw_tags} {no_tag_raw_irc_message}'
+        else:
+            self.raw_irc_message = no_tag_raw_irc_message
 
     def pop_tag(
             self,
@@ -185,7 +173,7 @@ class IRCMessage:
 
     @staticmethod
     def _join_tags(tags: Dict[str, Any]):
-        raw_tags = []
+        raw_tags_list = []
         if not tags:
             return None
         else:
@@ -195,8 +183,8 @@ class IRCMessage:
                     raw_tag = f'{key}={value}'
                 else:
                     raw_tag = key
-                raw_tags.append(raw_tag)
-            return ';'.join(raw_tags)
+                raw_tags_list.append(raw_tag)
+            return ';'.join(raw_tags_list)
 
     def __eq__(self, other) -> bool:
         if isinstance(other, IRCMessage):
