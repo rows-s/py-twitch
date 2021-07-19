@@ -1,3 +1,5 @@
+import pytest
+
 from ttv.irc import IRCMessage
 
 
@@ -256,6 +258,7 @@ def test_pop_tag():
     irc_msg = IRCMessage(r'@value-tag=value :tmi.twitch.tv COMMAND')
     new_msg = IRCMessage(r':tmi.twitch.tv COMMAND')
     assert irc_msg.pop_tag('value-tag') == 'value'
+    assert_tags(irc_msg, new_msg)
     # escaped value
     irc_msg = IRCMessage(r'@escaped-tag=val\:ue\s\\;no-value-tag :tmi.twitch.tv COMMAND')
     new_msg = IRCMessage(r'@escaped-tag=val\:ue\s\\ :tmi.twitch.tv COMMAND')
@@ -263,6 +266,51 @@ def test_pop_tag():
     assert_tags(irc_msg, new_msg)
     assert irc_msg.pop_tag('escaped-tag') == 'val;ue \\'
     new_msg = IRCMessage(r':tmi.twitch.tv COMMAND')
+    assert_tags(irc_msg, new_msg)
+    # not relevant key
+    with pytest.raises(KeyError):
+        IRCMessage(r'@no-value-tag :tmi.twitch.tv COMMAND').pop_tag('value-tag')
+
+
+def test_remove_tags():
+    def assert_tags(irc_msg1, irc_msg2):
+        assert irc_msg1 == irc_msg2
+        assert irc_msg1.raw_tags == irc_msg2.raw_tags
+        assert irc_msg1.tags == irc_msg2.tags
+    # zero from zero
+    irc_msg = IRCMessage(r':tmi.twitch.tv COMMAND')
+    new_msg = IRCMessage(r':tmi.twitch.tv COMMAND')
+    irc_msg.remove_tags([])
+    assert_tags(irc_msg, new_msg)
+    # zero from not zero
+    irc_msg = IRCMessage(r'@key=value;no-value-tag :tmi.twitch.tv COMMAND')
+    new_msg = IRCMessage(r'@key=value;no-value-tag :tmi.twitch.tv COMMAND')
+    irc_msg.remove_tags([])
+    assert_tags(irc_msg, new_msg)
+    # not zero from zero
+    irc_msg = IRCMessage(r':tmi.twitch.tv COMMAND')
+    new_msg = IRCMessage(r':tmi.twitch.tv COMMAND')
+    irc_msg.remove_tags(['key', 'no-value-tag'])
+    assert_tags(irc_msg, new_msg)
+    # not zero from not zero
+    irc_msg = IRCMessage(r'@key=value;no-value-tag :tmi.twitch.tv COMMAND')
+    new_msg = IRCMessage(r':tmi.twitch.tv COMMAND')
+    irc_msg.remove_tags(['key', 'no-value-tag'])
+    assert_tags(irc_msg, new_msg)
+    # one from multiple
+    irc_msg = IRCMessage(r'@key=value;no-value-tag;key2=value2 :tmi.twitch.tv COMMAND')
+    new_msg = IRCMessage(r'@key=value;key2=value2 :tmi.twitch.tv COMMAND')
+    irc_msg.remove_tags(['no-value-tag'])
+    assert_tags(irc_msg, new_msg)
+    # multiple from multiple
+    irc_msg = IRCMessage(r'@key=value;no-value-tag;key2=value2 :tmi.twitch.tv COMMAND')
+    new_msg = IRCMessage(r'@key2=value2 :tmi.twitch.tv COMMAND')
+    irc_msg.remove_tags(['no-value-tag', 'key'])
+    assert_tags(irc_msg, new_msg)
+    # all from multiple
+    irc_msg = IRCMessage(r'@key=value;no-value-tag;key2=value2 :tmi.twitch.tv COMMAND')
+    new_msg = IRCMessage(r':tmi.twitch.tv COMMAND')
+    irc_msg.remove_tags(['no-value-tag', 'key', 'key2'])
     assert_tags(irc_msg, new_msg)
 
 
