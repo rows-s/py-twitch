@@ -28,9 +28,10 @@ class GlobalState:
                 assert self.color == other.color
                 assert self.badges == other.badges
                 assert self.badge_info == other.badge_info
-                return True
             except AssertionError:
                 return False
+            else:
+                return True
         return False
 
 

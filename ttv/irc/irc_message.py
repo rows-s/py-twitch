@@ -73,7 +73,9 @@ class IRCMessage:
             self,
             keys: Iterable[str]
     ) -> None:
-        pass
+        for key in keys:
+            self.tags.pop(key, None)
+        self.set_new_tags(self.tags)
 
     def _parse_raw_irc_message(self) -> Tuple[Optional[str], Optional[str], str, Optional[str]]:
         raw_irc_message = self.raw_irc_message

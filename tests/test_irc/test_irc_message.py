@@ -153,6 +153,38 @@ def test_parse_raw_params():
     assert irc_message.trailing is None
 
 
+def test_update_tags():
+    def assert_tags(irc_msg1, irc_msg2):
+        assert irc_msg1 == irc_msg2
+        assert irc_msg1.raw_tags == irc_msg2.raw_tags
+        assert irc_msg1.tags == irc_msg2.tags
+    # add to empty
+    irc_msg = IRCMessage(r'COMMAND')
+    new_msg = IRCMessage(r'@no-value-tag;key=value COMMAND')
+    irc_msg.update_tags({'no-value-tag': None, 'key': 'value'})
+    assert_tags(irc_msg, new_msg)
+    # add to not empty
+    irc_msg = IRCMessage(r'@key2=value2 COMMAND')
+    new_msg = IRCMessage(r'@key2=value2;no-value-tag;key=value COMMAND')
+    irc_msg.update_tags({'no-value-tag': None, 'key': 'value'})
+    assert_tags(irc_msg, new_msg)
+    # add with update value
+    irc_msg = IRCMessage(r'@key2=value2;no-value-tag=some-value COMMAND')
+    new_msg = IRCMessage(r'@key2=value2;no-value-tag;key=value COMMAND')
+    irc_msg.update_tags({'no-value-tag': None, 'key': 'value'})
+    assert_tags(irc_msg, new_msg)
+    # add empty
+    irc_msg = IRCMessage(r'@key2=value2;no-value-tag;key=value COMMAND')
+    new_msg = IRCMessage(r'@key2=value2;no-value-tag;key=value COMMAND')
+    irc_msg.update_tags({})
+    assert_tags(irc_msg, new_msg)
+    # value that requires escaping
+    irc_msg = IRCMessage(r'@key2=value2;no-value-tag;key=value COMMAND')
+    new_msg = IRCMessage(r'@key2=value2;no-value-tag;key=val\:ue\s\\\\ COMMAND')
+    irc_msg.update_tags({'key': r'val;ue \\'})
+    assert_tags(irc_msg, new_msg)
+
+
 def test_pop_tag():
     def assert_tags(irc_msg1, irc_msg2):
         assert irc_msg1 == irc_msg2
