@@ -321,6 +321,23 @@ def test_join_tags():
 
 
 def test_eq():
+    # same positions tags
+    irc_msg = IRCMessage('@key-value;no-value-tag :username COMMAND')
+    new_msg = IRCMessage('@key-value;no-value-tag :username COMMAND')
+    assert irc_msg == new_msg
+    # different positions tags
+    irc_msg = IRCMessage('@key-value;no-value-tag :username COMMAND')
+    new_msg = IRCMessage('@no-value-tag;key-value :username COMMAND')
+    assert irc_msg == new_msg
+    # same positions params
+    irc_msg = IRCMessage('@key-value;no-value-tag :username COMMAND param #target')
+    new_msg = IRCMessage('@no-value-tag;key-value :username COMMAND param #target')
+    assert irc_msg == new_msg
+    # different positions params
+    irc_msg = IRCMessage('@key-value;no-value-tag :username COMMAND param #target')
+    new_msg = IRCMessage('@no-value-tag;key-value :username COMMAND #target param')
+    assert irc_msg == new_msg
+    # others
     assert IRCMessage('COMMAND') == IRCMessage('COMMAND')
     assert IRCMessage('COMMAND') != IRCMessage('ERROR')
 
