@@ -5,7 +5,7 @@ from ttv.irc import IRCMessage
 
 def test_irc_message():
     # a real exapmle
-    raw_irc_message = '@badge-info=subscriber/1;badges=subscriber/0;client-nonce=3f58e4f3107d580b8a29626738823a5c;color=#FF69B4;display-name=fernandx_z;emotes=;flags=;id=aa3b5987-1929-414c-bc55-10f9e6c1723e;mod=0;reply-parent-display-name=MaYidRaMaS;reply-parent-msg-body=axozerTem\\sato\\saxozerPium\\saxozerPium_HF;reply-parent-msg-id=2f06b2b8-d33d-4e65-a0c4-82d1894c7b63;reply-parent-user-id=612074199;reply-parent-user-login=mayidramas;room-id=133528221;subscriber=1;tmi-sent-ts=1622471612333;turbo=0;user-id=602696060;user-type= :fernandx_z!fernandx_z@fernandx_z.tmi.ttv.tv PRIVMSG #axozer :@MaYidRaMaS PERO JAJSJAJSJASJASJA'
+    raw_irc_message = '@badge-info=subscriber/1;badges=subscriber/0;client-nonce=3f58e4f3107d580b8a29626738823a5c;color=#FF69B4;display-name=fernandx_z;emotes=;flags=;id=aa3b5987-1929-414c-bc55-10f9e6c1723e;mod=0;reply-parent-display-name=MaYidRaMaS;reply-parent-msg-body=axozerTem\\sato\\saxozerPium\\saxozerPium_HF;reply-parent-msg-id=2f06b2b8-d33d-4e65-a0c4-82d1894c7b63;reply-parent-user-id=612074199;reply-parent-user-login=mayidramas;room-id=133528221;subscriber=1;tmi-sent-ts=1622471612333;turbo=0;user-id=602696060;user-type= :fernandx_z!fernandx_z@fernandx_z.tmi.twitch.tv PRIVMSG #axozer :@MaYidRaMaS PERO JAJSJAJSJASJASJA'
     irc_message = IRCMessage(raw_irc_message)
     irc_message_raw_tags = 'badge-info=subscriber/1;badges=subscriber/0;client-nonce=3f58e4f3107d580b8a29626738823a5c;color=#FF69B4;display-name=fernandx_z;emotes=;flags=;id=aa3b5987-1929-414c-bc55-10f9e6c1723e;mod=0;reply-parent-display-name=MaYidRaMaS;reply-parent-msg-body=axozerTem\\sato\\saxozerPium\\saxozerPium_HF;reply-parent-msg-id=2f06b2b8-d33d-4e65-a0c4-82d1894c7b63;reply-parent-user-id=612074199;reply-parent-user-login=mayidramas;room-id=133528221;subscriber=1;tmi-sent-ts=1622471612333;turbo=0;user-id=602696060;user-type='
     irc_message_tags = {
@@ -31,11 +31,11 @@ def test_irc_message():
     }
     assert irc_message.raw_tags == irc_message_raw_tags
     assert irc_message.tags == irc_message_tags
-    assert irc_message.prefix == 'fernandx_z!fernandx_z@fernandx_z.tmi.ttv.tv'
+    assert irc_message.prefix == 'fernandx_z!fernandx_z@fernandx_z.tmi.twitch.tv'
     assert irc_message.servername is None
     assert irc_message.nickname == 'fernandx_z'
     assert irc_message.user == 'fernandx_z'
-    assert irc_message.host == 'fernandx_z.tmi.ttv.tv'
+    assert irc_message.host == 'fernandx_z.tmi.twitch.tv'
     assert irc_message.command == 'PRIVMSG'
     assert irc_message.raw_params == '#axozer :@MaYidRaMaS PERO JAJSJAJSJASJASJA'
     assert irc_message.params == ('#axozer', '@MaYidRaMaS PERO JAJSJAJSJASJASJA')

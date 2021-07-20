@@ -1,6 +1,7 @@
+from .user_states import LocalState
 from .utils import parse_raw_badges
 
-from typing import Dict, Tuple, Optional, Callable
+from typing import Dict, Tuple, Optional, Callable, Iterable
 
 __all__ = ('Channel',)
 
@@ -9,6 +10,8 @@ class Channel:
     def __init__(
             self,
             tags: Dict[str, str],
+            local_state: LocalState,
+            names: Iterable[str],
             _websocket_send: Callable
     ) -> None:
         # stable
@@ -16,7 +19,7 @@ class Channel:
         self.login: str = tags.get('room-login')  # TODO: tests using properties
         # out of tags
         self.my_state: Optional[LocalState] = None
-        self.nameslist: Optional[Tuple[str]] = None
+        self.names: Optional[Tuple[str]] = None
         # chat configuration
         self.is_unique_only: bool = tags.get('r9k') == '1'
         self.is_emote_only: bool = tags.get('emote-only') == '1'

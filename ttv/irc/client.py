@@ -37,7 +37,7 @@ class Client:
         self._channels_by_id: Dict[str, Channel] = {}  # id_channel: Channel
         self._channels_by_login: Dict[str, Channel] = {}  # channel_login: Channel
         self._unprepared_channels: Dict[str, Channel] = {}  # channel_login: unprepared_channel
-        self._nameslists: Dict[str, Union[List[str], Tuple[str]]] = {}  # channel_login: nameslists
+        self._names: Dict[str, Union[List[str], Tuple[str]]] = {}  # channel_login: names
         self._local_states: Dict[str, LocalState] = {}  # channel_login: local_state
         self._delayed_irc_msgs: Dict[str, List[IRCMessage]] = {}  # channel_login: [irc_msg, ...]
         # unprotected
@@ -236,61 +236,61 @@ class Client:
             handler = self._command_handles[irc_msg.command]
         except KeyError:
             if hasattr(self, 'on_unknown_command'):
-                self.on_unknown_command(irc_msg)
+                self._do_later(self.on_unknown_command(irc_msg))
         else:
             try:
                 handler(self, irc_msg)
             except ChannelNotPrepared:
                 await self._delay_irc_message(irc_msg)
 
-    def _handle_nameslist_part(
+    def _handle_names_part(
             self,
             irc_msg: IRCMessage
     ) -> None:
-        nameslist_part = irc_msg.content.split(' ')  # current part
-        nameslist = self._nameslists.setdefault(irc_msg.channel, [])
-        nameslist.extend(nameslist_part)
+        names_part = irc_msg.content.split(' ')  # current part
+        names = self._names.setdefault(irc_msg.channel, [])
+        names.extend(names_part)
 
-    def _handle_nameslist_end(
+    def _handle_names_end(
             self,
             irc_msg: IRCMessage
     ) -> None:
         # if prepared
         if irc_msg.channel in self._channels_by_login:
-            self._handle_nameslist_update(irc_msg)
+            self._handle_names_update(irc_msg)
         # if unprepared
         elif irc_msg.channel in self._unprepared_channels:
-            self._handle_new_nameslist(irc_msg)
+            self._handle_new_names(irc_msg)
         # if not exists
         else:
-            nameslist = self._nameslists.pop(irc_msg.channel)
-            self._nameslists[irc_msg.channel] = tuple(nameslist)  # save for set it later
+            names = self._names.pop(irc_msg.channel)
+            self._names[irc_msg.channel] = tuple(names)  # save for set it later
 
-    def _handle_nameslist_update(
+    def _handle_names_update(
             self,
             irc_msg: IRCMessage
     ):
         channel = self._channels_by_login[irc_msg.channel]
-        nameslist = self._nameslists.pop(irc_msg.channel)
+        names = self._names.pop(irc_msg.channel)
         # if has handler
-        if hasattr(self, 'on_nameslist_update'):
-            before = channel.nameslist
-            channel.nameslist = tuple(nameslist)
-            after = channel.nameslist
+        if hasattr(self, 'on_names_update'):
+            before = channel.names
+            channel.names = tuple(names)
+            after = channel.names
             self._do_later(
-                self.on_nameslist_update(channel, before, after)
+                self.on_names_update(channel, before, after)
             )
         # if has not handler
         else:
-            channel.nameslist = tuple(nameslist)
+            channel.names = tuple(names)
 
-    def _handle_new_nameslist(
+    def _handle_new_names(
             self,
             irc_msg: IRCMessage
     ):
-        nameslist = self._nameslists.pop(irc_msg.channel)
+        names = self._names.pop(irc_msg.channel)
         channel = self._unprepared_channels[irc_msg.channel]
-        channel.nameslist = tuple(nameslist)
+        channel.names = tuple(names)
         # save if ready
         if self._is_channel_ready(irc_msg.channel):  # isn't ready if isn't in unprepared
             self._save_channel(irc_msg.channel)
@@ -312,13 +312,13 @@ class Client:
             self,
             irc_msg: IRCMessage
     ) -> None:
-        channel = Channel(irc_msg.tags, self._send)
+        channel = Channel(irc_msg.tags, None, None, self._send)
         channel.my_state = self._local_states.pop(irc_msg.channel, None)
-        # nameslist
-        nameslist = self._nameslists.get(irc_msg.channel)
-        if type(nameslist) == tuple:
-            channel.nameslist = nameslist
-            self._nameslists.pop(irc_msg.channel)  # remove
+        # names
+        names = self._names.get(irc_msg.channel)
+        if type(names) == tuple:
+            channel.names = names
+            self._names.pop(irc_msg.channel)  # remove
         # save channel as unprepared
         self._unprepared_channels[irc_msg.channel] = channel
         # save as prepared if ready
@@ -627,7 +627,7 @@ class Client:
         Returns True if channel with `channel_login` is ready:
             1. is in `self._unprepared_channels`
             2. has localstate (`channel.my_state`)
-            3. has nameslist (`channel.nameslist`)
+            3. has names (`channel.names`)
 
         Args:
             channel_login: `str`
@@ -641,7 +641,7 @@ class Client:
             return False
         if type(channel.my_state) != LocalState:
             return False
-        if type(channel.nameslist) != tuple:
+        if type(channel.names) != tuple:
             return False
         else:
             return True
@@ -951,8 +951,8 @@ class Client:
         'GLOBALUSERSTATE': _handle_globaluserstate,
         'RECONNECT': _handle_reconnect,
         'PING': _handle_ping,
-        '353': _handle_nameslist_part,
-        '366': _handle_nameslist_end
+        '353': _handle_names_part,
+        '366': _handle_names_end
     }
 
     _USER_EVENT_TYPES: Dict[str, Tuple[str, Any]] = {
@@ -977,7 +977,7 @@ class Client:
         'on_whisper',  # WHISPER
         'on_channel_update', 'on_self_join',  # ROOMSTATE
         'on_my_state_update',  # USERSTATE
-        'on_nameslist_update',  # 366
+        'on_names_update',  # 366
         'on_login', 'on_global_state_update',  # GLOBALUSERSTATE
         'on_join',  # JOIN
         'on_part',  # PART

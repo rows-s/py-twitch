@@ -4,7 +4,7 @@ import os
 import websockets
 import pytest
 from time import sleep
-from ttv.irc import Client, IRCMessage, Channel, GlobalState, LocalState
+from ttv.irc import Client, IRCMessage, Channel, GlobalState, LocalState, ChannelMessage
 from ttv.irc.exceptions import ChannelNotPrepared, FunctionIsNotCorutine, UnknownEvent, LoginFailed, CapabilitiesReqError
 
 IRC_TOKEN = os.getenv('TTV_IRC_TOKEN')
@@ -266,7 +266,33 @@ async def test_restart():
 
 
 @pytest.mark.asyncio
-def test_handle_command():
+async def test_handle_command():
     pass
     # delay msg
+    privmsg = IRCMessage(':fernandx_z!fernandx_z@fernandx_z.tmi.twitch.tv PRIVMSG #axozer :@some_user text')
+    ttv_bot = Client('token', 'login')
+    @ttv_bot.event
+    async def on_message(message: ChannelMessage): pass
+    await ttv_bot._handle_command(privmsg)
+    assert ttv_bot._delayed_irc_msgs['axozer'] == [privmsg]
     # on_unknown_command
+    ack_msg = IRCMessage(':tmi.twitch.tv CAP * ACK :twitch.tv/membership twitch.tv/commands twitch.tv/tags')
+    is_on_unknown_command_called = False
+
+    @ttv_bot.event
+    async def on_unknown_command(irc_msg: IRCMessage):
+        nonlocal is_on_unknown_command_called
+        is_on_unknown_command_called = True
+        assert irc_msg is ack_msg
+
+    await ttv_bot._handle_command(ack_msg)
+    await asyncio.sleep(0.001)
+    assert is_on_unknown_command_called
+    # also is being tested in test_handle_* tests
+
+
+@pytest.mark.asyncio
+async def test_handle_nameslist_part():
+    pass
+
+
