@@ -193,7 +193,7 @@ class IRCMessage:
             try:
                 assert self.command == other.command
                 assert self.prefix == other.prefix
-                assert set(self.params) == set(other.params)  # sets to neglect params' positions. faster than sorted
+                assert set(self.middles) == set(other.middles)  # sets to neglect params' positions. faster than sorted
                 assert self.tags == other.tags
             except AssertionError:
                 return False

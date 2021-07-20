@@ -333,9 +333,9 @@ def test_eq():
     irc_msg = IRCMessage('@key-value;no-value-tag :username COMMAND param #target')
     new_msg = IRCMessage('@no-value-tag;key-value :username COMMAND param #target')
     assert irc_msg == new_msg
-    # different positions params
-    irc_msg = IRCMessage('@key-value;no-value-tag :username COMMAND param #target')
-    new_msg = IRCMessage('@no-value-tag;key-value :username COMMAND #target param')
+    # different positions middles
+    irc_msg = IRCMessage('@key-value;no-value-tag :username COMMAND param #target :trai :ling')
+    new_msg = IRCMessage('@no-value-tag;key-value :username COMMAND #target param :trai :ling')
     assert irc_msg == new_msg
     # others
     assert IRCMessage('COMMAND') == IRCMessage('COMMAND')
