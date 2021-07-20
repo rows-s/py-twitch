@@ -186,7 +186,6 @@ async def test_first_log_in_irc():
     assert logined
 
 
-@pytest.mark.parametrize('', [()]*20)
 @pytest.mark.asyncio
 async def test_restart():
     valid_bot = Client(IRC_TOKEN, IRC_USERNAME)
@@ -251,7 +250,7 @@ async def test_restart():
 
     for delay in (0, 1, 2, 4, 8, 16, 16):
         await valid_bot._websocket.close(3000)  # restart will be called within start()
-        # 20 (140) retests was passed in a row.
+        # 40 (280) retests (restarts) was passed in a row with 20 seconds delay.
         await asyncio.sleep(delay + 20)  # delay + time for handlers (had troubles using 15 and less)
         assert is_loged_in
         assert is_joined
@@ -271,3 +270,4 @@ async def test_restart():
 def test_handle_command():
     pass
     # delay msg
+    # on_unknown_command
