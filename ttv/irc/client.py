@@ -241,14 +241,14 @@ class Client:
             try:
                 handler(self, irc_msg)
             except ChannelNotPrepared:
-                channel_login = irc_msg.middles[-1][1:]
+                channel_login = irc_msg.channel
                 await self._delay_irc_message(irc_msg, channel_login)
 
     def _handle_nameslist_part(
             self,
             irc_msg: IRCMessage
     ) -> None:
-        channel_login = irc_msg.middles[-1][1:]
+        channel_login = irc_msg.channel
         nameslist_part = irc_msg.content.split(' ')  # current part
         nameslist = self._nameslists.setdefault(channel_login, [])
         nameslist.extend(nameslist_part)
@@ -257,7 +257,7 @@ class Client:
             self,
             irc_msg: IRCMessage
     ) -> None:
-        channel_login = irc_msg.middles[-1][1:]
+        channel_login = irc_msg.channel
         # if prepared
         if channel_login in self._channels_by_login:
             self._handle_nameslist_update(irc_msg)
@@ -273,7 +273,7 @@ class Client:
             self,
             irc_msg: IRCMessage
     ):
-        channel_login = irc_msg.middles[-1][1:]
+        channel_login = irc_msg.channel
         channel = self._channels_by_login[channel_login]
         nameslist = self._nameslists.pop(channel_login)
         # if has handler
@@ -292,7 +292,7 @@ class Client:
             self,
             irc_msg: IRCMessage
     ):
-        channel_login = irc_msg.middles[-1][1:]
+        channel_login = irc_msg.channel
         nameslist = self._nameslists.pop(channel_login)
         channel = self._unprepared_channels[channel_login]
         channel.nameslist = tuple(nameslist)
@@ -304,7 +304,7 @@ class Client:
             self,
             irc_msg: IRCMessage
     ) -> None:
-        channel_login = irc_msg.middles[-1][1:]
+        channel_login = irc_msg.channel
         if 'room-login' not in irc_msg.tags:
             irc_msg.tags['room-login'] = channel_login
         # if exists
@@ -318,7 +318,7 @@ class Client:
             self,
             irc_msg: IRCMessage
     ) -> None:
-        channel_login = irc_msg.middles[-1][1:]
+        channel_login = irc_msg.channel
         channel = Channel(irc_msg.tags, self._send)
         channel.my_state = self._local_states.pop(channel_login, None)
         # nameslist
@@ -336,7 +336,7 @@ class Client:
             self,
             irc_msg: IRCMessage
     ) -> None:
-        channel_login = irc_msg.middles[-1][1:]
+        channel_login = irc_msg.channel
         channel = self._channels_by_login.get(channel_login)
         # if channel is prepared
         if channel is not None:
@@ -360,7 +360,7 @@ class Client:
             self,
             irc_msg: IRCMessage
     ) -> None:
-        channel_login = irc_msg.middles[-1][1:]
+        channel_login = irc_msg.channel
         if 'user-login' not in irc_msg.tags:
             irc_msg.tags['user-login'] = self.global_state.login
         if 'user-id' not in irc_msg.tags:
@@ -379,7 +379,7 @@ class Client:
             self,
             irc_msg: IRCMessage
     ):
-        channel_login = irc_msg.middles[-1][1:]
+        channel_login = irc_msg.channel
         channel = self._channels_by_login[channel_login]
         # if has handler
         if hasattr(self, 'on_my_state_update'):
@@ -397,7 +397,7 @@ class Client:
             self,
             irc_msg: IRCMessage
     ):
-        channel_login = irc_msg.middles[-1][1:]
+        channel_login = irc_msg.channel
         channel = self._unprepared_channels[channel_login]
         channel.my_state = LocalState(irc_msg.tags)
         if self._is_channel_ready(channel_login):
@@ -408,7 +408,7 @@ class Client:
             irc_msg: IRCMessage
     ) -> None:
         if hasattr(self, 'on_message'):
-            channel_login = irc_msg.middles[-1][1:]
+            channel_login = irc_msg.channel
             channel = self._get_prepared_channel(channel_login)
             if 'user-login' not in irc_msg.tags:
                 irc_msg.tags['user-login'] = irc_msg.nickname
@@ -437,7 +437,7 @@ class Client:
             irc_msg: IRCMessage
     ) -> None:
         if hasattr(self, 'on_join'):
-            channel_login = irc_msg.middles[-1][1:]
+            channel_login = irc_msg.channel
             channel = self._get_prepared_channel(channel_login)
             user_login = irc_msg.nickname
             # if has handler
@@ -451,7 +451,7 @@ class Client:
     ) -> None:
         if hasattr(self, 'on_part'):
             user_login = irc_msg.nickname
-            channel_login = irc_msg.middles[-1][1:]
+            channel_login = irc_msg.channel
             channel = self._get_prepared_channel(channel_login)
             # if has handler
             self._do_later(
@@ -465,14 +465,14 @@ class Client:
         notice_id = irc_msg.tags.get('msg-id')
         # if channel join error
         if notice_id == 'msg_room_not_found':
-            channel_login = irc_msg.middles[-1][1:]
+            channel_login = irc_msg.channel
             self.joined_channel_logins.discard(channel_login)
             if hasattr(self, 'on_self_join_error'):
                 self._do_later(
                     self.on_self_join_error(channel_login)
                 )
         elif hasattr(self, 'on_notice'):
-            channel_login = irc_msg.middles[-1][1:]
+            channel_login = irc_msg.channel
             channel = self._get_prepared_channel(channel_login)
             # if has handler
             self._do_later(
@@ -496,7 +496,7 @@ class Client:
     ) -> None:
         if hasattr(self, 'on_clear_chat_from_user'):
             # channel
-            channel_login = irc_msg.middles[-1][1:]
+            channel_login = irc_msg.channel
             channel = self._get_prepared_channel(channel_login)
             # values
             target_user_login = irc_msg.content
@@ -516,7 +516,7 @@ class Client:
             irc_msg: IRCMessage
     ) -> None:
         if hasattr(self, 'on_clear_chat'):
-            channel_login = irc_msg.middles[-1][1:]
+            channel_login = irc_msg.channel
             channel = self._get_prepared_channel(channel_login)
             # if has handler
             self._do_later(
@@ -529,7 +529,7 @@ class Client:
     ) -> None:
         if hasattr(self, 'on_message_delete'):
             # channel
-            channel_login = irc_msg.middles[-1][1:]
+            channel_login = irc_msg.channel
             channel = self._get_prepared_channel(channel_login)
             # values
             user_login = irc_msg.tags.get('login')
@@ -545,7 +545,7 @@ class Client:
             irc_msg: IRCMessage
     ) -> None:
         # channel
-        channel_login = irc_msg.middles[-1][1:]
+        channel_login = irc_msg.channel
         channel = self._get_prepared_channel(channel_login)
         # select handler
         event_type = irc_msg.tags.get('msg-id')
@@ -590,7 +590,7 @@ class Client:
             irc_msg: IRCMessage
     ) -> None:
         if hasattr(self, 'on_host_start'):
-            channel_login = irc_msg.middles[-1][1:]
+            channel_login = irc_msg.channel
             channel = self._get_prepared_channel(channel_login)
             host_login, viewers_count = irc_msg.content.split(' ', 1)
             viewers_count = int(viewers_count) if (viewers_count != '-') else 0
@@ -603,7 +603,7 @@ class Client:
             irc_msg: IRCMessage
     ) -> None:
         if hasattr(self, 'on_host_stop'):
-            channel_login = irc_msg.middles[-1][1:]
+            channel_login = irc_msg.channel
             channel = self._get_prepared_channel(channel_login)
             host_login, viewers_count = irc_msg.content.split(' ', 1)
             viewers_count = int(viewers_count) if (viewers_count != '-') else 0

@@ -31,7 +31,8 @@ class IRCMessage:
         self.params: List[str]
         self.middles: List[str]
         self.trailing: Optional[str]
-        self.params, self.middles, self.trailing = self._parse_raw_params()
+        self.channel: Optional[str]
+        self.params, self.middles, self.trailing, self.channel = self._parse_raw_params()
         self.content: Optional[str] = self.trailing
 
     def update_tags(
@@ -134,7 +135,7 @@ class IRCMessage:
                     nickname = prefix
         return servername, nickname, user, host
 
-    def _parse_raw_params(self) -> Tuple[Tuple, Tuple, Optional[str]]:
+    def _parse_raw_params(self) -> Tuple[Tuple, Tuple, Optional[str], Optional[str]]:
         # possible cases:             # middle may contain ':', trailing may contain ' ', ':', ' :'.
         # None                        # no params
         # 'middle'                    # middles, no trailing
@@ -144,22 +145,23 @@ class IRCMessage:
         # 'middle '*14 + 'trai :ling' # same and trailing contains separators (' ', ':', ' :')
         # ':trailing'                 # no middle, trailing
 
-        # if has not params
-        if not self.raw_params:
-            params = ()
-            middles = ()
-            trailing = None
-        # if has params
-        else:
+        params = []
+        middles = []
+        trailing = None
+        channel = None
+        if self.raw_params:
             raw_parsed_params = self.raw_params.split(' ', 14)
             for index, param in enumerate(raw_parsed_params):
+                # if channel
+                if param.startswith('#'):
+                    channel = param[1:]
                 # if trailing exists and starts with ':'
-                if param.startswith(':'):
+                elif param.startswith(':'):
                     trailing = ' '.join(raw_parsed_params[index:])
                     trailing = trailing.removeprefix(':')
                     middles = raw_parsed_params[:index]
                     params = middles + [trailing]
-                    break
+                    break  # avoidance else-block
             else:
                 # if trailing exists and starts without ':' (only if there is 14 of middles)
                 if len(raw_parsed_params) == 15:
@@ -168,10 +170,9 @@ class IRCMessage:
                     params = raw_parsed_params
                 # if trailing not exists
                 else:
-                    trailing = None
                     params = middles = raw_parsed_params
 
-        return tuple(params), tuple(middles), trailing
+        return tuple(params), tuple(middles), trailing, channel
 
     @staticmethod
     def _join_tags(tags: Dict[str, Any]):
@@ -193,7 +194,7 @@ class IRCMessage:
             try:
                 assert self.command == other.command
                 assert self.prefix == other.prefix
-                assert set(self.middles) == set(other.middles)  # sets to neglect params' positions. faster than sorted
+                assert set(self.middles) == set(other.middles)  # sets neglect params' positions. faster than sorted
                 assert self.tags == other.tags
             except AssertionError:
                 return False

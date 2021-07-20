@@ -118,41 +118,53 @@ def test_parse_prefix():
 
 
 def test_parse_raw_params():
-    # midle
-    irc_message = IRCMessage('COMMAND middle')
-    assert irc_message.params == ('middle',)
-    assert irc_message.middles == ('middle',)
-    assert irc_message.trailing is None
+    # middle
+    irc_msg = IRCMessage('COMMAND middle')
+    assert irc_msg.params == ('middle',)
+    assert irc_msg.middles == ('middle',)
+    assert irc_msg.trailing is None
     # middle, trailing (':')
-    irc_message = IRCMessage('COMMAND middle :trailing')
-    assert irc_message.params == ('middle', 'trailing')
-    assert irc_message.middles == ('middle',)
-    assert irc_message.trailing == 'trailing'
+    irc_msg = IRCMessage('COMMAND middle :trailing')
+    assert irc_msg.params == ('middle', 'trailing')
+    assert irc_msg.middles == ('middle',)
+    assert irc_msg.trailing == 'trailing'
     # same and trailing contains separators
-    irc_message = IRCMessage('COMMAND middle :trai :ling')
-    assert irc_message.params == ('middle', 'trai :ling')
-    assert irc_message.middles == ('middle',)
-    assert irc_message.trailing == 'trai :ling'
+    irc_msg = IRCMessage('COMMAND middle :trai :ling')
+    assert irc_msg.params == ('middle', 'trai :ling')
+    assert irc_msg.middles == ('middle',)
+    assert irc_msg.trailing == 'trai :ling'
     # middle, trailing (no ':')
-    irc_message = IRCMessage('COMMAND ' + 'middle '*14 + 'trailing')
-    assert irc_message.params == ('middle',) * 14 + ('trailing',)
-    assert irc_message.middles == ('middle',) * 14
-    assert irc_message.trailing == 'trailing'
+    irc_msg = IRCMessage('COMMAND ' + 'middle '*14 + 'trailing')
+    assert irc_msg.params == ('middle',) * 14 + ('trailing',)
+    assert irc_msg.middles == ('middle',) * 14
+    assert irc_msg.trailing == 'trailing'
     # same and trailing contains separators
-    irc_message = IRCMessage('COMMAND ' + 'middle '*14 + 'trai :ling')
-    assert irc_message.params == ('middle',) * 14 + ('trai :ling',)
-    assert irc_message.middles == ('middle',) * 14
-    assert irc_message.trailing == 'trai :ling'
+    irc_msg = IRCMessage('COMMAND ' + 'middle '*14 + 'trai :ling')
+    assert irc_msg.params == ('middle',) * 14 + ('trai :ling',)
+    assert irc_msg.middles == ('middle',) * 14
+    assert irc_msg.trailing == 'trai :ling'
     # trailing
-    irc_message = IRCMessage('COMMAND :trailing')
-    assert irc_message.params == ('trailing',)
-    assert irc_message.middles == ()
-    assert irc_message.trailing == 'trailing'
+    irc_msg = IRCMessage('COMMAND :trailing')
+    assert irc_msg.params == ('trailing',)
+    assert irc_msg.middles == ()
+    assert irc_msg.trailing == 'trailing'
     # None
-    irc_message = IRCMessage('COMMAND')
-    assert irc_message.params == ()
-    assert irc_message.middles == ()
-    assert irc_message.trailing is None
+    irc_msg = IRCMessage('COMMAND')
+    assert irc_msg.params == ()
+    assert irc_msg.middles == ()
+    assert irc_msg.trailing is None
+    # channel
+    irc_msg = IRCMessage('COMMAND #channel_login middle last')
+    assert irc_msg.channel == 'channel_login'
+    irc_msg = IRCMessage('COMMAND first #channel_login last')
+    assert irc_msg.channel == 'channel_login'
+    irc_msg = IRCMessage('COMMAND first middle #channel_login')
+    assert irc_msg.channel == 'channel_login'
+    irc_msg = IRCMessage('COMMAND first middle #channel_login :trai :ling')
+    assert irc_msg.channel == 'channel_login'
+    irc_msg = IRCMessage('COMMAND first middle channel_login :trai :ling')
+    assert irc_msg.channel is None
+
 
 
 def test_update_tags():
