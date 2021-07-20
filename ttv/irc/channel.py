@@ -1,7 +1,7 @@
-from . import IRCMessage
+from .irc_message import IRCMessage
 from .user_states import LocalState
 
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Optional
 
 __all__ = ('Channel',)
 
@@ -76,3 +76,20 @@ class Channel:
 
     async def clear(self):
         await self.send_message('/clear')
+
+
+class ChannelParts:
+    def __init__(self):
+        self.irc_msg: Optional[IRCMessage] = None
+        self.local_state: Optional[LocalState] = None
+        self.names: Optional[Iterable[str]] = None
+
+    def is_ready(self):
+        return all((
+            isinstance(self.irc_msg, IRCMessage),
+            isinstance(self.local_state, LocalState),
+            isinstance(self.names, tuple)
+        ))
+
+    def create_channel(self, send_callback: Callable) -> Channel:
+        return Channel(self.irc_msg, self.local_state, self.names, send_callback)
