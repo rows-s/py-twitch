@@ -35,6 +35,10 @@ class IRCMessage:
         self.params, self.middles, self.trailing, self.channel = self._parse_raw_params()
         self.content: Optional[str] = self.trailing
 
+    @classmethod
+    def create_empty(cls):
+        return cls('COMMAND')
+
     def update_tags(
             self,
             tags: Dict[str, Any]

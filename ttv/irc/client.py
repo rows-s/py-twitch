@@ -312,6 +312,7 @@ class Client:
             self,
             irc_msg: IRCMessage
     ) -> None:
+        irc_msg.update_tags({'room-login': irc_msg.channel})
         channel = Channel(irc_msg.tags, None, None, self._send)
         channel.my_state = self._local_states.pop(irc_msg.channel, None)
         # names
@@ -335,18 +336,18 @@ class Client:
             # if has handler
             if hasattr(self, 'on_channel_update'):
                 before = copy(channel)
-                channel.set_new_values(irc_msg.tags)
+                channel.update_state(irc_msg.tags)
                 after = copy(channel)
                 self._do_later(
                     self.on_channel_update(before, after)
                 )
             # if hasn't handler
             else:
-                channel.set_new_values(irc_msg.tags)
+                channel.update_state(irc_msg.tags)
         # if channel is not prepared
         elif irc_msg.channel in self._unprepared_channels:
             channel = self._unprepared_channels[irc_msg.channel]
-            channel.set_new_values(irc_msg.tags)
+            channel.update_state(irc_msg.tags)
 
     def _handle_userstate(
             self,
