@@ -2,9 +2,8 @@ import asyncio
 import os
 
 import websockets
-from websockets import ConnectionClosedError
 import pytest
-from time import sleep, time
+from time import sleep
 from ttv.irc import Client, IRCMessage, Channel, GlobalState, LocalState
 from ttv.irc.exceptions import ChannelNotPrepared, FunctionIsNotCorutine, UnknownEvent, LoginFailed, CapabilitiesReqError
 
