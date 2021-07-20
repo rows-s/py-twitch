@@ -191,10 +191,10 @@ class IRCMessage:
     def __eq__(self, other) -> bool:
         if isinstance(other, IRCMessage):
             try:
-                assert self.tags == other.tags
-                assert self.prefix == other.prefix
                 assert self.command == other.command
+                assert self.prefix == other.prefix
                 assert set(self.params) == set(other.params)  # sets to neglect params' positions. faster than sorted
+                assert self.tags == other.tags
             except AssertionError:
                 return False
             else:

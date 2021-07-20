@@ -314,6 +314,12 @@ def test_remove_tags():
     assert_tags(irc_msg, new_msg)
 
 
+def test_join_tags():
+    assert IRCMessage._join_tags({'one-tag': 'one-value'}) == 'one-tag=one-value'
+    assert IRCMessage._join_tags({'one-no-tag-value': None}) == 'one-no-tag-value'
+    assert IRCMessage._join_tags({'key': 'value', 'no-value-tag': None, 'key2': 'value2'}) == 'key=value;no-value-tag;key2=value2'
+
+
 def test_eq():
     assert IRCMessage('COMMAND') == IRCMessage('COMMAND')
     assert IRCMessage('COMMAND') != IRCMessage('ERROR')
@@ -331,4 +337,3 @@ def test_contains():
 def test_str_repr():
     assert str(IRCMessage('COMMAND')) == 'COMMAND'
     assert repr(IRCMessage('COMMAND')) == 'COMMAND'
-
