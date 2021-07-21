@@ -194,12 +194,15 @@ class IRCMessage:
             return ';'.join(raw_tags_list)
 
     def __eq__(self, other) -> bool:
-        return all((
-            self.command == other.command,
-            self.prefix == other.prefix,
-            set(self.middles) == set(other.middles),
-            self.tags == other.tags
-        ))
+        try:
+            assert self.command == other.command
+            assert self.prefix == other.prefix
+            assert set(self.middles) == set(other.middles)
+            assert self.tags == other.tags
+        except AssertionError:
+            return False
+        else:
+            return True
 
     def __contains__(self, item) -> bool:
         if type(item) is str:

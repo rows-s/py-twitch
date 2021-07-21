@@ -7,7 +7,7 @@ from time import time
 
 from .irc_message import IRCMessage
 from .messages import ChannelMessage, WhisperMessage
-from .channel import Channel
+from .channel import Channel, ChannelsAccumulator
 from .users import ChannelMember, GlobalUser
 from .user_states import GlobalState, LocalState
 from .events import ClearChatFromUser
@@ -36,7 +36,7 @@ class Client:
         self.joined_channel_logins: Set[str] = set()
         self._channels_by_id: Dict[str, Channel] = {}  # id_channel: Channel
         self._channels_by_login: Dict[str, Channel] = {}  # channel_login: Channel
-        self._unprepared_channels: Dict[str, Channel] = {}  # channel_login: unprepared_channel
+        self._channels_accumulator: ChannelsAccumulator = ChannelsAccumulator(self._save_channel, self._send)
         self._names: Dict[str, Union[List[str], Tuple[str]]] = {}  # channel_login: names
         self._local_states: Dict[str, LocalState] = {}  # channel_login: local_state
         self._delayed_irc_msgs: Dict[str, List[IRCMessage]] = {}  # channel_login: [irc_msg, ...]
@@ -247,31 +247,23 @@ class Client:
             self,
             irc_msg: IRCMessage
     ) -> None:
-        names_part = irc_msg.content.split(' ')  # current part
-        names = self._names.setdefault(irc_msg.channel, [])
-        names.extend(names_part)
+        self._channels_accumulator.update_names(irc_msg)
 
     def _handle_names_end(
             self,
             irc_msg: IRCMessage
     ) -> None:
-        # if prepared
         if irc_msg.channel in self._channels_by_login:
             self._handle_names_update(irc_msg)
-        # if unprepared
-        elif irc_msg.channel in self._unprepared_channels:
-            self._handle_new_names(irc_msg)
-        # if not exists
         else:
-            names = self._names.pop(irc_msg.channel)
-            self._names[irc_msg.channel] = tuple(names)  # save for set it later
+            self._channels_accumulator.end_names(irc_msg)
 
     def _handle_names_update(
             self,
             irc_msg: IRCMessage
     ):
         channel = self._channels_by_login[irc_msg.channel]
-        names = self._names.pop(irc_msg.channel)
+        names = self._channels_accumulator.pop_names(irc_msg)  # if update no need to save parts
         # if has handler
         if hasattr(self, 'on_names_update'):
             before = channel.names
@@ -284,69 +276,33 @@ class Client:
         else:
             channel.names = tuple(names)
 
-    def _handle_new_names(
-            self,
-            irc_msg: IRCMessage
-    ):
-        names = self._names.pop(irc_msg.channel)
-        channel = self._unprepared_channels[irc_msg.channel]
-        channel.names = tuple(names)
-        # save if ready
-        if self._is_channel_ready(irc_msg.channel):  # isn't ready if isn't in unprepared
-            self._save_channel(irc_msg.channel)
-
     def _handle_roomstate(
             self,
             irc_msg: IRCMessage
     ) -> None:
         if 'room-login' not in irc_msg.tags:
             irc_msg.update_tags({'room-login': irc_msg.channel})
-        # if exists
-        if irc_msg.channel in self._channels_by_login or irc_msg.channel in self._unprepared_channels:
+        # selection
+        if irc_msg.channel in self._channels_by_login:
             self._handle_channel_update(irc_msg)
-        # if not exists
         else:
-            self._handle_new_channel(irc_msg)
-
-    def _handle_new_channel(
-            self,
-            irc_msg: IRCMessage
-    ) -> None:
-        irc_msg.update_tags({'room-login': irc_msg.channel})
-        channel = Channel(irc_msg.tags, None, None, self._send)
-        channel.my_state = self._local_states.pop(irc_msg.channel, None)
-        # names
-        names = self._names.get(irc_msg.channel)
-        if type(names) == tuple:
-            channel.names = names
-            self._names.pop(irc_msg.channel)  # remove
-        # save channel as unprepared
-        self._unprepared_channels[irc_msg.channel] = channel
-        # save as prepared if ready
-        if self._is_channel_ready(irc_msg.channel):
-            self._save_channel(irc_msg.channel)
+            self._channels_accumulator.update_room_state(irc_msg)
 
     def _handle_channel_update(
             self,
             irc_msg: IRCMessage
     ) -> None:
         channel = self._channels_by_login.get(irc_msg.channel)
-        # if channel is prepared
-        if channel is not None:
-            # if has handler
-            if hasattr(self, 'on_channel_update'):
-                before = copy(channel)
-                channel.update_state(irc_msg.tags)
-                after = copy(channel)
-                self._do_later(
-                    self.on_channel_update(before, after)
-                )
-            # if hasn't handler
-            else:
-                channel.update_state(irc_msg.tags)
-        # if channel is not prepared
-        elif irc_msg.channel in self._unprepared_channels:
-            channel = self._unprepared_channels[irc_msg.channel]
+        # if has handler
+        if hasattr(self, 'on_channel_update'):
+            before = copy(channel)
+            channel.update_state(irc_msg.tags)
+            after = copy(channel)
+            self._do_later(
+                self.on_channel_update(before, after)
+            )
+        # if hasn't handler
+        else:
             channel.update_state(irc_msg.tags)
 
     def _handle_userstate(
@@ -363,12 +319,8 @@ class Client:
         # if prepared
         if irc_msg.channel in self._channels_by_login:
             self._handle_userstate_update(irc_msg)
-        # if unprepared
-        elif irc_msg.channel in self._unprepared_channels:
-            self._handle_new_userstate(irc_msg)
-        # if not exists
         else:
-            self._local_states[irc_msg.channel] = LocalState(irc_msg.tags)
+            self._channels_accumulator.add_local_state(irc_msg)
 
     def _handle_userstate_update(
             self,
@@ -386,15 +338,6 @@ class Client:
         # if hasn't handler
         else:
             channel.my_state = LocalState(irc_msg.tags)
-
-    def _handle_new_userstate(
-            self,
-            irc_msg: IRCMessage
-    ):
-        channel = self._unprepared_channels[irc_msg.channel]
-        channel.my_state = LocalState(irc_msg.tags)
-        if self._is_channel_ready(irc_msg.channel):
-            self._save_channel(irc_msg.channel)
 
     def _handle_privmsg(
             self,
@@ -620,63 +563,34 @@ class Client:
     ):
         self._do_later(self._send('PONG :tmi.twitch.tv'))
 
-    def _is_channel_ready(
-            self,
-            channel_login: str
-    ) -> bool:
-        """
-        Returns True if channel with `channel_login` is ready:
-            1. is in `self._unprepared_channels`
-            2. has localstate (`channel.my_state`)
-            3. has names (`channel.names`)
-
-        Args:
-            channel_login: `str`
-                login of channel to check
-
-        Returns:
-            `bool`, indicates if channel with `channel_login` is ready
-        """
-        channel = self._unprepared_channels.get(channel_login)
-        if channel is None:
-            return False
-        if type(channel.my_state) != LocalState:
-            return False
-        if type(channel.names) != tuple:
-            return False
-        else:
-            return True
-
     def _save_channel(
             self,
-            channel_login: str
+            channel: Channel
     ) -> None:
         """
         1. Removes channel from `self._unprepared_channels`
-        2. Puts it in `self._channels_by_id` and `self._channels_by_login`
+        2. Adds it in `self._channels_by_id` and `self._channels_by_login`
         3. Creates async task `on_self_join`
         4. Creates async tasks that will handle every delayed message
 
         Args:
-            channel_login:
-                login of channel to save
+            channel: `Channel`
+                will be saved
 
         Returns:
             `None`
         """
-        channel = self._unprepared_channels.pop(channel_login)
         self._channels_by_id[channel.id] = channel
-        self._channels_by_login[channel_login] = channel
-        # if has handler
-        if hasattr(self, 'on_self_join'):
-            self._do_later(
-                self.on_self_join(channel)
-            )
+        self._channels_by_login[channel.login] = channel
         # handle delayed irc_messages
-        delayed_irc_messages = self._delayed_irc_msgs.pop(channel_login, [])
+        delayed_irc_messages = self._delayed_irc_msgs.pop(channel.login, ())
         for delayed_irc_message in delayed_irc_messages:
             self._do_later(
                 self._handle_command(delayed_irc_message)
+            )
+        if hasattr(self, 'on_self_join'):
+            self._do_later(
+                self.on_self_join(channel)
             )
 
     async def _send(

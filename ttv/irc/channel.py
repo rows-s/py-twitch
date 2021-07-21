@@ -1,9 +1,9 @@
 from .irc_message import IRCMessage
 from .user_states import LocalState
 
-from typing import Callable, Iterable, Optional
+from typing import Callable, Iterable, Optional, Dict, Union, List, Tuple, Coroutine
 
-__all__ = ('Channel',)
+__all__ = ('Channel', 'ChannelsAccumulator')
 
 
 class Channel:
@@ -78,18 +78,90 @@ class Channel:
         await self.send_message('/clear')
 
 
-class ChannelParts:
-    def __init__(self):
-        self.irc_msg: Optional[IRCMessage] = None
-        self.local_state: Optional[LocalState] = None
-        self.names: Optional[Iterable[str]] = None
+class ChannelsAccumulator:
+    def __init__(
+            self,
+            channel_ready_callback: Callable[[Channel], None],
+            send_callback: Callable[[str], Coroutine]
+    ) -> None:
+        self.room_states: Dict[str, IRCMessage] = {}
+        self.local_states: Dict[str, LocalState] = {}
+        self.names: Dict[str, Union[List[str], Tuple[str]]] = {}
+        self.channel_ready_callback: Callable[[Channel], None] = channel_ready_callback
+        self.send_callback: Callable[[str], Coroutine] = send_callback
 
-    def is_ready(self):
+    def add_room_state(
+            self,
+            state: IRCMessage
+    ) -> None:
+        self.room_states[state.channel] = state
+
+    def update_room_state(
+            self,
+            irc_msg: IRCMessage
+    ) -> None:
+        room_state = self.room_states.get(irc_msg.channel)
+        if room_state is None:
+            self.room_states[irc_msg.channel] = irc_msg
+            if self.is_channel_ready(irc_msg.channel):
+                self.call_channel_ready_callback(irc_msg.channel)
+        else:
+            room_state.update_tags(irc_msg.tags)
+
+    def add_local_state(
+            self,
+            irc_msg: IRCMessage
+    ) -> None:
+        self.local_states[irc_msg.channel] = LocalState(irc_msg.tags)
+        if self.is_channel_ready(irc_msg.channel):
+            self.call_channel_ready_callback(irc_msg.channel)
+
+    def update_names(
+            self,
+            irc_msg: IRCMessage
+    ) -> None:
+        new_names = irc_msg.trailing.split(' ')
+        names = self.names.get(irc_msg.channel)
+        if names is None:
+            self.names[irc_msg.channel] = new_names
+        else:
+            names.extend(new_names)
+
+    def end_names(
+            self,
+            irc_msg: IRCMessage
+    ) -> None:
+        self.names[irc_msg.channel] = tuple(self.names[irc_msg.channel])
+        if self.is_channel_ready(irc_msg.channel):
+            self.call_channel_ready_callback(irc_msg.channel)
+
+    def pop_names(
+            self,
+            irc_msg: IRCMessage
+    ) -> Union[List[str], Tuple[str]]:
+        return self.names.pop(irc_msg.channel)
+
+    def is_channel_ready(
+            self,
+            channel_login: str
+    ) -> bool:
         return all((
-            isinstance(self.irc_msg, IRCMessage),
-            isinstance(self.local_state, LocalState),
-            isinstance(self.names, tuple)
+            isinstance(self.room_states.get(channel_login), IRCMessage),
+            isinstance(self.local_states.get(channel_login), LocalState),
+            isinstance(self.names.get(channel_login), tuple)
         ))
 
-    def create_channel(self, send_callback: Callable) -> Channel:
-        return Channel(self.irc_msg, self.local_state, self.names, send_callback)
+    def call_channel_ready_callback(self, channel_login: str):
+        self.channel_ready_callback(
+            self.create_channel(channel_login, self.send_callback)
+        )
+
+    def create_channel(
+            self,
+            channel_login: str,
+            send_callback: Callable
+    ) -> Channel:
+        room_state = self.room_states.pop(channel_login)
+        local_state = self.local_states.pop(channel_login)
+        names = self.names.pop(channel_login)
+        return Channel(room_state, local_state, names, send_callback)
