@@ -310,7 +310,6 @@ class Client:
             irc_msg: IRCMessage
     ) -> None:
         # prepare tags
-        additional_tags = {}
         if 'user-login' not in irc_msg.tags:
             irc_msg.tags['user-login'] = self.global_state.login
         if 'user-id' not in irc_msg.tags:
@@ -361,7 +360,7 @@ class Client:
             if 'user-login' not in irc_msg.tags:
                 irc_msg.tags['user-login'] = irc_msg.nickname
             author = GlobalUser(irc_msg.tags, self.send_whisper)
-            whisper = WhisperMessage(author, irc_msg.content, irc_msg.tags)
+            whisper = WhisperMessage(irc_msg, author)
             self._do_later(
                 self.on_whisper(whisper)
             )

@@ -85,10 +85,9 @@ class WhisperMessage(BaseMessage):
     def __init__(
             self,
             irc_msg: IRCMessage,
-            author: GlobalUser,
-            content: str
+            author: GlobalUser
     ):
         irc_msg.tags['id'] = irc_msg.tags['message-id']  # rename the field
         super().__init__(irc_msg, author)
         self.thread_id = irc_msg.tags.get('thread-id')
-        self.emote_only: bool = is_emote_only(content, self.emotes)
+        self.emote_only: bool = is_emote_only(irc_msg.content, self.emotes)
