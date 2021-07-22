@@ -158,7 +158,7 @@ class Client:
         3. Rejoins(joins) channel from `self.joined_channels_logins`
         4. Calls `self.on_reconnect` event handler if registered.
         """
-        delay = self._delay_gen.__next__()
+        delay = next(self._delay_gen)
         await asyncio.sleep(delay)
         await self._log_in_irc()
         await self.join_channels(self.joined_channel_logins)
@@ -263,7 +263,7 @@ class Client:
             irc_msg: IRCMessage
     ):
         channel = self._channels_by_login[irc_msg.channel]
-        names = self._channels_accumulator.pop_names(irc_msg)  # if update no need to save parts
+        names = self._channels_accumulator.pop_names(irc_msg.channel)  # if update no need to save parts
         # if has handler
         if hasattr(self, 'on_names_update'):
             before = channel.names
@@ -280,6 +280,7 @@ class Client:
             self,
             irc_msg: IRCMessage
     ) -> None:
+        # tags preparing
         if 'room-login' not in irc_msg.tags:
             irc_msg.update_tags({'room-login': irc_msg.channel})
         # selection
@@ -295,9 +296,9 @@ class Client:
         channel = self._channels_by_login.get(irc_msg.channel)
         # if has handler
         if hasattr(self, 'on_channel_update'):
-            before = copy(channel)
+            before = channel.copy()
             channel.update_state(irc_msg.tags)
-            after = copy(channel)
+            after = channel.copy()
             self._do_later(
                 self.on_channel_update(before, after)
             )
@@ -328,12 +329,12 @@ class Client:
     ):
         channel = self._channels_by_login[irc_msg.channel]
         # if has handler
-        if hasattr(self, 'on_my_state_update'):
-            before = channel.my_state
-            channel.my_state = LocalState(irc_msg.tags)
-            after = channel.my_state
+        if hasattr(self, 'on_local_state_update'):
+            before = channel.local_state
+            channel.local_state = LocalState(irc_msg.tags)
+            after = channel.local_state
             self._do_later(
-                self.on_my_state_update(channel, before, after)
+                self.on_local_state_update(channel, before, after)
             )
         # if hasn't handler
         else:
@@ -568,10 +569,9 @@ class Client:
             channel: Channel
     ) -> None:
         """
-        1. Removes channel from `self._unprepared_channels`
-        2. Adds it in `self._channels_by_id` and `self._channels_by_login`
-        3. Creates async task `on_self_join`
-        4. Creates async tasks that will handle every delayed message
+        1. Adds it in `self._channels_by_id` and `self._channels_by_login`
+        3. Creates async tasks that will handle every delayed message
+        2. Calls event hanlder `self.on_self_join`
 
         Args:
             channel: `Channel`
@@ -891,7 +891,7 @@ class Client:
         'on_message',  # PRIVMSG
         'on_whisper',  # WHISPER
         'on_channel_update', 'on_self_join',  # ROOMSTATE
-        'on_my_state_update',  # USERSTATE
+        'on_local_state_update',  # USERSTATE
         'on_names_update',  # 366
         'on_login', 'on_global_state_update',  # GLOBALUSERSTATE
         'on_join',  # JOIN

@@ -1,11 +1,12 @@
 import asyncio
 import os
+from typing import Tuple
 
 import websockets
 import pytest
 from time import sleep
 from ttv.irc import Client, IRCMessage, Channel, GlobalState, LocalState, ChannelMessage
-from ttv.irc.exceptions import ChannelNotPrepared, FunctionIsNotCorutine, UnknownEvent, LoginFailed, CapabilitiesReqError
+from ttv.irc.exceptions import *
 
 IRC_TOKEN = os.getenv('TTV_IRC_TOKEN')
 IRC_USERNAME = os.getenv('TTV_IRC_NICK')
@@ -41,7 +42,10 @@ def test_event_registration():
 
 def test_channel_getters():
     ttv_bot = Client('token', 'login')
-    channel = Channel({'room-id': '0123', 'room-login': 'login'}, lambda _: None)
+    IRCMessage('@room-id=0123;room-login=login')
+    channel = Channel(
+        IRCMessage('@room-id=0123;room-login=login'), None, None, lambda _: None
+    )
     ttv_bot._channels_by_id[channel.id] = channel
     ttv_bot._channels_by_login[channel.login] = channel
     # id
@@ -94,20 +98,18 @@ async def test_start():
     @valid_bot.event
     async def on_join(channel: Channel, user_login: str):
         nonlocal got_join
-        if user_login == IRC_USERNAME:
+        if user_login == IRC_USERNAME and channel.login == IRC_USERNAME:
             got_join = True
 
     @valid_bot.event
     async def on_self_join(channel: Channel):
         nonlocal joined_channel
-        joined_channel = True
-        assert channel.login == IRC_USERNAME
-        assert channel.my_state.is_broadcaster
-        assert channel.my_state.display_name.lower() == IRC_USERNAME
-        assert channel.my_state.badges['broadcaster'] == '1'
+        if channel.login == IRC_USERNAME and channel.local_state.is_broadcaster:
+            if channel.local_state.login == IRC_USERNAME:
+                joined_channel = True
         await valid_bot._websocket.close(1000)
 
-    await valid_bot.start([IRC_USERNAME])
+    await valid_bot.start([IRC_USERNAME])  # will be finished in `on_self_join()`
     assert logged_in
     assert got_join
     assert joined_channel
@@ -199,9 +201,8 @@ async def test_restart():
     @valid_bot.event
     async def on_login():
         nonlocal is_loged_in
-        assert not is_loged_in
-        is_loged_in = True
-        assert valid_bot.is_running
+        if not is_loged_in and valid_bot.is_running:
+            is_loged_in = True
 
     @valid_bot.event
     async def on_reconnect():
@@ -211,45 +212,41 @@ async def test_restart():
     @valid_bot.event
     async def on_self_join(channel: Channel):
         nonlocal is_joined
-        assert not is_joined
-        is_joined = True
-        assert channel.login == IRC_USERNAME
-        assert channel.my_state.is_broadcaster
+        if not is_joined and channel.login == IRC_USERNAME and channel.local_state.is_broadcaster:
+            is_joined = True
 
     @valid_bot.event
     async def on_channel_update(before: Channel, after: Channel):
         nonlocal is_updated
-        is_updated = True
-        assert before.login == after.login == IRC_USERNAME
-        assert before.my_state.display_name.lower() == after.my_state.display_name.lower() == IRC_USERNAME
+        if before.login == after.login == IRC_USERNAME:
+            if before.local_state.login == after.local_state.login == IRC_USERNAME:
+                is_updated = True
 
     @valid_bot.event
     async def on_global_state_update(before: GlobalState, after: GlobalState):
         nonlocal is_global_state_updated
-        is_global_state_updated = True
-        assert before.login == after.login == IRC_USERNAME
+        if before.login == after.login == IRC_USERNAME:
+            is_global_state_updated = True
 
     @valid_bot.event
-    async def on_my_state_update(channel: Channel, before: LocalState, after: LocalState):
+    async def on_local_state_update(channel: Channel, before: LocalState, after: LocalState):
         nonlocal is_local_state_updated
-        is_local_state_updated = True
-        assert channel.login == IRC_USERNAME
-        assert before.login == after.login == IRC_USERNAME
-        assert before.is_broadcaster and after.is_broadcaster
+        if channel.login == IRC_USERNAME and before.login == after.login == IRC_USERNAME:
+            if before.is_broadcaster and after.is_broadcaster:
+                is_local_state_updated = True
 
     @valid_bot.event
-    async def on_nameslist_update(channel: Channel, before, after):
+    async def on_names_update(channel: Channel, before, after):
         nonlocal is_nameslist_updated
-        is_nameslist_updated = True
-        assert channel.login == IRC_USERNAME
-        assert IRC_USERNAME in before and IRC_USERNAME in after
+        if channel.login == IRC_USERNAME and IRC_USERNAME in before and IRC_USERNAME in after:
+            is_nameslist_updated = True
 
     valid_bot.loop.create_task(valid_bot.start([IRC_USERNAME]))
     await asyncio.sleep(5)  # let the task work
 
     for delay in (0, 1, 2, 4, 8, 16, 16):
         await valid_bot._websocket.close(3000)  # restart will be called within start()
-        # 40 (280) retests (restarts) was passed in a row with 20 seconds delay.
+        # 40 (280) retests (restarts) was passed in a row with 20 and 25 seconds delay.
         await asyncio.sleep(delay + 20)  # delay + time for handlers (had troubles using 15 and less)
         assert is_loged_in
         assert is_joined
@@ -282,8 +279,8 @@ async def test_handle_command():
     @ttv_bot.event
     async def on_unknown_command(irc_msg: IRCMessage):
         nonlocal is_on_unknown_command_called
-        is_on_unknown_command_called = True
-        assert irc_msg is ack_msg
+        if irc_msg is ack_msg:
+            is_on_unknown_command_called = True
 
     await ttv_bot._handle_command(ack_msg)
     await asyncio.sleep(0.001)
@@ -292,7 +289,118 @@ async def test_handle_command():
 
 
 @pytest.mark.asyncio
-async def test_handle_nameslist_part():
-    pass
+async def test_handle_names_part():
+    ttv_bot = Client('token', 'login')
+    # set(update)
+    irc_msg_nmsp = IRCMessage(':username.tmi.twitch.tv 353 username = #username :username username2 username3')
+    names = ['username', 'username2', 'username3']
+    await ttv_bot._handle_command(irc_msg_nmsp)
+    assert ttv_bot._channels_accumulator.names[irc_msg_nmsp.channel] == names
+    # update
+    irc_msg_nmsp2 = IRCMessage(':username.tmi.twitch.tv 353 username = #username :username4 username5 username6')
+    await ttv_bot._handle_command(irc_msg_nmsp2)
+    names2 = ['username4', 'username5', 'username6']
+    assert ttv_bot._channels_accumulator.pop_names(irc_msg_nmsp2.channel) == names + names2
 
+
+@pytest.mark.asyncio
+async def test_handle_names_end():
+    ttv_bot = Client('token', 'login')
+    # end
+    irc_msg_nmsp = IRCMessage(':username.tmi.twitch.tv 353 username = #username :username username2 username3')
+    irc_msg_nmse = IRCMessage(':username.tmi.twitch.tv 366 username #username :End of /NAMES list')
+    await ttv_bot._handle_command(irc_msg_nmsp)
+    await ttv_bot._handle_command(irc_msg_nmse)
+    assert ttv_bot._channels_accumulator.pop_names(irc_msg_nmse.channel) == ('username', 'username2', 'username3')
+    # also is being tested in `test_handle_names_update()`
+
+
+@pytest.mark.asyncio
+async def test_handle_names_update():
+    ttv_bot = Client('token', 'login')
+    is_names_updated = False
+
+    @ttv_bot.event
+    async def on_names_update(channel: Channel, before: Tuple, after: Tuple):
+        nonlocal is_names_updated
+        if channel.login == 'username':
+            is_names_updated = True
+
+    ttv_bot._channels_by_login['username'] = Channel({'room-login': 'username'}, LocalState({}), (), lambda: None)
+    # end
+    irc_msg_nmsp = IRCMessage(':username.tmi.twitch.tv 353 username = #username :username username2 username3')
+    irc_msg_nmse = IRCMessage(':username.tmi.twitch.tv 366 username #username :End of /NAMES list')
+    await ttv_bot._handle_command(irc_msg_nmsp)
+    await ttv_bot._handle_command(irc_msg_nmse)
+    assert ttv_bot.get_channel_by_login(irc_msg_nmse.channel).names == ('username', 'username2', 'username3')
+    await asyncio.sleep(0.001)
+    assert is_names_updated
+
+
+@pytest.mark.asyncio
+async def test_handle_roomstate():
+    ttv_bot = Client('token', 'login')
+    irc_msg_rs = IRCMessage(
+        '@emote-only=0;followers-only=0;r9k=0;rituals=0;room-id=0;slow=0;subs-only=0 :tmi.twitch.tv ROOMSTATE #rows_s'
+    )
+    await ttv_bot._handle_command(irc_msg_rs)
+    assert ttv_bot._channels_accumulator.room_states[irc_msg_rs.channel] is irc_msg_rs
+    # also is being tested in `test_handle_channel_update()`
+
+
+@pytest.mark.asyncio
+async def test_handle_channel_update():
+    ttv_bot = Client('token', 'login')
+    is_channel_updated = False
+
+    @ttv_bot.event
+    async def on_channel_update(before: Channel, after: Channel):
+        nonlocal is_channel_updated
+        if before.login == after.login == 'username' and not before.is_emote_only and after.is_emote_only:
+            is_channel_updated = True
+
+    ttv_bot._channels_by_login['username'] = Channel({'room-login': 'username'}, LocalState({}), (), lambda: None)
+    irc_msg_rsu = IRCMessage('@emote-only=1 :tmi.twitch.tv ROOMSTATE #username')
+    await ttv_bot._handle_command(irc_msg_rsu)
+    assert ttv_bot.get_channel_by_login(irc_msg_rsu.channel).is_emote_only
+    await asyncio.sleep(0.001)
+    assert is_channel_updated
+    # end
+
+
+@pytest.mark.asyncio
+async def test_handle_userstate_update():
+    ttv_bot = Client('token', 'login')
+    irc_msg_gus = IRCMessage('@user-id=10;user-login=username :tmi.twitch.tv GLOBALUSERSTATE')
+    await ttv_bot._handle_command(irc_msg_gus)
+    irc_msg_us = IRCMessage('@badges=broadcaster/1 :tmi.twitch.tv USERSTATE #username')
+    await ttv_bot._handle_command(irc_msg_us)
+    assert ttv_bot._channels_accumulator.local_states[irc_msg_us.channel] == irc_msg_us
+
+
+@pytest.mark.asyncio
+async def test_handle_userstate_update():
+    ttv_bot = Client('token', 'login')
+    irc_msg_gus = IRCMessage('@user-id=10;user-login=username :tmi.twitch.tv GLOBALUSERSTATE')
+    await ttv_bot._handle_command(irc_msg_gus)
+    is_userstate_updated = False
+    
+    @ttv_bot.event
+    async def on_local_state_update(channel: Channel, before: LocalState, after: LocalState):
+        nonlocal is_userstate_updated
+        if channel.login == 'username':
+            if before.login == after.login == 'username':
+                if not before.is_broadcaster and after.is_broadcaster:
+                    is_userstate_updated = True
+
+    ttv_bot._channels_by_login['username'] = Channel({'room-login': 'username'},
+                                                     LocalState({'user-login': 'username'}),
+                                                     (),
+                                                     lambda: None)
+    irc_msg_usu = IRCMessage('@badges=broadcaster/1 :tmi.twitch.tv USERSTATE #username')
+    await ttv_bot._handle_command(irc_msg_usu)
+    assert ttv_bot.get_channel_by_login(irc_msg_usu.channel).local_state.is_broadcaster
+    await asyncio.sleep(0.001)
+    assert is_userstate_updated
+    
 

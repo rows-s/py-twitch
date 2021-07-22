@@ -52,7 +52,7 @@ def test_is_emote_only():
 
 
 def test_parse_raw_badges():
-    assert parse_raw_badges('predictions/KEENY\\sDEYY,vip/1') == {'predictions': 'KEENY DEYY', 'vip': '1'}
+    assert parse_raw_badges('predictions/KEENY DEYY,vip/1') == {'predictions': 'KEENY DEYY', 'vip': '1'}
     assert parse_raw_badges('vip/1,subscriber/6,glitchcon2020/1') == {
         'vip': '1', 'subscriber': '6', 'glitchcon2020': '1'
     }

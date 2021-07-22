@@ -55,13 +55,7 @@ def parse_raw_badges(
 
 
 def escape_tag_value(value: str):
-    if value:
-        replacements = {' ': r'\s', ';': r'\:', '\\': '\\\\'}
-        value = list(value)
-        for i, symbol in enumerate(value):
-            if symbol in replacements:
-                value[i] = replacements[value[i]]
-        return ''.join(value)
+    return value.replace('\\', '\\\\').replace(' ', r'\s').replace(';', r'\:')
 
 
 def unescape_tag_value(value: str) -> str:

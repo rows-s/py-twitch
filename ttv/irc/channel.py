@@ -1,3 +1,5 @@
+from copy import copy
+
 from .irc_message import IRCMessage
 from .user_states import LocalState
 
@@ -11,15 +13,16 @@ class Channel:
             self,
             irc_msg: IRCMessage,
             local_state: LocalState,
-            names: Iterable[str],
+            names: Tuple[str],
             _send_callback: Callable
     ) -> None:
-        self._tags = irc_msg.tags
-        self.local_state = local_state
-        # TODO: logically the class must not have this variable (local_stae),
+        self.irc_msg: IRCMessage = irc_msg
+        self._tags: Dict[str, Optional[str]] = tags
+        self.local_state: LocalState = local_state
+        # TODO: logically the class must not have this variable (local_state),
         #  because it represents state of a IRCUser not anything of IRCChannel.
         #  But that way's easier to understand and to use
-        self.names = names
+        self.names: Tuple[str] = names
         self._send: Callable = _send_callback
 
     @property
@@ -62,8 +65,8 @@ class Channel:
     def is_followers_only(self) -> bool:
         return self.followers_only_minutes != -1
 
-    def update_state(self, irc_msg: IRCMessage):
-        self._tags.update(irc_msg.tags)
+    def update_state(self, tags: Dict[str, Optional[str]]):
+        self._tags.update(tags)
 
     async def send_message(
             self,
@@ -76,6 +79,12 @@ class Channel:
 
     async def clear(self):
         await self.send_message('/clear')
+
+    def copy(self):
+        tags = self._tags.copy()
+        local_state = copy(self.local_state)
+        names = self.names
+        return self.__class__(self._tags.copy(), local_state, names, self._send)
 
 
 class ChannelsAccumulator:
@@ -103,10 +112,10 @@ class ChannelsAccumulator:
         room_state = self.room_states.get(irc_msg.channel)
         if room_state is None:
             self.room_states[irc_msg.channel] = irc_msg
-            if self.is_channel_ready(irc_msg.channel):
-                self.call_channel_ready_callback(irc_msg.channel)
         else:
             room_state.update_tags(irc_msg.tags)
+        if self.is_channel_ready(irc_msg.channel):
+            self.call_channel_ready_callback(irc_msg.channel)
 
     def add_local_state(
             self,
@@ -137,9 +146,9 @@ class ChannelsAccumulator:
 
     def pop_names(
             self,
-            irc_msg: IRCMessage
+            channel_login: str
     ) -> Union[List[str], Tuple[str]]:
-        return self.names.pop(irc_msg.channel)
+        return self.names.pop(channel_login)
 
     def is_channel_ready(
             self,
@@ -153,15 +162,14 @@ class ChannelsAccumulator:
 
     def call_channel_ready_callback(self, channel_login: str):
         self.channel_ready_callback(
-            self.create_channel(channel_login, self.send_callback)
+            self.create_channel(channel_login)
         )
 
     def create_channel(
             self,
-            channel_login: str,
-            send_callback: Callable
+            channel_login: str
     ) -> Channel:
         room_state = self.room_states.pop(channel_login)
         local_state = self.local_states.pop(channel_login)
         names = self.names.pop(channel_login)
-        return Channel(room_state, local_state, names, send_callback)
+        return Channel(room_state.tags, local_state, names, self.send_callback)
