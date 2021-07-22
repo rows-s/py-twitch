@@ -33,7 +33,7 @@ class IRCMessage:
         return cls('COMMAND')
 
     def copy(self):
-        return self.__class__(str(self))
+        return self.__class__(str(self))  # TODO: should be more performance way
 
     @staticmethod
     def _parse_raw_irc_msg(

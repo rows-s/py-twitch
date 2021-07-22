@@ -408,3 +408,6 @@ async def test_handle_userstate_update():
     assert is_userstate_updated
     
 
+@pytest.mark.asyncio
+async def test_handle_privmsg():
+

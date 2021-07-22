@@ -2,7 +2,6 @@ import asyncio
 from asyncio import iscoroutinefunction, get_event_loop, AbstractEventLoop
 import websockets
 from websockets import WebSocketClientProtocol, ConnectionClosedError, ConnectionClosedOK
-from copy import copy
 from time import time
 
 from .irc_message import IRCMessage
@@ -348,7 +347,7 @@ class Client:
             if 'user-login' not in irc_msg.tags:
                 irc_msg.tags['user-login'] = irc_msg.nickname
             author = ChannelMember(irc_msg.tags, channel, self.send_whisper)
-            message = ChannelMessage(channel, author, irc_msg.content, irc_msg.tags)
+            message = ChannelMessage(irc_msg, channel, author)
             # if has handler
             self._do_later(
                 self.on_message(message)
