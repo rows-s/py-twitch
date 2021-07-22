@@ -175,7 +175,7 @@ class Client:
             # if successfully logged in
             if irc_msg.command == 'GLOBALUSERSTATE':
                 if 'user-login' not in irc_msg.tags:
-                    irc_msg.update_tags({'user-login': self.login})
+                    irc_msg.tags['user-login'] = self.login
                 self.global_state = GlobalState(irc_msg.tags)
                 # if has handler
                 if hasattr(self, 'on_login'):
@@ -282,7 +282,7 @@ class Client:
     ) -> None:
         # tags preparing
         if 'room-login' not in irc_msg.tags:
-            irc_msg.update_tags({'room-login': irc_msg.channel})
+            irc_msg.tags['room-login'] = irc_msg.channel
         # selection
         if irc_msg.channel in self._channels_by_login:
             self._handle_channel_update(irc_msg)
@@ -313,10 +313,9 @@ class Client:
         # prepare tags
         additional_tags = {}
         if 'user-login' not in irc_msg.tags:
-            additional_tags['user-login'] = self.global_state.login
+            irc_msg.tags['user-login'] = self.global_state.login
         if 'user-id' not in irc_msg.tags:
-            additional_tags['user-id'] = self.global_state.id
-        irc_msg.update_tags(additional_tags)
+            irc_msg.tags['user-id'] = self.global_state.id
         # if prepared
         if irc_msg.channel in self._channels_by_login:
             self._handle_userstate_update(irc_msg)
@@ -347,7 +346,7 @@ class Client:
         if hasattr(self, 'on_message'):
             channel = self._get_prepared_channel(irc_msg.channel)
             if 'user-login' not in irc_msg.tags:
-                irc_msg.update_tags({'user-login': irc_msg.nickname})
+                irc_msg.tags['user-login'] = irc_msg.nickname
             author = ChannelMember(irc_msg.tags, channel, self.send_whisper)
             message = ChannelMessage(channel, author, irc_msg.content, irc_msg.tags)
             # if has handler
@@ -361,7 +360,7 @@ class Client:
     ) -> None:
         if hasattr(self, 'on_whisper'):
             if 'user-login' not in irc_msg.tags:
-                irc_msg.update_tags({'user-login': irc_msg.nickname})
+                irc_msg.tags['user-login'] = irc_msg.nickname
             author = GlobalUser(irc_msg.tags, self.send_whisper)
             whisper = WhisperMessage(author, irc_msg.content, irc_msg.tags)
             self._do_later(
@@ -541,7 +540,7 @@ class Client:
             irc_msg: IRCMessage
     ):
         if 'user-login' not in irc_msg.tags:
-            irc_msg.update_tags({'user-login': self.login})
+            irc_msg.tags['user-login'] = self.login
         if hasattr(self, 'on_global_state_update'):
             before = self.global_state
             self.global_state = GlobalState(irc_msg.tags)

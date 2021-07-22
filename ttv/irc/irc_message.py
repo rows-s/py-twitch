@@ -32,6 +32,9 @@ class IRCMessage:
     def create_empty(cls):
         return cls('COMMAND')
 
+    def copy(self):
+        return self.__class__(str(self))
+
     @staticmethod
     def _parse_raw_irc_msg(
             raw_irc_msg

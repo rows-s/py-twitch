@@ -17,7 +17,6 @@ class Channel:
             _send_callback: Callable
     ) -> None:
         self.irc_msg: IRCMessage = irc_msg
-        self._tags: Dict[str, Optional[str]] = tags
         self.local_state: LocalState = local_state
         # TODO: logically the class must not have this variable (local_state),
         #  because it represents state of a IRCUser not anything of IRCChannel.
@@ -27,31 +26,31 @@ class Channel:
 
     @property
     def id(self) -> str:
-        return self._tags.get('room-id')
+        return self.irc_msg.tags.get('room-id')
 
     @property
     def login(self) -> str:
-        return self._tags.get('room-login')
+        return self.irc_msg.tags.get('room-login')
 
     @property
     def is_unique_only(self) -> bool:
-        return self._tags.get('r9k') == '1'
+        return self.irc_msg.tags.get('r9k') == '1'
 
     @property
     def is_emote_only(self) -> bool:
-        return self._tags.get('emote-only') == '1'
+        return self.irc_msg.tags.get('emote-only') == '1'
 
     @property
     def is_subs_only(self) -> bool:
-        return self._tags.get('subs-only') == '1'
+        return self.irc_msg.tags.get('subs-only') == '1'
 
     @property
     def has_rituals(self) -> bool:
-        return self._tags.get('rituals') == '1'
+        return self.irc_msg.tags.get('rituals') == '1'
 
     @property
     def slow_seconds(self) -> int:
-        return int(self._tags.get('slow', 0))
+        return int(self.irc_msg.tags.get('slow', 0))
 
     @property
     def is_slow(self) -> bool:
@@ -59,14 +58,14 @@ class Channel:
 
     @property
     def followers_only_minutes(self) -> int:
-        return int(self._tags.get('followers-only', 0))
+        return int(self.irc_msg.tags.get('followers-only', 0))
 
     @property
     def is_followers_only(self) -> bool:
         return self.followers_only_minutes != -1
 
     def update_state(self, tags: Dict[str, Optional[str]]):
-        self._tags.update(tags)
+        self.irc_msg.tags.update(tags)
 
     async def send_message(
             self,
@@ -81,10 +80,9 @@ class Channel:
         await self.send_message('/clear')
 
     def copy(self):
-        tags = self._tags.copy()
         local_state = copy(self.local_state)
         names = self.names
-        return self.__class__(self._tags.copy(), local_state, names, self._send)
+        return self.__class__(self.irc_msg.copy(), local_state, names, self._send)
 
 
 class ChannelsAccumulator:
@@ -113,7 +111,7 @@ class ChannelsAccumulator:
         if room_state is None:
             self.room_states[irc_msg.channel] = irc_msg
         else:
-            room_state.update_tags(irc_msg.tags)
+            room_state.tags.update(irc_msg.tags)
         if self.is_channel_ready(irc_msg.channel):
             self.call_channel_ready_callback(irc_msg.channel)
 
@@ -172,4 +170,4 @@ class ChannelsAccumulator:
         room_state = self.room_states.pop(channel_login)
         local_state = self.local_states.pop(channel_login)
         names = self.names.pop(channel_login)
-        return Channel(room_state.tags, local_state, names, self.send_callback)
+        return Channel(room_state, local_state, names, self.send_callback)

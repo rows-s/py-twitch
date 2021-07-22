@@ -11,6 +11,7 @@ from ttv.irc.exceptions import *
 IRC_TOKEN = os.getenv('TTV_IRC_TOKEN')
 IRC_USERNAME = os.getenv('TTV_IRC_NICK')
 IRC_URI = 'wss://irc-ws.chat.twitch.tv:443'
+should_skip_long_tests = True
 
 
 def test_event_registration():
@@ -42,9 +43,8 @@ def test_event_registration():
 
 def test_channel_getters():
     ttv_bot = Client('token', 'login')
-    IRCMessage('@room-id=0123;room-login=login')
     channel = Channel(
-        IRCMessage('@room-id=0123;room-login=login'), None, None, lambda _: None
+        IRCMessage('@room-id=0123;room-login=login E'), LocalState({}), tuple(), lambda _: None
     )
     ttv_bot._channels_by_id[channel.id] = channel
     ttv_bot._channels_by_login[channel.login] = channel
@@ -62,6 +62,7 @@ def test_channel_getters():
         ttv_bot._get_prepared_channel('')
 
 
+@pytest.mark.skipif(should_skip_long_tests, reason='Skipped as a long test')
 def test_get_reconnect_delay():
     ttv_bot = Client('token', 'login')
     expected = (0, 1, 2, 4, 8, 16, 16, 16, 16)
@@ -187,6 +188,7 @@ async def test_first_log_in_irc():
     assert logined
 
 
+@pytest.mark.skipif(should_skip_long_tests, reason='Skipped as a long test')
 @pytest.mark.asyncio
 async def test_restart():
     valid_bot = Client(IRC_TOKEN, IRC_USERNAME)
@@ -326,7 +328,9 @@ async def test_handle_names_update():
         if channel.login == 'username':
             is_names_updated = True
 
-    ttv_bot._channels_by_login['username'] = Channel({'room-login': 'username'}, LocalState({}), (), lambda: None)
+    ttv_bot._channels_by_login['username'] = Channel(
+        IRCMessage('@room-login=username E'), LocalState({}), tuple(), lambda: None
+    )
     # end
     irc_msg_nmsp = IRCMessage(':username.tmi.twitch.tv 353 username = #username :username username2 username3')
     irc_msg_nmse = IRCMessage(':username.tmi.twitch.tv 366 username #username :End of /NAMES list')
@@ -358,8 +362,10 @@ async def test_handle_channel_update():
         nonlocal is_channel_updated
         if before.login == after.login == 'username' and not before.is_emote_only and after.is_emote_only:
             is_channel_updated = True
-
-    ttv_bot._channels_by_login['username'] = Channel({'room-login': 'username'}, LocalState({}), (), lambda: None)
+    IRCMessage('@room-login=login E')
+    ttv_bot._channels_by_login['username'] = Channel(
+        IRCMessage('@room-login=username E'), LocalState({}), tuple(), lambda: None
+    )
     irc_msg_rsu = IRCMessage('@emote-only=1 :tmi.twitch.tv ROOMSTATE #username')
     await ttv_bot._handle_command(irc_msg_rsu)
     assert ttv_bot.get_channel_by_login(irc_msg_rsu.channel).is_emote_only
@@ -393,10 +399,8 @@ async def test_handle_userstate_update():
                 if not before.is_broadcaster and after.is_broadcaster:
                     is_userstate_updated = True
 
-    ttv_bot._channels_by_login['username'] = Channel({'room-login': 'username'},
-                                                     LocalState({'user-login': 'username'}),
-                                                     (),
-                                                     lambda: None)
+    ttv_bot._channels_by_login['username'] = Channel(
+        IRCMessage('@room-login=username E'), LocalState({'user-login': 'username'}), tuple(), lambda: None)
     irc_msg_usu = IRCMessage('@badges=broadcaster/1 :tmi.twitch.tv USERSTATE #username')
     await ttv_bot._handle_command(irc_msg_usu)
     assert ttv_bot.get_channel_by_login(irc_msg_usu.channel).local_state.is_broadcaster
