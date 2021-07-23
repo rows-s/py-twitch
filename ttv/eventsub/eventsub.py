@@ -6,9 +6,9 @@ from asyncio import iscoroutinefunction
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 # project
-from events import *
-from exceptions import UnknownEvent, FunctionIsNotCorutine
-from utils import calc_sha256, str_to_datetime
+from .events import *
+from ..exceptions import UnknownEvent, FunctionIsNotCoroutine
+from ..utils import calc_sha256, str_to_datetime
 # type hints
 from typing import Coroutine, Dict, Awaitable, Tuple, List, Type, Callable
 
@@ -237,24 +237,24 @@ class EventSub:
 
     def event(
             self,
-            coro: Coroutine
-    ) -> Coroutine:
-        if not iscoroutinefunction(coro):
-            raise FunctionIsNotCorutine(coro.__name__)
-        if coro.__name__ in EventSub._events_handlers_names:
-            setattr(self, coro.__name__, coro)
+            handler: Callable[..., Coroutine]
+    ) -> Callable[..., Coroutine]:
+        if not iscoroutinefunction(handler):
+            raise FunctionIsNotCoroutine(handler.__name__)
+        if handler.__name__ in EventSub._events_handlers_names:
+            setattr(self, handler.__name__, handler)
         else:
-            raise UnknownEvent(f'{coro.__name__} is unknown name of event')
-        return coro
+            raise UnknownEvent(f'{handler.__name__} is unknown name of event')
+        return handler
 
     def events(
             self,
-            *handler_names: str
-    ) -> Callable:
-        def decorator(coro: Coroutine):
+            *event_names: str
+    ) -> Callable[[Callable[..., Coroutine]], Callable[..., Coroutine]]:
+        def decorator(coro: Callable[..., Coroutine]):
             if not iscoroutinefunction(coro):
-                raise FunctionIsNotCorutine(coro.__name__)
-            for handler_name in handler_names:
+                raise FunctionIsNotCoroutine(coro.__name__)
+            for handler_name in event_names:
                 if handler_name in EventSub._events_handlers_names:
                     setattr(self, handler_name, coro)
                 else:

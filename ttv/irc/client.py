@@ -568,7 +568,7 @@ class Client:
         """
         1. Adds it in `self._channels_by_id` and `self._channels_by_login`
         3. Creates async tasks that will handle every delayed message
-        2. Calls event hanlder `self.on_self_join`
+        2. Calls event handler `self.on_self_join`
 
         Args:
             channel: `Channel`

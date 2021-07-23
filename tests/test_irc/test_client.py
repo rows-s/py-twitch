@@ -271,7 +271,7 @@ async def test_handle_command():
     privmsg = IRCMessage(':fernandx_z!fernandx_z@fernandx_z.tmi.twitch.tv PRIVMSG #axozer :@some_user text')
     ttv_bot = Client('token', 'login')
     @ttv_bot.event
-    async def on_message(message: ChannelMessage): pass
+    async def on_message(_: ChannelMessage): pass
     await ttv_bot._handle_command(privmsg)
     assert ttv_bot._delayed_irc_msgs['axozer'] == [privmsg]
     # on_unknown_command
@@ -323,7 +323,7 @@ async def test_handle_names_update():
     is_names_updated = False
 
     @ttv_bot.event
-    async def on_names_update(channel: Channel, before: Tuple, after: Tuple):
+    async def on_names_update(channel: Channel, _: Tuple, __: Tuple):
         nonlocal is_names_updated
         if channel.login == 'username':
             is_names_updated = True
@@ -410,4 +410,4 @@ async def test_handle_userstate_update():
 
 @pytest.mark.asyncio
 async def test_handle_privmsg():
-
+    pass

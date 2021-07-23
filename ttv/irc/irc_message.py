@@ -1,6 +1,8 @@
+from copy import copy
+
 from .utils import escape_tag_value, unescape_tag_value
 
-from typing import Tuple, Optional, Any, Dict, List, Iterable
+from typing import Tuple, Optional, Dict
 
 __all__ = ('IRCMessage',)
 
@@ -33,7 +35,9 @@ class IRCMessage:
         return cls('COMMAND')
 
     def copy(self):
-        return self.__class__(str(self))  # TODO: should be more performance way
+        new = copy(self)
+        new.tags = self.tags.copy()
+        return new
 
     @staticmethod
     def _parse_raw_irc_msg(
@@ -158,13 +162,12 @@ class IRCMessage:
     def _join_prefix_parts(self) -> Optional[str]:
         if self.servername is not None:
             prefix = self.servername
-        if self.nickname is not None:
+        elif self.nickname is not None:
             prefix = self.nickname
             if self.host is not None:
                 if self.user is not None:
-                    prefix += f'!{self.user}@{self.host}'
-                else:
-                    prefix += f'@{self.host}'
+                    prefix += f'!{self.user}'
+                prefix += f'@{self.host}'
         else:
             prefix = None
         return prefix

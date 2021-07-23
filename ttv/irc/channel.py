@@ -3,7 +3,7 @@ from copy import copy
 from .irc_message import IRCMessage
 from .user_states import LocalState
 
-from typing import Callable, Iterable, Optional, Dict, Union, List, Tuple, Coroutine
+from typing import Callable, Optional, Dict, Union, List, Tuple, Coroutine
 
 __all__ = ('Channel', 'ChannelsAccumulator')
 

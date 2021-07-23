@@ -5,7 +5,7 @@ from aiohttp.client_exceptions import ContentTypeError
 from .requests import SingleRequest, PaginatedRequest
 from .exceptions import HTTPError, InvalidToken
 
-from typing import Dict, Union, Iterable, List, Optional, AsyncGenerator, Any, Callable, Tuple, Awaitable
+from typing import Dict, Union, Iterable, List, Optional, AsyncGenerator, Any, Callable, Awaitable
 
 __all__ = (
     'Api',
