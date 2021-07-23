@@ -12,8 +12,9 @@ class IRCMessage:
             self,
             raw_irc_msg: str
     ) -> None:
+        self.prefix: str
         self.command: str
-        raw_tags, prefix, self.command, raw_params = self._parse_raw_irc_msg(raw_irc_msg)
+        raw_tags, self.prefix, self.command, raw_params = self._parse_raw_irc_msg(raw_irc_msg)
         # tags
         self.tags: Dict[str, Optional[str]] = self._parse_raw_tags(raw_tags)
         # prefix
@@ -21,13 +22,12 @@ class IRCMessage:
         self.nickname: Optional[str]
         self.user: Optional[str]
         self.host: Optional[str]
-        self.servername, self.nickname, self.user, self.host = self._parse_prefix(prefix)
+        self.servername, self.nickname, self.user, self.host = self._parse_prefix(self.prefix)
         # params
-        self.params: Tuple[str]
         self.middles: Tuple[str]
         self.trailing: Optional[str]
         self.channel: Optional[str]
-        self.params, self.middles, self.trailing, self.channel = self._parse_raw_params(raw_params)
+        self.middles, self.trailing, self.channel = self._parse_raw_params(raw_params)
         self.content: Optional[str] = self.trailing
 
     @classmethod
@@ -107,7 +107,7 @@ class IRCMessage:
     @staticmethod
     def _parse_raw_params(
             raw_params: Optional[str]
-    ) -> Tuple[Tuple, Tuple, Optional[str], Optional[str]]:
+    ) -> Tuple[Tuple, Optional[str], Optional[str]]:
         # possible cases:             # middle may contain ':', trailing may contain ' ', ':', ' :'.
         # None                        # no params
         # 'middle'                    # middles, no trailing
@@ -117,10 +117,10 @@ class IRCMessage:
         # 'middle '*14 + 'trai :ling' # same and trailing contains separators (' ', ':', ' :')
         # ':trailing'                 # no middle, trailing
 
-        params = []
         middles = []
         trailing = None
         channel = None
+
         if raw_params:
             raw_parsed_params = raw_params.split(' ', 14)
             for index, param in enumerate(raw_parsed_params):
@@ -129,22 +129,20 @@ class IRCMessage:
                     channel = param[1:]
                 # if trailing exists and starts with ':'
                 elif param.startswith(':'):
+                    middles = raw_parsed_params[:index]
                     trailing = ' '.join(raw_parsed_params[index:])
                     trailing = trailing.removeprefix(':')
-                    middles = raw_parsed_params[:index]
-                    params = middles + [trailing]
                     break  # avoidance else-block
             else:
                 # if trailing exists and starts without ':' (only if there is 14 of middles)
                 if len(raw_parsed_params) == 15:
-                    trailing = raw_parsed_params[14]  # not startswith ':'
                     middles = raw_parsed_params[:14]
-                    params = raw_parsed_params
+                    trailing = raw_parsed_params[14]  # not startswith ':'
                 # if trailing not exists
                 else:
-                    params = middles = raw_parsed_params
+                    middles = raw_parsed_params
 
-        return tuple(params), tuple(middles), trailing, channel
+        return tuple(middles), trailing, channel
 
     def _join_tags(self) -> Optional[str]:
         if not self.tags:
@@ -173,7 +171,7 @@ class IRCMessage:
         return prefix
 
     def _join_params(self) -> Optional[str]:
-        if not self.params:
+        if not self.middles and self.trailing is None:
             return None
         else:
             raw_params = ' '.join(self.middles)

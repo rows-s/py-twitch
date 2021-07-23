@@ -32,8 +32,8 @@ def test_irc_message():
     assert irc_message.user == 'fernandx_z'
     assert irc_message.host == 'fernandx_z.tmi.twitch.tv'
     assert irc_message.command == 'PRIVMSG'
-    assert irc_message.params == ('#axozer', '@MaYidRaMaS PERO JAJSJAJSJASJASJA')
     assert irc_message.middles == ('#axozer',)
+    assert irc_message.channel == 'axozer'
     assert irc_message.trailing == irc_message.content == '@MaYidRaMaS PERO JAJSJAJSJASJASJA'
 
 
@@ -106,37 +106,30 @@ def test_parse_prefix():
 def test_parse_raw_params():
     # middle
     irc_msg = IRCMessage('COMMAND middle')
-    assert irc_msg.params == ('middle',)
     assert irc_msg.middles == ('middle',)
     assert irc_msg.trailing is None
     # middle, trailing (':')
     irc_msg = IRCMessage('COMMAND middle :trailing')
-    assert irc_msg.params == ('middle', 'trailing')
     assert irc_msg.middles == ('middle',)
     assert irc_msg.trailing == 'trailing'
     # same and trailing contains separators
     irc_msg = IRCMessage('COMMAND middle :trai :ling')
-    assert irc_msg.params == ('middle', 'trai :ling')
     assert irc_msg.middles == ('middle',)
     assert irc_msg.trailing == 'trai :ling'
     # middle, trailing (no ':')
     irc_msg = IRCMessage('COMMAND ' + 'middle '*14 + 'trailing')
-    assert irc_msg.params == ('middle',) * 14 + ('trailing',)
     assert irc_msg.middles == ('middle',) * 14
     assert irc_msg.trailing == 'trailing'
     # same and trailing contains separators
     irc_msg = IRCMessage('COMMAND ' + 'middle '*14 + 'trai :ling')
-    assert irc_msg.params == ('middle',) * 14 + ('trai :ling',)
     assert irc_msg.middles == ('middle',) * 14
     assert irc_msg.trailing == 'trai :ling'
     # trailing
     irc_msg = IRCMessage('COMMAND :trailing')
-    assert irc_msg.params == ('trailing',)
     assert irc_msg.middles == ()
     assert irc_msg.trailing == 'trailing'
     # None
     irc_msg = IRCMessage('COMMAND')
-    assert irc_msg.params == ()
     assert irc_msg.middles == ()
     assert irc_msg.trailing is None
     # channel

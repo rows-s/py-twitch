@@ -428,3 +428,7 @@ async def test_handle_privmsg():
     await asyncio.sleep(0.001)
     assert did_handle_message
 
+
+@pytest.mark.asyncio
+async def test_handle_whisper():
+    pass
