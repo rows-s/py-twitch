@@ -59,7 +59,7 @@ class EventSub:
 
     _events_handlers_names: Tuple[str] = (
         'on_follow', 'on_subscribe', 'on_cheer', 'on_ban', 'on_unban',  # broadcaster and user based events
-        'on_stream_online', 'on_stream_offline',  # stram events
+        'on_stream_online', 'on_stream_offline',  # stream events
         'on_user_update', 'on_channel_update',  # update events
         'on_hypetrain_begin', 'on_hypetrain_progress', 'on_hypetrain_end',  # Hype Train events
         'on_reward_add', 'on_reward_update', 'on_reward_remove',  # rewards events
@@ -91,7 +91,7 @@ class EventSub:
         # duplicate control
         self.should_control_duplicates: bool = should_control_duplicates
         self.duplicates_save_period = duplicates_save_period
-        self._message_duplicates: List[MessageDuplicate] = []  # would be sorted by datetime ([0]-newest, [-1]-oldest)
+        self._message_dupls: List[MessageDuplicate] = []  # would be sorted by datetime ([0]-newest, [-1]-oldest)
 
     @property
     def time_limit(self) -> float:
@@ -146,7 +146,7 @@ class EventSub:
                     return False
             if self.should_control_duplicates:
                 self._delete_out_of_range_duplicates()
-                if MessageDuplicate(message_id) in self._message_duplicates:  # __eq__ basing on id
+                if MessageDuplicate(message_id) in self._message_dupls:  # __eq__ basing on id
                     return False
                 else:
                     self._save_message_to_duplicates(message)
@@ -161,9 +161,9 @@ class EventSub:
         #             remove and do one more iteration
         #         else:
         #             last is in range, others are too -> break loop
-        while self._message_duplicates:
-            if datetime.utcnow() - self._message_duplicates[-1].datetime > self._duplicates_save_period:
-                self._message_duplicates.pop()
+        while self._message_dupls:
+            if datetime.utcnow() - self._message_dupls[-1].datetime > self._duplicates_save_period:
+                self._message_dupls.pop()
             else:
                 break
 
@@ -176,19 +176,19 @@ class EventSub:
         message_datetime_str = message.headers.get('Twitch-Eventsub-Message-Timestamp')
         message_datetime = str_to_datetime(message_datetime_str, should_normalize_ms=True)
         message = MessageDuplicate(message_id, message_datetime)
-        for index, duplicate in enumerate(self._message_duplicates):
+        for index, duplicate in enumerate(self._message_dupls):
             if message.datetime > duplicate.datetime:
-                self._message_duplicates.insert(index, message)  # every dupl before - newer or equal, after - later.
+                self._message_dupls.insert(index, message)  # every dupl before - newer or equal, after - later.
                 break
         else:  # if list is empty, or others are later than request: current is oldest -> add to the end.
-            self._message_duplicates.append(message)
+            self._message_dupls.append(message)
 
     async def verify_subscription(
             self,
             message: web.Request
     ) -> web.Response:
         json = await message.json()
-        webhook_sub = WebhookSubcription(json['subscription'])
+        webhook_sub = WebhookSubscription(json['subscription'])
         if hasattr(self, 'custom_verification'):
             try:
                 is_verified = await self.custom_verification(webhook_sub)
@@ -206,7 +206,7 @@ class EventSub:
             message: web.Request
     ) -> web.Response:
         json = await message.json()
-        webhook_sub = WebhookSubcription(json['subscription'])
+        webhook_sub = WebhookSubscription(json['subscription'])
         event_type = webhook_sub.type  # type of current notification
         try:
             event = EventSub.notification_events.get(event_type)
@@ -231,7 +231,7 @@ class EventSub:
     ) -> web.Response:
         if hasattr(self, 'on_revocation'):
             json = await message.json()
-            webhook_sub = WebhookSubcription(json['subscription'])
+            webhook_sub = WebhookSubscription(json['subscription'])
             self._do_later(self.on_revocation(webhook_sub))
         return web.HTTPOk()
 

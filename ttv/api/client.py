@@ -123,7 +123,7 @@ class Api:
             client_secret: `str`
                 Your client secret
             grant_type: `str`
-                1. VALID VALUES: 'client_credentials'; DEFAULT'client_credentials';
+                1. VALID VALUES: 'client_credentials'; DEFAULT: 'client_credentials';
                 2. not described
             scope: `str`
                 Space-separated list of scopes
@@ -357,7 +357,7 @@ class Api:
                 params to insert in the URL
 
         Yields:
-            splitted data of the response of the request
+            parsed data of the response of the request
         """
         counter = 0
         while True:
@@ -1912,7 +1912,7 @@ Input type:
 
         Notes:
         ================
-            `User OAuth Token` can use empety params or only `game_id`
+            `User OAuth Token` can use empty params or only `game_id`
 
             `App Access OAuth Token` can use all combinations of params
         ----------------

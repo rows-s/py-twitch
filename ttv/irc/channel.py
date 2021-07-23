@@ -69,9 +69,9 @@ class Channel:
 
     async def send_message(
             self,
-            conntent: str
+            content: str
     ) -> None:
-        await self._send(f'PRIVMSG #{self.login} :{conntent}')
+        await self._send(f'PRIVMSG #{self.login} :{content}')
 
     async def update(self):
         await self._send(f'JOIN #{self.login}')

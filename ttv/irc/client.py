@@ -607,9 +607,9 @@ class Client:
         while True:
             try:
                 await self._websocket.send(irc_message + '\r\n')
+            # TODO: there is not a script for cases when restart is already working being called by _read_websocket()
             except websockets.ConnectionClosed:
                 if self.should_restart:
-                    # TODO: there is not a script for cases when restart is working because of _read_websocket()
                     await self.restart()
                 else:
                     raise

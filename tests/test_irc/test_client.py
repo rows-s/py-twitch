@@ -66,16 +66,16 @@ def test_channel_getters():
 def test_get_reconnect_delay():
     ttv_bot = Client('token', 'login')
     expected = (0, 1, 2, 4, 8, 16, 16, 16, 16)
-    has_sleept = False
+    has_slept = False
     index = 0
     for delay in ttv_bot._delay_gen:
         if index != len(expected):
             assert delay == expected[index]
             index += 1
         else:
-            if not has_sleept:
+            if not has_slept:
                 sleep(60.2)  # TODO: it's not good waiting 60 seconds
-                has_sleept = True
+                has_slept = True
             else:
                 assert delay == 0
                 break
@@ -83,7 +83,7 @@ def test_get_reconnect_delay():
 
 @pytest.mark.asyncio
 async def test_start():
-    # LoginFalied
+    # LoginFailed
     ttv_bot = Client('token', 'login', should_restart=False)
     with pytest.raises(LoginFailed):
         await ttv_bot.start([])
@@ -135,7 +135,7 @@ async def test_read_websocket():
     with pytest.raises(websockets.ConnectionClosedError):
         await ttv_bot._websocket.close(3000)
         await ttv_bot._read_websocket().__anext__()
-    # coonection closed
+    # connection closed
     with pytest.raises(StopAsyncIteration):
         ttv_bot._websocket = await websockets.connect(IRC_URI)
         assert ttv_bot._websocket.open
@@ -410,4 +410,21 @@ async def test_handle_userstate_update():
 
 @pytest.mark.asyncio
 async def test_handle_privmsg():
-    pass
+    ttv_bot = Client('token', 'login')
+    did_handle_message = False
+
+    @ttv_bot.event
+    async def on_message(msg: ChannelMessage):
+        nonlocal did_handle_message
+        assert msg.channel.login == 'target'
+        assert msg.content == 'content of the message'
+        assert msg.author.login == 'login' and msg.author.display_name == 'LoGiN'
+        assert not msg.is_reply
+        did_handle_message = True
+
+    ttv_bot._channels_by_login['target'] = Channel(IRCMessage('@room-login=target N'), LocalState({}), tuple(), lambda: None)
+    irc_msg_privmsg = IRCMessage('@display-name=LoGiN :login!login@login PRIVMSG #target :content of the message')
+    await ttv_bot._handle_command(irc_msg_privmsg)
+    await asyncio.sleep(0.001)
+    assert did_handle_message
+

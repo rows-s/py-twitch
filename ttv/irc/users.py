@@ -17,7 +17,7 @@ class UserABC(ABC):
     def __init__(
             self,
             tags: Dict[str, str],
-            send_wishper_callback: Callable
+            send_whisper_callback: Callable
     ):
         self.id: str = tags.get('user-id')
         self.login: str = tags.get('user-login')
@@ -25,15 +25,15 @@ class UserABC(ABC):
         self.color: str = tags.get('color')
         self.badges: Dict[str, str] = parse_raw_badges(tags.get('badges', ''))
         # callback
-        self._send_wishper_callback: Callable = send_wishper_callback
+        self._send_whisper_callback: Callable = send_whisper_callback
 
     async def send_whisper(
             self,
             content: str,
             *,
-            via_channel: str = None
+            whisper_agent: str = None
     ) -> None:
-        await self._send_wishper_callback(self.login, content, via_channel=via_channel)
+        await self._send_whisper_callback(self.login, content, whisper_agent=whisper_agent)
 
 
 class ChannelMember(UserABC):
@@ -97,14 +97,14 @@ class ParentMessageUser(UserABC):
     def __init__(
             self,
             tags,
-            send_wishper_callback: Callable
+            send_whisper_callback: Callable
     ):
-        # TODO: to create new dict with new keys seems like a good action.
-        #  Because we not need to add expressions in code.
+        # TODO: to create a new dict with new keys seems as a good action.
+        #  Because we don't need to add expressions in code.
         #  But maybe can be better?
         new_tags = {
             'user-id': tags['reply-parent-user-id'],
             'user-login': tags['reply-parent-user-login'],
             'display-name': tags['reply-parent-display-name'],
         }
-        super().__init__(new_tags, send_wishper_callback)
+        super().__init__(new_tags, send_whisper_callback)

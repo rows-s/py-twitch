@@ -2,7 +2,7 @@ from abc import ABC
 
 
 __all__ = (
-    'WebhookSubcription',
+    'WebhookSubscription',
     'ChannelUpdateEvent',
     'HypetrainBeginEvent',
     'HypetrainProgressEvent',
@@ -24,7 +24,7 @@ __all__ = (
 )
 
 
-class WebhookSubcription:
+class WebhookSubscription:
     def __init__(self, raw_subscription: dict):
         self.id = raw_subscription.get('id')
         self.type = raw_subscription.get('type')

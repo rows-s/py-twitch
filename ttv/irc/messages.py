@@ -1,6 +1,6 @@
 from abc import ABC
 
-from . import IRCMessage
+from .irc_message import IRCMessage
 from .channel import Channel
 from .users import UserABC, ChannelMember, ParentMessageUser, GlobalUser
 from .utils import parse_raw_emotes, is_emote_only
@@ -73,8 +73,8 @@ class ChannelMessage(BaseMessage):
             self,
             irc_msg: IRCMessage
     ) -> Optional[ParentMessage]:
-        # TODO: Is not the best way just take the `send_wishper_callback` from `self.author` . Better improve.
-        parent_message_author: ParentMessageUser = ParentMessageUser(irc_msg.tags, self.author._send_wishper_callback)
+        # TODO: Is not the best way just take the `send_whisper_callback` from `self.author` . Better improve.
+        parent_message_author: ParentMessageUser = ParentMessageUser(irc_msg.tags, self.author._send_whisper_callback)
         return ParentMessage(irc_msg, self.channel, parent_message_author)
 
     async def delete(self):
