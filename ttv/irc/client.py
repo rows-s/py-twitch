@@ -180,9 +180,9 @@ class Client:
                 if hasattr(self, 'on_login'):
                     self._do_later(self.on_login())
                 return
-            elif irc_msg.command == 'NOTICE' and irc_msg.params[0] == '*':
+            elif irc_msg.command == 'NOTICE' and irc_msg.middles[0] == '*':
                 raise LoginFailed(irc_msg.content)
-            elif irc_msg.command == 'CAP' and irc_msg.params[1] == 'NAK':
+            elif irc_msg.command == 'CAP' and irc_msg.middles[1] == 'NAK':
                 raise CapabilitiesReqError(irc_msg)
             elif irc_msg.command not in expected_commands:
                 return

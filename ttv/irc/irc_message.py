@@ -186,8 +186,9 @@ class IRCMessage:
                 assert self.nickname == other.nickname
                 assert self.host == other.host
                 assert self.user == other.user
-                assert set(self.middles) == set(other.middles)
                 assert self.tags == other.tags
+                assert set(self.middles) == set(other.middles)
+                assert self.trailing == other.trailing
             except AssertionError:
                 return False
             else:

@@ -5,3 +5,7 @@
 /examples/irc/channel_preformance.py
 /ttv/experiments.py
 /examples/irc/irc_msg_performance.py
+tests/test_irc/log.txt
+tests/test_irc/privmsg_log.txt
+tests/test_irc/smart_tags.txt
+tests/test_irc/tags.txt
