@@ -5,7 +5,7 @@ from typing import Tuple
 import websockets
 import pytest
 from time import sleep
-from ttv.irc import Client, IRCMessage, Channel, GlobalState, LocalState, ChannelMessage
+from ttv.irc import Client, IRCMessage, Channel, GlobalState, LocalState, ChannelMessage, Whisper
 from ttv.irc.exceptions import *
 
 IRC_TOKEN = os.getenv('TTV_IRC_TOKEN')
@@ -431,4 +431,18 @@ async def test_handle_privmsg():
 
 @pytest.mark.asyncio
 async def test_handle_whisper():
-    pass
+    ttv_bot = Client('token', 'login')
+    did_handle_whisper = False
+
+    @ttv_bot.event
+    async def on_whisper(wisper: Whisper):
+        assert wisper.author.login == 'login'
+        assert wisper.content == 'content of the whisper'
+        assert wisper.id == '12'
+        assert wisper.thread_id == '1_2'
+        nonlocal did_handle_whisper
+        did_handle_whisper = True
+        irc_msg_whisper = IRCMessage('@message-id=12;thread-id=1_2 :login!login@login WHISPER :content of the whisper')
+        await ttv_bot._handle_command(irc_msg_whisper)
+        await asyncio.sleep(0.001)
+        assert did_handle_whisper

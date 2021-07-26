@@ -54,14 +54,23 @@ if __name__ == '__main__':
 
 
     async def create_tables():
-        db_pool.execute(
-            'CREATE TABLE public.keys\n'
-            '(\n'
-            'id smallint NOT NULL DEFAULT nextval(\'tags_keys_id_seq\'::regclass),\n'
-            'command character varying COLLATE pg_catalog."default" NOT NULL,\n'
-            'keys character varying[] COLLATE pg_catalog."default" NOT NULL,\n'
-            'count integer NOT NULL DEFAULT 1,\n'
-            'CONSTRAINT tags_keys_command_keys_key UNIQUE (command, keys)\n'
+        await db_pool.execute(
+            'CREATE TABLE IF NOT EXISTS public.keys ( '
+            'id smallint NOT NULL DEFAULT nextval(\'tags_keys_id_seq\'::regclass), '
+            'command character varying COLLATE pg_catalog."default" NOT NULL, '
+            'keys character varying[] COLLATE pg_catalog."default" NOT NULL, '
+            'count integer NOT NULL DEFAULT 1, '
+            'CONSTRAINT tags_keys_command_keys_key UNIQUE (command, keys) '
+            ')'
+        )
+        await db_pool.execute(
+            'CREATE TABLE IF NOT EXISTS public."values" ('
+            '    id smallint NOT NULL DEFAULT nextval(\'tags_values_id_seq\'::regclass), '
+            '    keys_id integer NOT NULL, '
+            '    key character varying COLLATE pg_catalog."default" NOT NULL, '
+            '    "values" character varying[] COLLATE pg_catalog."default", '
+            '    can_be_empty boolean DEFAULT false, '
+            '    CONSTRAINT tags_values_tags_keys_id_key_key UNIQUE (keys_id, key) '
             ')'
         )
 
@@ -170,11 +179,9 @@ if __name__ == '__main__':
             )
 
     async def start_listeners(listeners: List[IRCListener], channels_for_each: int):
-        count = len(listeners)
-        # for i in range(count):
-
         loop = asyncio.get_event_loop()
         api = await Api.create(API_TOKEN)
+        count = len(listeners)
         chnls_count = count * channels_for_each
         top_channels = [json['user_login'] async for json in api.get_streams(chnls_count)]
         for i in range(count):

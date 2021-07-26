@@ -5,7 +5,7 @@ from websockets import WebSocketClientProtocol, ConnectionClosedError, Connectio
 from time import time
 
 from .irc_message import IRCMessage
-from .messages import ChannelMessage, WhisperMessage
+from .messages import ChannelMessage, Whisper
 from .channel import Channel, ChannelsAccumulator
 from .users import ChannelMember, GlobalUser
 from .user_states import GlobalState, LocalState
@@ -360,7 +360,7 @@ class Client:
             if 'user-login' not in irc_msg.tags:
                 irc_msg.tags['user-login'] = irc_msg.nickname
             author = GlobalUser(irc_msg.tags, self.send_whisper)
-            whisper = WhisperMessage(irc_msg, author)
+            whisper = Whisper(irc_msg, author)
             self._do_later(
                 self.on_whisper(whisper)
             )

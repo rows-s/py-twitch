@@ -11,7 +11,7 @@ __all__ = (
     'BaseMessage',
     'ChannelMessage',
     'ParentMessage',
-    'WhisperMessage'
+    'Whisper'
 )
 
 
@@ -81,7 +81,7 @@ class ChannelMessage(BaseMessage):
         await self.channel.send_message(f'/delete {self.id}')
 
 
-class WhisperMessage(BaseMessage):
+class Whisper(BaseMessage):
     def __init__(
             self,
             irc_msg: IRCMessage,
