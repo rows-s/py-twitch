@@ -17,7 +17,7 @@ async def on_login():
 
 
 @ttv_chat_bot.event
-async def on_self_join(channel: Channel):
+async def on_channel_join(channel: Channel):
     print(f'Has join #{channel.login}')
 
 

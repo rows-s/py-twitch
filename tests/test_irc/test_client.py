@@ -36,9 +36,9 @@ def test_event_registration():
     async def on_message(): pass
     assert hasattr(ttv_bot, 'on_message')
 
-    @ttv_bot.events('on_join', 'on_part')
+    @ttv_bot.events('on_user_join', 'on_user_part')
     async def any_name(): pass
-    assert hasattr(ttv_bot, 'on_join') and hasattr(ttv_bot, 'on_part')
+    assert hasattr(ttv_bot, 'on_user_join') and hasattr(ttv_bot, 'on_user_part')
 
 
 def test_channel_getters():
@@ -97,20 +97,20 @@ async def test_start():
         logged_in = True
 
     @valid_bot.event
-    async def on_join(channel: Channel, user_login: str):
+    async def on_user_join(channel: Channel, user_login: str):
         nonlocal got_join
         if user_login == IRC_USERNAME and channel.login == IRC_USERNAME:
             got_join = True
 
     @valid_bot.event
-    async def on_self_join(channel: Channel):
+    async def on_channel_join(channel: Channel):
         nonlocal joined_channel
         if channel.login == IRC_USERNAME and channel.local_state.is_broadcaster:
             if channel.local_state.login == IRC_USERNAME:
                 joined_channel = True
         await valid_bot._websocket.close(1000)
 
-    await valid_bot.start([IRC_USERNAME])  # will be finished in `on_self_join()`
+    await valid_bot.start([IRC_USERNAME])  # will be finished in `on_channel_join()`
     assert logged_in
     assert got_join
     assert joined_channel
@@ -212,7 +212,7 @@ async def test_restart():
         is_reconnected = True
 
     @valid_bot.event
-    async def on_self_join(channel: Channel):
+    async def on_channel_join(channel: Channel):
         nonlocal is_joined
         if not is_joined and channel.login == IRC_USERNAME and channel.local_state.is_broadcaster:
             is_joined = True
@@ -422,7 +422,8 @@ async def test_handle_privmsg():
         assert not msg.is_reply
         did_handle_message = True
 
-    ttv_bot._channels_by_login['target'] = Channel(IRCMessage('@room-login=target N'), LocalState({}), tuple(), lambda: None)
+    ttv_bot._channels_by_login['target'] = Channel(IRCMessage('@room-login=target ROOMSTATE #target'),
+                                                   LocalState({}), tuple(), lambda: None)
     irc_msg_privmsg = IRCMessage('@display-name=LoGiN :login!login@login PRIVMSG #target :content of the message')
     await ttv_bot._handle_command(irc_msg_privmsg)
     await asyncio.sleep(0.001)
@@ -442,7 +443,46 @@ async def test_handle_whisper():
         assert wisper.thread_id == '1_2'
         nonlocal did_handle_whisper
         did_handle_whisper = True
-        irc_msg_whisper = IRCMessage('@message-id=12;thread-id=1_2 :login!login@login WHISPER :content of the whisper')
-        await ttv_bot._handle_command(irc_msg_whisper)
-        await asyncio.sleep(0.001)
-        assert did_handle_whisper
+
+    irc_msg_whisper = IRCMessage('@message-id=12;thread-id=1_2 :login!login@login WHISPER :content of the whisper')
+    await ttv_bot._handle_command(irc_msg_whisper)
+    await asyncio.sleep(0.001)
+    assert did_handle_whisper
+
+
+@pytest.mark.asyncio
+async def test_handle_join():
+    ttv_bot = Client('token', 'login')
+    did_join = False
+
+    @ttv_bot.event
+    async def on_user_join(channel: Channel, login: str):
+        assert channel.login == 'target'
+        assert login == 'login'
+        nonlocal did_join
+        did_join = True
+    ttv_bot._channels_by_login['target'] = Channel(IRCMessage('@room-login=target ROOMSTATE #target'),
+                                                   LocalState({}), tuple(), lambda: None)
+    irc_msg_join = IRCMessage(':login!login@login JOIN #target')
+    await ttv_bot._handle_command(irc_msg_join)
+    await asyncio.sleep(0.001)
+    assert did_join
+
+
+@pytest.mark.asyncio
+async def test_handle_part():
+    ttv_bot = Client('token', 'login')
+    did_part = False
+
+    @ttv_bot.event
+    async def on_user_part(channel: Channel, login: str):
+        assert channel.login == 'target'
+        assert login == 'login'
+        nonlocal did_part
+        did_part = True
+    ttv_bot._channels_by_login['target'] = Channel(IRCMessage('@room-login=target ROOMSTATE #target'),
+                                                   LocalState({}), tuple(), lambda: None)
+    irc_msg_part = IRCMessage(':login!login@login PART #target')
+    await ttv_bot._handle_command(irc_msg_part)
+    await asyncio.sleep(0.001)
+    assert did_part

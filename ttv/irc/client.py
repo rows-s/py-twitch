@@ -57,7 +57,9 @@ class Client:
 
     @token.setter
     def token(self, value: str):
-        if not value.startswith('oauth:'):
+        if not value:
+            pass
+        elif not value.startswith('oauth:'):
             value = 'oauth:' + value
         self._token = value
 
@@ -198,7 +200,8 @@ class Client:
             # capabilities
             await self._send('CAP REQ :twitch.tv/membership twitch.tv/commands twitch.tv/tags')
             # logging in
-            await self._send(f'PASS {self.token}')
+            if self.token:  # don't need pass if a anon login
+                await self._send(f'PASS {self.token}')
             await self._send(f'NICK {self.login}')
 
     async def _read_websocket(
@@ -206,8 +209,9 @@ class Client:
     ) -> AsyncGenerator[IRCMessage, None]:
         """
         tries to read websocket:
-            1. if successfully read: yields tags, command, parsed irc_msg;
+            1. yields IRCMessage if successfully read;
             2. if `websockets.ConnectionClosedError`: reconnects irc if `self.should_restart`.
+            3 if `websockets.ConnectionClosedOK`: `StopAsyncIteration`;
         also handles PING requests.
         """
         while True:
@@ -369,23 +373,23 @@ class Client:
             self,
             irc_msg: IRCMessage
     ) -> None:
-        if hasattr(self, 'on_join'):
+        if hasattr(self, 'on_user_join'):
             channel = self._get_prepared_channel(irc_msg.channel)
             # if has handler
             self._do_later(
-                self.on_join(channel, irc_msg.nickname)
+                self.on_user_join(channel, irc_msg.nickname)
             )
 
     def _handle_part(
             self,
             irc_msg: IRCMessage
     ) -> None:
-        if hasattr(self, 'on_part'):
+        if hasattr(self, 'on_user_part'):
             user_login = irc_msg.nickname
             channel = self._get_prepared_channel(irc_msg.channel)
             # if has handler
             self._do_later(
-                self.on_part(channel, user_login)
+                self.on_user_part(channel, user_login)
             )
 
     def _handle_notice(
@@ -394,12 +398,16 @@ class Client:
     ) -> None:
         notice_id = irc_msg.tags.get('msg-id')
         # if channel join error
-        if notice_id == 'msg_room_not_found':
+        if notice_id in ('msg_room_not_found', 'msg_channel_suspended'):
             self.joined_channel_logins.discard(irc_msg.channel)
-            if hasattr(self, 'on_self_join_error'):
+            if hasattr(self, 'on_channel_join_error'):
                 self._do_later(
-                    self.on_self_join_error(irc_msg.channel)
+                    self.on_channel_join_error(irc_msg.channel)
                 )
+        elif notice_id.startswith('msg'):
+            pass
+            # if hasattr(self, '')
+
         elif hasattr(self, 'on_notice'):
             channel = self._get_prepared_channel(irc_msg.channel)
             # if has handler
@@ -568,7 +576,7 @@ class Client:
         """
         1. Adds it in `self._channels_by_id` and `self._channels_by_login`
         3. Creates async tasks that will handle every delayed message
-        2. Calls event handler `self.on_self_join`
+        2. Calls event handler `self.on_channel_join`
 
         Args:
             channel: `Channel`
@@ -585,9 +593,9 @@ class Client:
             self._do_later(
                 self._handle_command(delayed_irc_message)
             )
-        if hasattr(self, 'on_self_join'):
+        if hasattr(self, 'on_channel_join'):
             self._do_later(
-                self.on_self_join(channel)
+                self.on_channel_join(channel)
             )
 
     async def _send(
@@ -607,7 +615,7 @@ class Client:
         while True:
             try:
                 await self._websocket.send(irc_message + '\r\n')
-            # TODO: there is not a script for cases when restart is already working being called by _read_websocket()
+            # TODO: there is not a script for cases when restart is called mamually or by :meth:`_read_websocket`
             except websockets.ConnectionClosed:
                 if self.should_restart:
                     await self.restart()
@@ -887,18 +895,18 @@ class Client:
     EVENTS = (
         'on_message',  # PRIVMSG
         'on_whisper',  # WHISPER
-        'on_channel_update', 'on_self_join',  # ROOMSTATE
+        'on_channel_update', 'on_channel_join',  # ROOMSTATE
         'on_local_state_update',  # USERSTATE
         'on_names_update',  # 366
         'on_login', 'on_global_state_update',  # GLOBALUSERSTATE
-        'on_join',  # JOIN
-        'on_part',  # PART
+        'on_user_join',  # JOIN
+        'on_user_part',  # PART
         'on_clear_chat_from_user', 'on_clear_chat',  # CLEARCHAT
         'on_message_delete',  # CLEARMSG
         'on_host_start', 'on_host_stop',  # HOSTTARGET
         'on_notice', 'on_join_error',  # NOTICE
         'on_user_event', 'on_unknown_user_event',  # USERNOTICE
-        'on_reconnect', 'on_unknown_command', 'on_self_join_error'
+        'on_reconnect', 'on_unknown_command', 'on_channel_join_error'
     )
 
     USER_EVENTS = (

@@ -231,15 +231,13 @@ if __name__ == '__main__':
                             await listener._websocket.close()
                         await bot._websocket.close()
 
-        run_mod = input('Run mode (default ttv_console): ')
+        run_mod = input('Run modem (listen or ttv_console, default: ttv_console): ')
         if run_mod == 'listen':
             asyncio.get_event_loop().create_task(bot.start([IRC_NICK]))
             listeners = [IRCListener(IRC_TOKEN, IRC_NICK) for _ in range(5)]
             await start_listeners(listeners, 50)
         elif run_mod == 'ttv_console':
             asyncio.get_event_loop().create_task(bot.start([IRC_NICK]))
-        elif run_mod == 'relevant':
-            await save_privmsg_smart_log()
         else:
             asyncio.get_event_loop().create_task(bot.start([IRC_NICK]))
 
