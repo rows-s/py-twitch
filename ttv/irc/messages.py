@@ -65,17 +65,17 @@ class ChannelMessage(BaseMessage):
         # parent message
         self.is_reply: bool = 'reply-parent-msg-id' in irc_msg.tags
         if self.is_reply:
-            self.parent_message: Optional[ParentMessage] = self._get_parent_message(irc_msg)
+            self._set_parent_message(irc_msg.copy())
         else:
             self.parent_message: Optional[ParentMessage] = None
 
-    def _get_parent_message(
+    def _set_parent_message(
             self,
             irc_msg: IRCMessage
-    ) -> Optional[ParentMessage]:
+    ) -> None:
         # TODO: Is not the best way just take the `send_whisper_callback` from `self.author` . Better improve.
         parent_message_author: ParentMessageUser = ParentMessageUser(irc_msg.tags, self.author._send_whisper_callback)
-        return ParentMessage(irc_msg, self.channel, parent_message_author)
+        self.parent_message = ParentMessage(irc_msg, self.channel, parent_message_author)
 
     async def delete(self):
         await self.channel.send_message(f'/delete {self.id}')

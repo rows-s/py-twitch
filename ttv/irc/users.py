@@ -31,9 +31,9 @@ class UserABC(ABC):
             self,
             content: str,
             *,
-            whisper_agent: str = None
+            agent: str = None
     ) -> None:
-        await self._send_whisper_callback(self.login, content, whisper_agent=whisper_agent)
+        await self._send_whisper_callback(self.login, content, agent=agent)
 
 
 class ChannelMember(UserABC):

@@ -84,7 +84,7 @@ class Client:
             login: str
     ) -> Channel:
         """
-        returns channel with given login if exists, else raises ChannelNotExists
+        returns channel with given login if exists, else raises :exc:`ChannelNotPrepared`
 
         Args:
             login: `str`
@@ -149,7 +149,10 @@ class Client:
         # start main listener
         self.is_running = True
         async for irc_msg in self._read_websocket():
-            self._do_later(self._handle_command(irc_msg))  # protection from a shut down caused by an exception
+            try:
+                await self._handle_command(irc_msg)
+            finally:  # protection from a shutdown caused by an exception
+                pass
         self.is_running = False
 
     async def restart(self):
@@ -220,11 +223,11 @@ class Client:
             except ConnectionClosedOK:
                 return
             # if websocket is closed
-            except ConnectionClosedError:
+            except ConnectionClosedError as e:
                 if self.should_restart:
                     await self.restart()
                 else:
-                    raise
+                    raise from e
             # if successfully read
             else:
                 for raw_irc_message in raw_irc_messages.split('\r\n'):
@@ -236,7 +239,7 @@ class Client:
             irc_msg: IRCMessage
     ) -> None:
         try:
-            handler = self._command_handles[irc_msg.command]
+            handler = self._COMMAND_HANDLERS[irc_msg.command]
         except KeyError:
             if hasattr(self, 'on_unknown_command'):
                 self._do_later(self.on_unknown_command(irc_msg))
@@ -492,13 +495,13 @@ class Client:
             return
         # if known event
         else:
-            # if has specified event handler
+            # if has specified handler
             if hasattr(self, event_name):
                 author = ChannelMember(irc_msg.tags, channel, self.send_whisper)
                 event_handler = getattr(self, event_name)  # get the handler by its name
-                event = event_class(author, channel, irc_msg.content, irc_msg.tags)
+                event = event_class(irc_msg, author, channel, irc_msg.content)
                 self._do_later(event_handler(event))
-            # if has global handler
+            # if has not specified handler but has global handler
             elif hasattr(self, 'on_user_event'):
                 author = ChannelMember(irc_msg.tags, channel, self.send_whisper)
                 event = event_class(author, channel, irc_msg.content, irc_msg.tags)
@@ -674,7 +677,7 @@ class Client:
         else:
             agent = self.login
         # send
-        content = rf'/w {target} {content}'
+        content = f'/w {target} {content}'
         await self.send_message(agent, content)
 
     async def join_channel(
@@ -856,7 +859,7 @@ class Client:
         """Creates an async task in `self.loop`"""
         self.loop.create_task(coro)
 
-    _command_handles: Dict[str, Callable[[Any, IRCMessage], Any]] = {
+    _COMMAND_HANDLERS: Dict[str, Callable[[Any, IRCMessage], Any]] = {
         'PRIVMSG': _handle_privmsg,
         'WHISPER': _handle_whisper,
         'JOIN': _handle_join,
