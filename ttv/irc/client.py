@@ -13,7 +13,7 @@ from .events import ClearChatFromUser
 from .user_events import *
 from .exceptions import *
 
-from typing import Coroutine, Iterable, Tuple, Union, Any, Awaitable, Callable, List, Optional, Dict, AsyncGenerator, \
+from typing import Coroutine, Iterable, Tuple, Any, Awaitable, Callable, List, Optional, Dict, AsyncGenerator, \
     Set, Generator
 
 __all__ = (
@@ -31,25 +31,28 @@ class Client:
             should_restart: bool = True,
             whisper_agent: str = None
     ) -> None:
+        self.token: str = token
+        self.login: str = login
+        self.global_state: Optional[GlobalState] = None
+        # kwards
+        self.should_restart: bool = should_restart
+        self.whisper_agent: Optional[str] = whisper_agent
         # channels
         self.joined_channel_logins: Set[str] = set()
         self._channels_by_id: Dict[str, Channel] = {}  # id_channel: Channel
         self._channels_by_login: Dict[str, Channel] = {}  # channel_login: Channel
         self._channels_accumulator: ChannelsAccumulator = ChannelsAccumulator(self._save_channel, self._send)
-        self._names: Dict[str, Union[List[str], Tuple[str]]] = {}  # channel_login: names
-        self._local_states: Dict[str, LocalState] = {}  # channel_login: local_state
+        '''Will accumulate channels' parts (ROOMSTATE, LOCALSTATE, nameslist)'''
         self._delayed_irc_msgs: Dict[str, List[IRCMessage]] = {}  # channel_login: [irc_msg, ...]
-        # unprotected
-        self.token: str = token
-        self.login: str = login
+        '''It's possible to receive a message before the channel is accumulated, all early messages will be delayed'''
         self.is_running = False
-        self.should_restart: bool = should_restart
-        self.whisper_agent: Optional[str] = whisper_agent
-        self.global_state: Optional[GlobalState] = None
         self.loop: AbstractEventLoop = get_event_loop()
         # protected
         self._websocket: WebSocketClientProtocol = WebSocketClientProtocol()
         self._delay_gen: Generator[int, None] = Client._delay_gen()
+        '''Class field is generator-function, object field is generator-object'''
+        self._running_restart_task: Optional[asyncio.tasks.Task] = None
+        '''If :meth:`restart` is running must not run another, must await the running task'''
 
     @property
     def token(self):
@@ -62,6 +65,10 @@ class Client:
         elif not value.startswith('oauth:'):
             value = 'oauth:' + value
         self._token = value
+
+    @property
+    def is_restarting(self):
+        return self._running_restart_task is not None
 
     def get_channel_by_id(
             self,
@@ -162,12 +169,17 @@ class Client:
         3. Rejoins(joins) channel from `self.joined_channels_logins`
         4. Calls `self.on_reconnect` event handler if registered.
         """
+        self._running_restart_task = asyncio.current_task(self.loop)
         delay = next(self._delay_gen)
         await asyncio.sleep(delay)
         await self._log_in_irc()
         await self.join_channels(self.joined_channel_logins)
         if hasattr(self, 'on_reconnect'):
             self._do_later(self.on_reconnect())
+        self._running_restart_task = None
+
+    async def stop(self):  # TODO: condition for case: assert not self.is_running
+        await self._websocket.close()
 
     async def _first_log_in_irc(
             self,
@@ -224,10 +236,12 @@ class Client:
                 return
             # if websocket is closed
             except ConnectionClosedError as e:
-                if self.should_restart:
+                if self.is_restarting:
+                    await self._running_restart_task
+                elif self.should_restart:
                     await self.restart()
                 else:
-                    raise from e
+                    raise
             # if successfully read
             else:
                 for raw_irc_message in raw_irc_messages.split('\r\n'):
@@ -620,7 +634,9 @@ class Client:
                 await self._websocket.send(irc_message + '\r\n')
             # TODO: there is not a script for cases when restart is called mamually or by :meth:`_read_websocket`
             except websockets.ConnectionClosed:
-                if self.should_restart:
+                if self.is_restarting:
+                    await self._running_restart_task
+                elif self.should_restart:
                     await self.restart()
                 else:
                     raise

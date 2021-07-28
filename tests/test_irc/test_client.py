@@ -4,7 +4,7 @@ from typing import Tuple
 
 import websockets
 import pytest
-from time import sleep
+from time import sleep, time
 from ttv.irc import Client, IRCMessage, Channel, GlobalState, LocalState, ChannelMessage, Whisper
 from ttv.irc.exceptions import *
 
@@ -188,7 +188,7 @@ async def test_first_log_in_irc():
     assert logined
 
 
-@pytest.mark.skipif(should_skip_long_tests, reason='Skipped as a long test')
+# @pytest.mark.skipif(should_skip_long_tests, reason='Skipped as a long test')
 @pytest.mark.asyncio
 async def test_restart():
     valid_bot = Client(IRC_TOKEN, IRC_USERNAME)
@@ -249,7 +249,13 @@ async def test_restart():
     for delay in (0, 1, 2, 4, 8, 16, 16):
         await valid_bot._websocket.close(3000)  # restart will be called within start()
         # 40 (280) retests (restarts) was passed in a row with 20 and 25 seconds delay.
-        await asyncio.sleep(delay + 20)  # delay + time for handlers (had troubles using 15 and less)
+        await asyncio.sleep(0.001)
+        assert valid_bot.is_restarting
+        t0 = time()
+        await valid_bot._running_restart_task  # TODO: doesn't work
+        assert not valid_bot.is_restarting
+        assert delay <= time() - t0
+        await asyncio.sleep(1)  # time to handle all
         assert is_loged_in
         assert is_joined
         assert is_reconnected
