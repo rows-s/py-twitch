@@ -42,20 +42,20 @@ class Client:
         self._channels_by_id: Dict[str, Channel] = {}  # id_channel: Channel
         self._channels_by_login: Dict[str, Channel] = {}  # channel_login: Channel
         self._channels_accumulator: ChannelsAccumulator = ChannelsAccumulator(self._save_channel, self._send)
-        '''Will accumulate channels' parts (ROOMSTATE, LOCALSTATE, nameslist)'''
+        "Will accumulate channels' parts (ROOMSTATE, LOCALSTATE, names)"
         self._delayed_irc_msgs: Dict[str, List[IRCMessage]] = {}  # channel_login: [irc_msg, ...]
-        '''It's possible to receive a message before the channel is accumulated, all early messages will be delayed'''
+        "It's possible to receive a message before the channel is accumulated, all premature messages will be delayed"
         self.is_running = False
         self.loop: AbstractEventLoop = get_event_loop()
         # protected
         self._websocket: WebSocketClientProtocol = WebSocketClientProtocol()
         self._delay_gen: Generator[int, None] = Client._delay_gen()
-        '''Class field is generator-function, object field is generator-object'''
+        'Class field is generator-function, object field is generator-object. Will yeild delay for :meth:`restart`'
         self._running_restart_task: Optional[asyncio.tasks.Task] = None
-        '''If :meth:`restart` is running must not run another, must await the running task'''
+        'If :meth:`restart` is running must not run another, must await the running task'
 
     @property
-    def token(self):
+    def token(self) -> str:
         return self._token
 
     @token.setter
@@ -67,7 +67,7 @@ class Client:
         self._token = value
 
     @property
-    def is_restarting(self):
+    def is_restarting(self) -> bool:
         return self._running_restart_task is not None
 
     def get_channel_by_id(
@@ -75,7 +75,7 @@ class Client:
             channel_id: str,
             default: Any = None
     ) -> Channel:
-        """Returns :class:`Channel` by id if exists else - `default`"""
+        """Returns :cls:`Channel` by id if exists else - :arg:`default`"""
         return self._channels_by_id.get(channel_id, default)
 
     def get_channel_by_login(
@@ -83,7 +83,7 @@ class Client:
             login: str,
             default: Any = None
     ) -> Channel:
-        """Returns :class:`Channel` by login if exists else - `default`"""
+        """Returns :cls:`Channel` by id if exists else - :arg:`default`"""
         return self._channels_by_login.get(login, default)
 
     def _get_prepared_channel(
@@ -167,18 +167,22 @@ class Client:
         1. Reopens websocket connection if not open.
         2. Relogin into twitch IRC
         3. Rejoins(joins) channel from `self.joined_channels_logins`
-        4. Calls `self.on_reconnect` event handler if registered.
+        4. Calls `self.on_reconnect` event if registered.
         """
-        self._running_restart_task = asyncio.current_task(self.loop)
+        self._running_restart_task = asyncio.create_task(self._restart())
+        await self._running_restart_task
+        self._running_restart_task = None
+
+    async def _restart(self):
         delay = next(self._delay_gen)
         await asyncio.sleep(delay)
         await self._log_in_irc()
         await self.join_channels(self.joined_channel_logins)
         if hasattr(self, 'on_reconnect'):
             self._do_later(self.on_reconnect())
-        self._running_restart_task = None
 
-    async def stop(self):  # TODO: condition for case: assert not self.is_running
+    async def stop(self):  # TODO: condition for case: self.is_running == False
+        self.is_running = False
         await self._websocket.close()
 
     async def _first_log_in_irc(

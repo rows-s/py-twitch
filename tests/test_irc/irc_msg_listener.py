@@ -233,7 +233,6 @@ if __name__ == '__main__':
 
         run_mod = input('Run mode (listen or ttv_console, default: ttv_console): ')
         if run_mod == 'listen':
-            asyncio.get_event_loop().create_task(bot.start([IRC_NICK]))
             listeners = [IRCListener(IRC_TOKEN, IRC_NICK) for _ in range(5)]
             await start_listeners(listeners, 50)
         elif run_mod == 'ttv_console':
@@ -261,7 +260,7 @@ if __name__ == '__main__':
                     SELECT DISTINCT ON (command) command, array_length(keys, 1) len
                     FROM keys 
                     ORDER BY command, len
-                ) t 
+                ) t
                 ORDER BY len, command;
                 '''
             )]
@@ -276,19 +275,39 @@ if __name__ == '__main__':
                     'FROM keys WHERE command=$1 ORDER BY len, count',
                     command
                 )
+                base_keys = set(tags_types[0]['keys'])
+                for tags_type in tags_types:
+                    base_keys.intersection_update(set(tags_type['keys']))
+                write(f'|--BASE {len(base_keys)}')
+                for base_key in sorted(base_keys):
+                    values_ = await conn.fetchrow(
+                        'SELECT values.values, values.can_be_empty FROM keys '
+                        'JOIN values ON keys.id=values.keys_id '
+                        'WHERE keys.command=$1 AND values.key=$2 '
+                        'ORDER BY array_length(keys.keys, 1) DESC '
+                        'LIMIT 1',
+                        command, base_key
+                    )
+                    values = values_['values']
+                    values.insert(0, '') if values_['can_be_empty'] else None
+                    write(f'|--|--{base_key}: {values}')
+                write_end(lvl=1)
                 sorted_tags_types = {}
                 for tags in tags_types:
                     length = tags['len'] if tags['len'] is not None else 0
+                    length -= len(base_keys)
                     sorted_tags_types.setdefault(length, []).append(tags)
                 for length in sorted_tags_types:
                     if length == 0:
                         continue
                     types_count = len(sorted_tags_types[length])
-                    write(f'|--LENGTH {length}: {types_count} types')
+                    count = tags_types[0]['count']
+                    write(f'|-- +{length}: ' + (f'{count} intstances' if types_count == 1 else f'{types_count} types '))
                     for i, tags_type in enumerate(sorted_tags_types[length]):
                         count = tags_type['count']
-                        write(f'|--|--{length}.{i+1}: {count} intstances')
-                        for key in tags_type['keys']:
+                        if types_count != 1:
+                            write(f'|--|--{length}.{i+1}: {count} intstances')
+                        for key in sorted(set(tags_type['keys']) - base_keys):
                             values_ = await conn.fetchrow(
                                 'SELECT values, can_be_empty FROM values WHERE keys_id=$1 AND key=$2',
                                 tags_type['id'], key

@@ -188,7 +188,6 @@ async def test_first_log_in_irc():
     assert logined
 
 
-# @pytest.mark.skipif(should_skip_long_tests, reason='Skipped as a long test')
 @pytest.mark.asyncio
 async def test_restart():
     valid_bot = Client(IRC_TOKEN, IRC_USERNAME)
@@ -203,8 +202,9 @@ async def test_restart():
     @valid_bot.event
     async def on_login():
         nonlocal is_loged_in
-        if not is_loged_in and valid_bot.is_running:
-            is_loged_in = True
+        assert not is_loged_in
+        assert valid_bot.is_restarting
+        is_loged_in = True
 
     @valid_bot.event
     async def on_reconnect():
@@ -214,60 +214,54 @@ async def test_restart():
     @valid_bot.event
     async def on_channel_join(channel: Channel):
         nonlocal is_joined
-        if not is_joined and channel.login == IRC_USERNAME and channel.local_state.is_broadcaster:
-            is_joined = True
+        assert is_joined
+        assert channel.login == IRC_USERNAME
+        assert channel.local_state.is_broadcaster
+        is_joined = True
 
     @valid_bot.event
     async def on_channel_update(before: Channel, after: Channel):
         nonlocal is_updated
-        if before.login == after.login == IRC_USERNAME:
-            if before.local_state.login == after.local_state.login == IRC_USERNAME:
-                is_updated = True
+        assert before.login == after.login == IRC_USERNAME
+        assert before.local_state.login == after.local_state.login == IRC_USERNAME
+        is_updated = True
 
     @valid_bot.event
     async def on_global_state_update(before: GlobalState, after: GlobalState):
         nonlocal is_global_state_updated
-        if before.login == after.login == IRC_USERNAME:
-            is_global_state_updated = True
+        assert before.login == after.login == IRC_USERNAME
+        is_global_state_updated = True
 
     @valid_bot.event
     async def on_local_state_update(channel: Channel, before: LocalState, after: LocalState):
         nonlocal is_local_state_updated
-        if channel.login == IRC_USERNAME and before.login == after.login == IRC_USERNAME:
-            if before.is_broadcaster and after.is_broadcaster:
-                is_local_state_updated = True
+        assert channel.login == before.login == after.login == IRC_USERNAME
+        assert before.is_broadcaster and after.is_broadcaster
+        is_local_state_updated = True
 
     @valid_bot.event
     async def on_names_update(channel: Channel, before, after):
         nonlocal is_nameslist_updated
-        if channel.login == IRC_USERNAME and IRC_USERNAME in before and IRC_USERNAME in after:
-            is_nameslist_updated = True
+        assert channel.login == IRC_USERNAME
+        assert IRC_USERNAME in before and IRC_USERNAME in after
+        is_nameslist_updated = True
 
     valid_bot.loop.create_task(valid_bot.start([IRC_USERNAME]))
     await asyncio.sleep(5)  # let the task work
 
-    for delay in (0, 1, 2, 4, 8, 16, 16):
-        await valid_bot._websocket.close(3000)  # restart will be called within start()
-        # 40 (280) retests (restarts) was passed in a row with 20 and 25 seconds delay.
-        await asyncio.sleep(0.001)
-        assert valid_bot.is_restarting
-        t0 = time()
-        await valid_bot._running_restart_task  # TODO: doesn't work
-        assert not valid_bot.is_restarting
-        assert delay <= time() - t0
-        await asyncio.sleep(1)  # time to handle all
-        assert is_loged_in
-        assert is_joined
-        assert is_reconnected
-        is_reconnected = False
-        assert is_updated
-        is_updated = False
-        assert is_global_state_updated
-        is_global_state_updated = False
-        assert is_local_state_updated
-        is_local_state_updated = False
-        assert is_nameslist_updated
-        is_nameslist_updated = False
+    await valid_bot._websocket.close(3000)  # restart will be called by start()
+    await asyncio.sleep(0.001)
+    assert valid_bot.is_restarting
+    await valid_bot._running_restart_task
+    assert not valid_bot.is_restarting
+    await asyncio.sleep(5)
+    assert is_loged_in
+    assert is_joined
+    assert is_reconnected
+    assert is_updated
+    assert is_global_state_updated
+    assert is_local_state_updated
+    assert is_nameslist_updated
 
 
 @pytest.mark.asyncio
