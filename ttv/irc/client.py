@@ -70,6 +70,22 @@ class Client:
     def is_restarting(self) -> bool:
         return self._running_restart_task is not None
 
+    def get_channel(
+            self,
+            login_or_id: str,
+            default: Any = None
+    ) -> Channel:
+        """
+        Returns :cls:`Channel`:
+            1: by login if exists
+            2: by id if exists
+            3: default
+        """
+        try:
+            return self._channels_by_login[login_or_id]
+        except KeyError:
+            return self._channels_by_id.get(login_or_id, default)
+
     def get_channel_by_id(
             self,
             channel_id: str,
