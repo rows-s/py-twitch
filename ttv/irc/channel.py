@@ -119,7 +119,7 @@ class ChannelsAccumulator:
             self,
             irc_msg: IRCMessage
     ) -> None:
-        self.local_states[irc_msg.channel] = LocalState(irc_msg.tags)
+        self.local_states[irc_msg.channel] = LocalState(irc_msg)
         if self.is_channel_ready(irc_msg.channel):
             self.call_channel_ready_callback(irc_msg.channel)
 
