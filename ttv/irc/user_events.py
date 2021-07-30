@@ -103,7 +103,7 @@ class BaseGift(BaseUserEvent):
             channel: Channel
     ) -> None:
         super().__init__(irc_msg, author, channel)
-        self.is_gifter_anon = irc_msg.tags.get('login') == 'ananonymousgifter'
+        self.is_gifter_anon: bool = irc_msg.tags.get('login') == 'ananonymousgifter'
         self.plan: str = irc_msg.tags.get('msg-param-sub-plan')
         self.origin_id: str = irc_msg.tags.get('msg-param-origin-id', '')
         self.sender_count: int = int(irc_msg.tags.get('msg-param-sender-count', 0))

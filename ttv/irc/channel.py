@@ -1,7 +1,7 @@
 from copy import copy
 
 from .irc_message import IRCMessage
-from .user_states import LocalState
+from .user_states import BaseLocalState
 
 from typing import Callable, Optional, Dict, Union, List, Tuple, Coroutine
 
@@ -12,12 +12,12 @@ class Channel:
     def __init__(
             self,
             irc_msg: IRCMessage,
-            local_state: LocalState,
+            local_state: BaseLocalState,
             names: Tuple[str],
             _send_callback: Callable
     ) -> None:
         self._irc_msg: IRCMessage = irc_msg
-        self.local_state: LocalState = local_state
+        self.local_state: BaseLocalState = local_state
         # TODO: logically the class must not have this variable (local_state),
         #  because it represents state of a IRCUser not anything of IRCChannel.
         #  But that way's easier to understand and to use
@@ -30,7 +30,7 @@ class Channel:
 
     @property
     def login(self) -> str:
-        return self._irc_msg.tags.get('room-login')
+        return self._irc_msg.channel
 
     @property
     def is_unique_only(self) -> bool:
@@ -64,7 +64,7 @@ class Channel:
     def is_followers_only(self) -> bool:
         return self.followers_only_minutes != -1
 
-    def update(self, irc_msg: IRCMessage):
+    def update_state(self, irc_msg: IRCMessage):
         self._irc_msg.tags.update(irc_msg.tags)
 
     def copy(self):
@@ -76,7 +76,7 @@ class Channel:
     ) -> None:
         await self._send(f'PRIVMSG #{self.login} :{content}')
 
-    async def request_update(self):
+    async def request_state_update(self):
         await self._send(f'JOIN #{self.login}')
 
     async def clear(self):
@@ -99,7 +99,7 @@ class ChannelsAccumulator:
             send_callback: Callable[[str], Coroutine]
     ) -> None:
         self.room_states: Dict[str, IRCMessage] = {}
-        self.local_states: Dict[str, LocalState] = {}
+        self.local_states: Dict[str, BaseLocalState] = {}
         self.names: Dict[str, Union[List[str], Tuple[str]]] = {}
         self.channel_ready_callback: Callable[[Channel], None] = channel_ready_callback
         self.send_callback: Callable[[str], Coroutine] = send_callback
@@ -126,7 +126,7 @@ class ChannelsAccumulator:
             self,
             irc_msg: IRCMessage
     ) -> None:
-        self.local_states[irc_msg.channel] = LocalState(irc_msg)
+        self.local_states[irc_msg.channel] = BaseLocalState(irc_msg)
         if self.is_channel_ready(irc_msg.channel):
             self.call_channel_ready_callback(irc_msg.channel)
 
@@ -152,8 +152,8 @@ class ChannelsAccumulator:
     def pop_names(
             self,
             channel_login: str
-    ) -> Union[List[str], Tuple[str]]:
-        return self.names.pop(channel_login)
+    ) -> Tuple[str]:
+        return tuple(self.names.pop(channel_login))
 
     def is_channel_ready(
             self,
@@ -161,7 +161,7 @@ class ChannelsAccumulator:
     ) -> bool:
         return all((
             isinstance(self.room_states.get(channel_login), IRCMessage),
-            isinstance(self.local_states.get(channel_login), LocalState),
+            isinstance(self.local_states.get(channel_login), BaseLocalState),
             isinstance(self.names.get(channel_login), tuple)
         ))
 

@@ -2,7 +2,7 @@ from abc import ABC
 
 from .irc_message import IRCMessage
 from .channel import Channel
-from .users import UserABC, ChannelMember, ParentMessageUser, GlobalUser
+from .users import BaseUser, ChannelMember, ParentMessageUser, GlobalUser
 from .utils import parse_raw_emotes, is_emote_only
 
 from typing import Dict, Optional, Tuple, List
@@ -19,10 +19,10 @@ class BaseMessage(ABC):
     def __init__(
             self,
             irc_msg: IRCMessage,
-            author: UserABC
+            author: BaseUser
     ) -> None:
         # prepared
-        self.author: UserABC = author
+        self.author: BaseUser = author
         self.content: str = irc_msg.content
         # stable tags
         self.id: str = irc_msg.tags.get('id')
@@ -74,7 +74,7 @@ class ChannelMessage(BaseMessage):
             irc_msg: IRCMessage
     ) -> None:
         # TODO: Is not the best way just take the `send_whisper_callback` from `self.author` . Better improve.
-        parent_message_author: ParentMessageUser = ParentMessageUser(irc_msg.tags, self.author._send_whisper_callback)
+        parent_message_author: ParentMessageUser = ParentMessageUser(irc_msg.copy(), self.author._send_whisper_callback)
         self.parent_message = ParentMessage(irc_msg, self.channel, parent_message_author)
 
     async def delete(self):

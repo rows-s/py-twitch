@@ -32,7 +32,7 @@ class IRCMessage:
 
     @classmethod
     def create_empty(cls):
-        return cls('COMMAND')
+        return cls('EMPTY')
 
     def copy(self):
         new = copy(self)

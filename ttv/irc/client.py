@@ -8,7 +8,7 @@ from .irc_message import IRCMessage
 from .messages import ChannelMessage, Whisper
 from .channel import Channel, ChannelsAccumulator
 from .users import ChannelMember, GlobalUser
-from .user_states import GlobalState, LocalState
+from .user_states import ClientGlobalState, BaseLocalState
 from .events import ClearChatFromUser
 from .user_events import *
 from .exceptions import *
@@ -33,7 +33,7 @@ class Client:
     ) -> None:
         self.token: str = token
         self.login: str = login
-        self.global_state: Optional[GlobalState] = None
+        self.global_state: Optional[ClientGlobalState] = None
         # kwards
         self.should_restart: bool = should_restart
         self.whisper_agent: Optional[str] = whisper_agent
@@ -206,7 +206,7 @@ class Client:
             if irc_msg.command == 'GLOBALUSERSTATE':
                 if 'user-login' not in irc_msg.tags:
                     irc_msg.tags['user-login'] = self.login
-                self.global_state = GlobalState(irc_msg)
+                self.global_state = ClientGlobalState(irc_msg)
                 # if has handler
                 self._call_event('on_login')
                 return
@@ -296,19 +296,18 @@ class Client:
     ):
         channel = self._channels_by_login[irc_msg.channel]
         names = self._channels_accumulator.pop_names(irc_msg.channel)  # if update no need to save parts
-        before = channel.names
-        channel.names = tuple(names)
-        after = channel.names
-        self._call_event('on_names_update', channel, before, after)
+        if hasattr(self, 'on_channel_update'):  # Channel.copy() cost much
+            before = channel.copy()
+            channel.names = names
+            after = channel.copy()
+            self._call_event('on_channel_update', before, after)
+        else:
+            channel.names = names
 
     def _handle_roomstate(
             self,
             irc_msg: IRCMessage
     ) -> None:
-        # tags preparing
-        if 'room-login' not in irc_msg.tags:
-            irc_msg.tags['room-login'] = irc_msg.channel
-        # selection
         if irc_msg.channel in self._channels_by_login:
             self._handle_channel_update(irc_msg)
         else:
@@ -321,11 +320,11 @@ class Client:
         channel = self._channels_by_login[irc_msg.channel]
         if hasattr(self, 'on_channel_update'):  # Channel.copy() cost much
             before = channel.copy()
-            channel.update(irc_msg)
+            channel.update_state(irc_msg)
             after = channel.copy()
             self._call_event('on_channel_update', before, after)
         else:
-            channel.update(irc_msg)
+            channel.update_state(irc_msg)
 
     def _handle_userstate(
             self,
@@ -347,10 +346,14 @@ class Client:
             irc_msg: IRCMessage
     ):
         channel = self._channels_by_login[irc_msg.channel]
-        before = channel.local_state.copy()
-        channel.local_state.update(irc_msg)
-        after = channel.local_state.copy()
-        self._call_event('on_local_state_update', channel, before, after)
+        if hasattr(self, 'on_channel_update'):
+            before = channel.copy()
+            channel.local_state.update(irc_msg)
+            after = channel.copy()
+            self._call_event('on_channel_update', before, after)
+        else:
+            channel.local_state.update(irc_msg)
+
 
     def _handle_privmsg(
             self,
@@ -360,7 +363,7 @@ class Client:
             channel = self._get_prepared_channel(irc_msg.channel)
             if 'user-login' not in irc_msg.tags:
                 irc_msg.tags['user-login'] = irc_msg.nickname
-            author = ChannelMember(irc_msg.tags, channel, self.send_whisper)
+            author = ChannelMember(irc_msg, channel, self.send_whisper)
             message = ChannelMessage(irc_msg, channel, author)
             self._call_event('on_message', message)
 
@@ -371,7 +374,7 @@ class Client:
         if hasattr(self, 'on_whisper'):
             if 'user-login' not in irc_msg.tags:
                 irc_msg.tags['user-login'] = irc_msg.nickname
-            author = GlobalUser(irc_msg.tags, self.send_whisper)
+            author = GlobalUser(irc_msg, self.send_whisper)
             whisper = Whisper(irc_msg, author)
             self._call_event('on_whisper', whisper)
 
@@ -520,11 +523,11 @@ class Client:
             irc_msg.tags['user-login'] = self.login
         if hasattr(self, 'on_global_state_update'):
             before = self.global_state
-            self.global_state = GlobalState(irc_msg)
+            self.global_state = ClientGlobalState(irc_msg)
             after = self.global_state
             self._call_event('on_global_state_update', before, after)
         else:
-            self.global_state = GlobalState(irc_msg)
+            self.global_state = ClientGlobalState(irc_msg)
 
     def _handle_reconnect(
             self,

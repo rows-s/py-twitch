@@ -5,7 +5,7 @@ from typing import Tuple
 import websockets
 import pytest
 from time import sleep, time
-from ttv.irc import Client, IRCMessage, Channel, GlobalState, LocalState, ChannelMessage, Whisper
+from ttv.irc import Client, IRCMessage, Channel, ClientGlobalState, BaseLocalState, ChannelMessage, Whisper
 from ttv.irc.exceptions import *
 
 IRC_TOKEN = os.getenv('TTV_IRC_TOKEN')
@@ -32,7 +32,7 @@ def test_event_registration():
 def test_channel_getters():
     ttv_bot = Client('token', 'login')
     channel = Channel(
-        IRCMessage('@room-id=0123;room-login=login E'), LocalState(IRCMessage('N')), tuple(), lambda _: None
+        IRCMessage('@room-id=0123;room-login=login E'), BaseLocalState(IRCMessage('N')), tuple(), lambda _: None
     )
     ttv_bot._channels_by_id[channel.id] = channel
     ttv_bot._channels_by_login[channel.login] = channel
@@ -218,13 +218,13 @@ async def test_restart():
         is_updated = True
 
     @valid_bot.event
-    async def on_global_state_update(before: GlobalState, after: GlobalState):
+    async def on_global_state_update(before: ClientGlobalState, after: ClientGlobalState):
         nonlocal is_global_state_updated
         assert before.login == after.login == IRC_USERNAME
         is_global_state_updated = True
 
     @valid_bot.event
-    async def on_local_state_update(channel: Channel, before: LocalState, after: LocalState):
+    async def on_local_state_update(channel: Channel, before: BaseLocalState, after: BaseLocalState):
         nonlocal is_local_state_updated
         assert channel.login == before.login == after.login == IRC_USERNAME
         assert before.is_broadcaster and after.is_broadcaster
@@ -320,7 +320,7 @@ async def test_handle_names_update():
             is_names_updated = True
 
     ttv_bot._channels_by_login['username'] = Channel(
-        IRCMessage('@room-login=username E'), LocalState(IRCMessage('N')), tuple(), lambda: None
+        IRCMessage('@room-login=username E'), BaseLocalState(IRCMessage('N')), tuple(), lambda: None
     )
     # end
     irc_msg_nmsp = IRCMessage(':username.tmi.twitch.tv 353 username = #username :username username2 username3')
@@ -355,7 +355,7 @@ async def test_handle_channel_update():
             is_channel_updated = True
     IRCMessage('@room-login=login E')
     ttv_bot._channels_by_login['username'] = Channel(
-        IRCMessage('@room-login=username E'), LocalState(IRCMessage('N')), tuple(), lambda: None
+        IRCMessage('@room-login=username E'), BaseLocalState(IRCMessage('N')), tuple(), lambda: None
     )
     irc_msg_rsu = IRCMessage('@emote-only=1 :tmi.twitch.tv ROOMSTATE #username')
     await ttv_bot._handle_command(irc_msg_rsu)
@@ -383,7 +383,7 @@ async def test_handle_userstate_update():
     is_userstate_updated = False
     
     @ttv_bot.event
-    async def on_local_state_update(channel: Channel, before: LocalState, after: LocalState):
+    async def on_local_state_update(channel: Channel, before: BaseLocalState, after: BaseLocalState):
         nonlocal is_userstate_updated
         if channel.login == 'username':
             if before.login == after.login == 'username':
@@ -391,7 +391,7 @@ async def test_handle_userstate_update():
                     is_userstate_updated = True
 
     ttv_bot._channels_by_login['username'] = Channel(
-        IRCMessage('@room-login=username R'), LocalState(IRCMessage('@user-login=username L')), tuple(), lambda: None)
+        IRCMessage('@room-login=username R'), BaseLocalState(IRCMessage('@user-login=username L')), tuple(), lambda: None)
     irc_msg_usu = IRCMessage('@badges=broadcaster/1 :tmi.twitch.tv USERSTATE #username')
     await ttv_bot._handle_command(irc_msg_usu)
     assert ttv_bot.get_channel_by_login(irc_msg_usu.channel).local_state.is_broadcaster
@@ -414,7 +414,7 @@ async def test_handle_privmsg():
         did_handle_message = True
 
     ttv_bot._channels_by_login['target'] = Channel(IRCMessage('@room-login=target ROOMSTATE #target'),
-                                                   LocalState(IRCMessage('N')), tuple(), lambda: None)
+                                                   BaseLocalState(IRCMessage('N')), tuple(), lambda: None)
     irc_msg_privmsg = IRCMessage('@display-name=LoGiN :login!login@login PRIVMSG #target :content of the message')
     await ttv_bot._handle_command(irc_msg_privmsg)
     await asyncio.sleep(0.001)
@@ -453,7 +453,7 @@ async def test_handle_join():
         nonlocal did_join
         did_join = True
     ttv_bot._channels_by_login['target'] = Channel(IRCMessage('@room-login=target ROOMSTATE #target'),
-                                                   LocalState(IRCMessage('N')), tuple(), lambda: None)
+                                                   BaseLocalState(IRCMessage('N')), tuple(), lambda: None)
     irc_msg_join = IRCMessage(':login!login@login JOIN #target')
     await ttv_bot._handle_command(irc_msg_join)
     await asyncio.sleep(0.001)
@@ -472,7 +472,7 @@ async def test_handle_part():
         nonlocal did_part
         did_part = True
     ttv_bot._channels_by_login['target'] = Channel(IRCMessage('@room-login=target ROOMSTATE #target'),
-                                                   LocalState(IRCMessage('N')), tuple(), lambda: None)
+                                                   BaseLocalState(IRCMessage('N')), tuple(), lambda: None)
     irc_msg_part = IRCMessage(':login!login@login PART #target')
     await ttv_bot._handle_command(irc_msg_part)
     await asyncio.sleep(0.001)
