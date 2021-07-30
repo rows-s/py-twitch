@@ -1,3 +1,5 @@
+from copy import copy
+
 from .utils import parse_raw_badges
 from .irc_message import IRCMessage
 
@@ -21,6 +23,12 @@ class BaseState:
 
     def update(self, irc_msg: IRCMessage):
         self.__init__(irc_msg)
+
+    def copy(self):
+        new = copy(self)
+        new.badges = copy(self.badges)
+        new.badge_info = copy(self.badge_info)
+        return new
 
     def __eq__(self, other):
         if isinstance(other, BaseState):

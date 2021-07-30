@@ -347,9 +347,9 @@ class Client:
             irc_msg: IRCMessage
     ):
         channel = self._channels_by_login[irc_msg.channel]
-        before = channel.local_state
-        channel.local_state = LocalState(irc_msg)
-        after = channel.local_state
+        before = channel.local_state.copy()
+        channel.local_state.update(irc_msg)
+        after = channel.local_state.copy()
         self._call_event('on_local_state_update', channel, before, after)
 
     def _handle_privmsg(

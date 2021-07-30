@@ -16,29 +16,17 @@ should_skip_long_tests = True
 
 def test_event_registration():
     ttv_bot = Client('token', 'login')
-    with pytest.raises(FunctionIsNotCorutine):
+    with pytest.raises(TypeError):
         @ttv_bot.event
         def on_message(): pass
 
-    with pytest.raises(FunctionIsNotCorutine):
-        @ttv_bot.events('on_message')
-        def foo(): pass
-
-    with pytest.raises(UnknownEvent):
+    with pytest.raises(NameError):
         @ttv_bot.event
         async def baz(): pass
-
-    with pytest.raises(UnknownEvent):
-        @ttv_bot.events('bar')
-        async def on_message(): pass
 
     @ttv_bot.event
     async def on_message(): pass
     assert hasattr(ttv_bot, 'on_message')
-
-    @ttv_bot.events('on_user_join', 'on_user_part')
-    async def any_name(): pass
-    assert hasattr(ttv_bot, 'on_user_join') and hasattr(ttv_bot, 'on_user_part')
 
 
 def test_channel_getters():
@@ -56,6 +44,9 @@ def test_channel_getters():
     assert ttv_bot.get_channel_by_login(channel.login) is channel
     assert ttv_bot.get_channel_by_login('') is None
     assert ttv_bot.get_channel_by_login('', channel) is channel
+    # login or id
+    assert ttv_bot.get_channel(channel.login) is channel
+    assert ttv_bot.get_channel(channel.id) is channel
     # if exists
     assert ttv_bot._get_prepared_channel(channel.login) is channel
     with pytest.raises(ChannelNotPrepared):
