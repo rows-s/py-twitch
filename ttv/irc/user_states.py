@@ -3,11 +3,11 @@ from .irc_message import IRCMessage
 
 from typing import Dict, Tuple
 
-__all__ = ('GlobalState', 'LocalState')
+__all__ = ('BaseState', 'GlobalState', 'LocalState')
 
 
-class GlobalState:
-    """This class represent global state of twitch-user (`irc.Client`)"""
+class BaseState:
+    """Base class for user states"""
 
     def __init__(self, irc_msg: IRCMessage):
         self.id: str = irc_msg.tags.get('user-id')
@@ -19,8 +19,11 @@ class GlobalState:
         self.badges: Dict[str, str] = parse_raw_badges(irc_msg.tags.get('badges', ''))
         self.badge_info: Dict[str, str] = parse_raw_badges(irc_msg.tags.get('badge-info', ''))
 
+    def update(self, irc_msg: IRCMessage):
+        self.__init__(irc_msg)
+
     def __eq__(self, other):
-        if isinstance(other, GlobalState):
+        if isinstance(other, BaseState):
             try:
                 assert self.id == other.id
                 assert self.login == other.login
@@ -36,25 +39,45 @@ class GlobalState:
         return False
 
 
-class LocalState:
-    """This class represent global state of ttv-user (`irc.Client`)"""
+class GlobalState(BaseState):
+    """Class represents global state of a twitch-user :class:`ttv.irc.Client`"""
 
-    def __init__(self, irc_msg: IRCMessage) -> None:
-        self.id: str = irc_msg.tags.get('user-id')
-        self.login: str = irc_msg.tags.get('user-login')
-        self.display_name: str = irc_msg.tags.get('display-name')
-        self.emote_sets = tuple(irc_msg.tags.get('emote-sets', '').split(','))
-        # badges
-        self.badges: Dict[str, str] = parse_raw_badges(irc_msg.tags.get('badges', ''))
-        self.badge_info: Dict[str, str] = parse_raw_badges(irc_msg.tags.get('badge-info', ''))
-        # local roles
-        self.is_broadcaster: bool = 'broadcaster' in self.badges
-        self.is_moderator: bool = 'moderator' in self.badges
-        self.is_sub_gifter: bool = 'sub-gifter' in self.badges
-        self.is_subscriber: bool = 'subscriber' in self.badges
-        self.is_cheerer: bool = 'bits' in self.badges
-        self.is_vip: bool = 'vip' in self.badges
-        # roles values
-        self.sub_gifter_count: int = int(self.badges.get('sub-gifter', 0))
-        self.subscriber_mounths: int = int(self.badge_info.get('subscriber', 0))
-        self.bits: int = int(self.badges.get('bits', 0))
+
+class LocalState(BaseState):
+    """Class represents local state of a user (:class:`ttv.irc.Client`) in a channel (:class:`ttv.irc.Channel`)"""
+
+    @property
+    def is_broadcaster(self) -> bool:
+        return 'broadcaster' in self.badges
+
+    @property
+    def is_moderator(self) -> bool:
+        return 'moderator' in self.badges
+
+    @property
+    def is_sub_gifter(self) -> bool:
+        return 'sub-gifter' in self.badges
+
+    @property
+    def is_subscriber(self) -> bool:
+        return 'subscriber' in self.badges
+
+    @property
+    def is_cheerer(self) -> bool:
+        return 'bits' in self.badges
+
+    @property
+    def is_vip(self) -> bool:
+        return 'vip' in self.badges
+
+    @property
+    def sub_gifter_lvl(self) -> int:
+        return int(self.badges.get('sub-gifter', 0))
+
+    @property
+    def subscriber_mounths(self) -> int:
+        return int(self.badge_info.get('subscriber', 0))
+
+    @property
+    def bits(self) -> int:
+        return int(self.badges.get('bits', 0))

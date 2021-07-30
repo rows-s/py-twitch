@@ -64,8 +64,13 @@ class Channel:
     def is_followers_only(self) -> bool:
         return self.followers_only_minutes != -1
 
-    def update_state(self, tags: Dict[str, Optional[str]]):
-        self.irc_msg.tags.update(tags)
+    def update(self, irc_msg: IRCMessage):
+        self.irc_msg.tags.update(irc_msg.tags)
+
+    def copy(self):
+        local_state = copy(self.local_state)
+        names = self.names
+        return self.__class__(self.irc_msg.copy(), local_state, names, self._send)
 
     async def send_message(
             self,
@@ -73,19 +78,19 @@ class Channel:
     ) -> None:
         await self._send(f'PRIVMSG #{self.login} :{content}')
 
-    async def update(self):
+    async def request_update(self):
         await self._send(f'JOIN #{self.login}')
 
     async def clear(self):
         await self.send_message('/clear')
 
-    def copy(self):
-        local_state = copy(self.local_state)
-        names = self.names
-        return self.__class__(self.irc_msg.copy(), local_state, names, self._send)
-
 
 class ChannelsAccumulator:
+    """
+    Object of the class gives interfaces of accumulation of channels' parts.
+    Accumulates ROOMSTATE, USERSTATE, names(353, 366).
+    Calls :func:`channel_ready_callback` callback passing :class:`Channel` when a channel is ready.
+    """
     def __init__(
             self,
             channel_ready_callback: Callable[[Channel], None],

@@ -107,14 +107,10 @@ class Client:
             login: str
     ) -> Channel:
         """
-        returns channel with given login if exists, else raises :exc:`ChannelNotPrepared`
+        returns :class:`Channel` with given login if exists, else raises :exc:`ChannelNotPrepared`
 
         Args:
-            login: `str`
-                login of channel that must be returned
-
-        Returns:
-            Channel
+            login :class:`str`: login of the channel that must be returned
         """
         try:
             return self._channels_by_login[login]
@@ -138,14 +134,13 @@ class Client:
             channels: Iterable[str]
     ) -> None:
         """
-        Starts event listener, use this if you want to start 'Client' as a single worker.
-
-        Notes:
-            If you want to start `Client` with another async code - look 'start()'
+        Starts event listener.
 
         Args:
-            channels: Iterable[`str`]
-                Iterable object with logins of channel to join
+            channels Iterable[`str`] : Object with logins of channels to join
+
+        Notes:
+            Async version of the method is :meth:`start`
         """
         self.loop.run_until_complete(
             self.start(channels)
@@ -326,11 +321,11 @@ class Client:
         channel = self._channels_by_login[irc_msg.channel]
         if hasattr(self, 'on_channel_update'):  # Channel.copy() cost much
             before = channel.copy()
-            channel.update_state(irc_msg.tags)
+            channel.update(irc_msg)
             after = channel.copy()
             self._call_event('on_channel_update', before, after)
         else:
-            channel.update_state(irc_msg.tags)
+            channel.update(irc_msg)
 
     def _handle_userstate(
             self,
@@ -593,8 +588,8 @@ class Client:
                     await self.restart()
                 else:
                     raise
-            except ConnectionClosedOK:
-                raise ConnectionClosedOK('Connection was closed by :meth:`stop()`')
+            except ConnectionClosedOK as e:
+                raise ConnectionClosedOK('Connection was closed by :meth:`stop()`') from e
             else:
                 break
 
@@ -784,7 +779,7 @@ class Client:
             `None`
         """
         if not iscoroutinefunction(coro):
-            raise FunctionIsNotCorutine(coro.__name__)
+            raise TypeError(f'given object `{coro.__name__}` is not a coroutine function')
         # if event
         if handler_name in self.EVENTS:
             setattr(self, handler_name, coro)
@@ -792,7 +787,7 @@ class Client:
         elif handler_name in self.USER_EVENTS:
             setattr(self, handler_name, coro)
         else:  # what for a developer will register unknown event? better tell that person about
-            raise UnknownEvent(handler_name)
+            raise NameError(f'"{handler_name}" is unknown name of event')
 
     def _do_later(
             self,

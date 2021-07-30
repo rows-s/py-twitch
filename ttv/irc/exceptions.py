@@ -5,8 +5,6 @@ __all__ = (
     'IRCException',
     'ChannelNotPrepared',
     'LoginFailed',
-    'UnknownEvent',
-    'FunctionIsNotCorutine',
     'CapabilitiesReqError'
 )
 
@@ -21,14 +19,6 @@ class ChannelNotPrepared(IRCException, exceptions.ChannelNotPrepared):
 
 class LoginFailed(IRCException, exceptions.LoginFailed):
     """Is raised if token or login is incorrect"""
-
-
-class UnknownEvent(IRCException, exceptions.UnknownEvent):
-    """Is raised if trying to register an event with unknown name"""
-
-
-class FunctionIsNotCorutine(IRCException, exceptions.FunctionIsNotCoroutine):
-    """Is raised if trying to register an event handler that is not a coroutine"""
 
 
 class CapabilitiesReqError(IRCException, exceptions.CapabilitiesReqError):
