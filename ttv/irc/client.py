@@ -1,5 +1,5 @@
 import asyncio
-from asyncio import iscoroutinefunction, get_event_loop, AbstractEventLoop
+from asyncio import iscoroutinefunction, AbstractEventLoop
 import websockets
 from websockets import WebSocketClientProtocol, ConnectionClosedError, ConnectionClosedOK
 from time import time
@@ -7,18 +7,22 @@ from time import time
 from .irc_message import IRCMessage
 from .messages import ChannelMessage, Whisper
 from .channel import Channel, ChannelsAccumulator
-from .users import ChannelMember, GlobalUser
-from .user_states import ClientGlobalState, BaseLocalState
+from .users import ChannelUser, GlobalUser
+from .user_states import GlobalState
 from .events import ClearChatFromUser
 from .user_events import *
 from .exceptions import *
 
 from typing import Coroutine, Iterable, Tuple, Any, Awaitable, Callable, List, Optional, Dict, AsyncGenerator, \
-    Set, Generator
+    Set, Generator, TypeVar
+
 
 __all__ = (
     'Client',
 )
+
+
+_Client = TypeVar('_Client')
 
 
 class Client:
@@ -29,14 +33,15 @@ class Client:
             login: str,
             *,
             should_restart: bool = True,
-            whisper_agent: str = None
+            whisper_agent: str = 'ananonymousgifter',
+            loop: AbstractEventLoop = None
     ) -> None:
         self.token: str = token
         self.login: str = login
-        self.global_state: Optional[ClientGlobalState] = None
+        self.global_state: Optional[GlobalState] = None
         # kwards
         self.should_restart: bool = should_restart
-        self.whisper_agent: Optional[str] = whisper_agent
+        self.whisper_agent: str = whisper_agent
         # channels
         self.joined_channel_logins: Set[str] = set()
         self._channels_by_id: Dict[str, Channel] = {}  # id_channel: Channel
@@ -46,7 +51,7 @@ class Client:
         self._delayed_irc_msgs: Dict[str, List[IRCMessage]] = {}  # channel_login: [irc_msg, ...]
         "It's possible to receive a message before the channel is accumulated, all premature messages will be delayed"
         self.is_running = False
-        self.loop: AbstractEventLoop = get_event_loop()
+        self.loop: AbstractEventLoop = asyncio.get_event_loop() if loop is None else loop
         # protected
         self._websocket: WebSocketClientProtocol = WebSocketClientProtocol()
         self._delay_gen: Generator[int, None] = Client._delay_gen()
@@ -191,7 +196,7 @@ class Client:
         self._call_event('on_reconnect')
         self._running_restart_task = None
 
-    async def stop(self):  # TODO: condition for case: self.is_running == False
+    async def stop(self):  # TODO: script for case: self.is_running == False
         self.is_running = False
         await self._websocket.close()
 
@@ -206,9 +211,9 @@ class Client:
             if irc_msg.command == 'GLOBALUSERSTATE':
                 if 'user-login' not in irc_msg.tags:
                     irc_msg.tags['user-login'] = self.login
-                self.global_state = ClientGlobalState(irc_msg)
+                self.global_state = GlobalState(irc_msg)
                 # if has handler
-                self._call_event('on_login')
+                self._call_event('on_ready')
                 return
             elif irc_msg.command == 'NOTICE' and irc_msg.middles[0] == '*':
                 raise LoginFailed(irc_msg.content)
@@ -339,7 +344,7 @@ class Client:
         if irc_msg.channel in self._channels_by_login:
             self._handle_userstate_update(irc_msg)
         else:
-            self._channels_accumulator.add_local_state(irc_msg)
+            self._channels_accumulator.add_client_state(irc_msg)
 
     def _handle_userstate_update(
             self,
@@ -348,11 +353,11 @@ class Client:
         channel = self._channels_by_login[irc_msg.channel]
         if hasattr(self, 'on_channel_update'):
             before = channel.copy()
-            channel.local_state.update(irc_msg)
+            channel.client_state.update(irc_msg)
             after = channel.copy()
             self._call_event('on_channel_update', before, after)
         else:
-            channel.local_state.update(irc_msg)
+            channel.client_state.update(irc_msg)
 
 
     def _handle_privmsg(
@@ -363,7 +368,7 @@ class Client:
             channel = self._get_prepared_channel(irc_msg.channel)
             if 'user-login' not in irc_msg.tags:
                 irc_msg.tags['user-login'] = irc_msg.nickname
-            author = ChannelMember(irc_msg, channel, self.send_whisper)
+            author = ChannelUser(irc_msg, channel, self.send_whisper)
             message = ChannelMessage(irc_msg, channel, author)
             self._call_event('on_message', message)
 
@@ -400,7 +405,7 @@ class Client:
         # if channel join error
         if notice_id in ('msg_room_not_found', 'msg_channel_suspended'):
             self.joined_channel_logins.discard(irc_msg.channel)
-            self._call_event('on_channel_join_error', irc_msg.channel, irc_msg.content)
+            self._call_event('on_channel_join_error', irc_msg.channel, notice_id, irc_msg.content)
         elif notice_id.startswith('msg'):
             pass
             # if hasattr(self, '')
@@ -475,12 +480,12 @@ class Client:
         else:
             # if has specified handler
             if hasattr(self, event_name):
-                author = ChannelMember(irc_msg.tags, channel, self.send_whisper)
+                author = ChannelUser(irc_msg, channel, self.send_whisper)
                 event = event_class(irc_msg, author, channel)
                 self._call_event(event_name, event)
             # if has not specified handler
             elif hasattr(self, 'on_user_event'):
-                author = ChannelMember(irc_msg.tags, channel, self.send_whisper)
+                author = ChannelUser(irc_msg, channel, self.send_whisper)
                 event = event_class(irc_msg, author, channel)
                 self._call_event('on_user_event', event)
 
@@ -523,11 +528,11 @@ class Client:
             irc_msg.tags['user-login'] = self.login
         if hasattr(self, 'on_global_state_update'):
             before = self.global_state
-            self.global_state = ClientGlobalState(irc_msg)
+            self.global_state = GlobalState(irc_msg)
             after = self.global_state
             self._call_event('on_global_state_update', before, after)
         else:
-            self.global_state = ClientGlobalState(irc_msg)
+            self.global_state = GlobalState(irc_msg)
 
     def _handle_reconnect(
             self,
@@ -631,20 +636,13 @@ class Client:
             content: `str`
                 content to send
             agent: `str`
-                login of channel via which the whisper must be sent
+                login of a channel via the whisper must be sent
 
         Returns:
             `None`
         """
-        # if specified agent for the whisper
-        if agent is not None:
-            agent = agent
-        # if specified agent for a whisper
-        elif self.whisper_agent is not None:
+        if agent is None:
             agent = self.whisper_agent
-        # if not specified
-        else:
-            agent = self.login
         # send
         content = f'/w {target} {content}'
         await self.send_message(agent, content)
@@ -740,7 +738,7 @@ class Client:
                 event(*args)
             )
 
-    def event(self, coro: Callable[[], Coroutine]) -> Callable[[], Coroutine]:
+    def event(self, coro: Callable[..., Coroutine]) -> Callable[[], Coroutine]:
         """
         |DECORATOR|
         registers handler of event
@@ -765,7 +763,7 @@ class Client:
     def _register_event(
             self,
             handler_name: str,
-            coro: Callable[[], Coroutine]
+            coro: Callable[..., Coroutine]
     ) -> None:
         """
         1. Registers event with given name.
@@ -799,7 +797,7 @@ class Client:
         """Creates async task in `self.loop`"""
         self.loop.create_task(coro)
 
-    _COMMAND_HANDLERS: Dict[str, Callable[[Any, IRCMessage], Any]] = {
+    _COMMAND_HANDLERS: Dict[str, Callable[[_Client, IRCMessage], Any]] = {
         'PRIVMSG': _handle_privmsg,
         'WHISPER': _handle_whisper,
         'JOIN': _handle_join,
@@ -841,7 +839,7 @@ class Client:
         'on_channel_update', 'on_channel_join',  # ROOMSTATE
         'on_local_state_update',  # USERSTATE
         'on_names_update',  # 366
-        'on_login', 'on_global_state_update',  # GLOBALUSERSTATE
+        'on_ready', 'on_global_state_update',  # GLOBALUSERSTATE
         'on_user_join',  # JOIN
         'on_user_part',  # PART
         'on_clear_chat_from_user', 'on_clear_chat',  # CLEARCHAT

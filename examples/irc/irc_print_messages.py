@@ -2,19 +2,27 @@ import os
 
 from ttv.irc import Client, ChannelMessage
 
-irc_token = os.getenv('TTV_IRC_TOKEN')
-irc_nick = os.getenv('TTV_IRC_NICK')
-ttv_chat_bot = Client(irc_token, irc_nick)
+TOKEN = os.environ['TTV_IRC_TOKEN']
+USERNAME = os.environ['TTV_IRC_NICK']
+bot = Client(TOKEN, USERNAME)
 
 
-@ttv_chat_bot.event
+@bot.event
+async def on_ready():
+    print(f'Ready to listen the chat as @{bot.global_state.login}')
+
+
+@bot.event
 async def on_message(message: ChannelMessage):
     print(f'@{message.author.login} in #{message.channel.login} :{message.content}')
+    if message.author.login == bot.login:
+        if message.content == '!stop':
+            await bot.stop()
 
 
-@ttv_chat_bot.event
+@bot.event
 async def on_notice(channel, notice_id, text):
     print(f'#{channel}, {notice_id}, :{text}')
 
 
-ttv_chat_bot.run((irc_nick,))
+bot.run([USERNAME])

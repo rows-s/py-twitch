@@ -4,32 +4,39 @@ import os
 from ttv.irc import Client, Channel, ChannelMessage
 from ttv.api import Api
 
-irc_token = os.getenv('TTV_IRC_TOKEN')
-irc_nick = os.getenv('TTV_IRC_NICK')
-channel_count = int(os.getenv('TTV_IRC_CHANNEL_COUNT'))
-api_token = os.getenv('TTV_API_TOKEN')
-ttv_chat_bot = Client(irc_token, irc_nick)
+PASS = os.environ['TTV_IRC_TOKEN']
+USERNAME = os.environ['TTV_IRC_NICK']
+CHANNEL_COUNT = int(os.getenv('TTV_IRC_CHANNEL_COUNT', 50))
+API_TOKEN = os.environ['TTV_API_TOKEN']
 
 
-@ttv_chat_bot.event
-async def on_login():
-    print('Successfully logged in')
+class IRCClient(Client):
+    async def on_ready(self):
+        print(f'Successfully logged in as @{self.global_state.display_name} ({self.global_state.id})')
+
+    async def on_channel_join(self, channel: Channel):
+        print(f'Has join #{channel.login}')
+
+    async def on_message(self, message: ChannelMessage):
+        print(f'@{message.author.login} in #{message.channel.login}: {message.content}')
+        if message.author.login == self.login:
+            if message.content == '!stop':
+                await self.stop()
+                await await_all_tasks(self.loop)
 
 
-@ttv_chat_bot.event
-async def on_channel_join(channel: Channel):
-    print(f'Has join #{channel.login}')
-
-
-@ttv_chat_bot.event
-async def on_message(message: ChannelMessage):
-    print(f'@{message.author.login} in #{message.channel.login}: {message.content}')
+async def await_all_tasks(loop, timeout: float = 5):
+    tasks = asyncio.all_tasks(loop)
+    await asyncio.wait_for(
+        asyncio.gather(*tasks), timeout
+    )
 
 
 async def main():
-    ttv_api = await Api.create(api_token)
-    streams = [stream['user_login'] async for stream in ttv_api.get_streams(channel_count - 1)]
-    streams.append(irc_nick)
-    await ttv_chat_bot.start(streams)
+    ttv_api = await Api.create(API_TOKEN)
+    channel = [stream['user_login'] async for stream in ttv_api.get_streams(CHANNEL_COUNT - 1)]
+    await ttv_api.close()
+    channel.append(USERNAME)
+    await IRCClient(PASS, USERNAME).start(channel)
 
 asyncio.get_event_loop().run_until_complete(main())

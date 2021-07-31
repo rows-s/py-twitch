@@ -2,7 +2,7 @@ from abc import ABC
 
 from .irc_message import IRCMessage
 from .channel import Channel
-from .users import BaseUser, ChannelMember, ParentMessageUser, GlobalUser
+from .users import BaseUser, ChannelUser, ParentMessageUser, GlobalUser
 from .utils import parse_raw_emotes, is_emote_only
 
 from typing import Dict, Optional, Tuple, List
@@ -41,8 +41,8 @@ class ParentMessage:
             author: ParentMessageUser
     ) -> None:
         self.channel: Channel = channel
-        self.author = author
-        self.content: str = irc_msg.tags.get('reply-parent-msg-body', '')
+        self.author: ParentMessageUser = author
+        self.content: str = irc_msg.tags.get('reply-parent-msg-body')
         self.id: str = irc_msg.tags.get('reply-parent-msg-id')
 
     async def delete(self):
@@ -54,28 +54,31 @@ class ChannelMessage(BaseMessage):
             self,
             irc_msg: IRCMessage,
             channel: Channel,
-            author: ChannelMember
+            author: ChannelUser
     ) -> None:
         super().__init__(irc_msg, author)
         # variable tags
         self.channel: Channel = channel
-        self.bits = int(irc_msg.tags.get('bits', '0'))
+        self.bits: int = int(irc_msg.tags.get('bits', 0))
         self.msg_id: Optional[str] = irc_msg.tags.get('msg-id')
         self.custom_reward_id: Optional[str] = irc_msg.tags.get('custom-reward-id')
         # parent message
-        self.is_reply: bool = 'reply-parent-msg-id' in irc_msg.tags
-        if self.is_reply:
-            self._set_parent_message(irc_msg.copy())
-        else:
-            self.parent_message: Optional[ParentMessage] = None
+        self.parent_message: Optional[ParentMessage] = self._crate_parent_message(irc_msg.copy())
 
-    def _set_parent_message(
+    @property
+    def is_reply(self):
+        return self.parent_message is not None
+
+    def _crate_parent_message(
             self,
             irc_msg: IRCMessage
-    ) -> None:
-        # TODO: Is not the best way just take the `send_whisper_callback` from `self.author` . Better improve.
-        parent_message_author: ParentMessageUser = ParentMessageUser(irc_msg.copy(), self.author._send_whisper_callback)
-        self.parent_message = ParentMessage(irc_msg, self.channel, parent_message_author)
+    ) -> Optional[ParentMessage]:
+        if 'reply-parent-msg-id' in irc_msg.tags:
+            # TODO: Could be better than take private field... but how?
+            author = ParentMessageUser(irc_msg.copy(), self.author._send_whisper_callback)
+            return ParentMessage(irc_msg.copy(), self.channel, author)
+        else:
+            return None
 
     async def delete(self):
         await self.channel.send_message(f'/delete {self.id}')

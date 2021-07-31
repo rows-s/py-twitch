@@ -21,8 +21,8 @@ class IRCConsole(Client):
         while True:
             raw_irc_msg = await ainput("IRC message: ")
             if raw_irc_msg == 'stop':
-                for task in asyncio.all_tasks(self.loop):
-                    print(task)
+                self._start_task.close()
+                return
             else:
                 await self._send(raw_irc_msg)
                 await asyncio.sleep(0.5)

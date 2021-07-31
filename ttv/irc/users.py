@@ -1,23 +1,26 @@
 from .channel import Channel
 from .irc_message import IRCMessage
-from .user_states import BaseState, BaseLocalState
-from .utils import parse_raw_badges
+from .user_states import BaseState, LocalState, GlobalState
 
 from abc import ABC
-from typing import Dict, Optional, Callable
+from typing import Callable, Coroutine
 
+__all__ = ('BaseUser', 'ChannelUser', 'GlobalUser', 'ParentMessageUser')
 
-__all__ = ('BaseUser', 'ChannelMember', 'GlobalUser', 'ParentMessageUser')
+# TODO: Must be Callable[[str, str, ..., Arg(str, name='agent')], Coroutine]
+#  basing on Client.send_whisper(self, target: str, content: str, *, agent: str = None)
+SendWhisperCallable = Callable[..., Coroutine]
 
 
 class BaseUser(BaseState, ABC):
+    """TODO"""
     def __init__(
             self,
             irc_msg: IRCMessage,
-            send_whisper_callback: Callable
+            send_whisper_callback: SendWhisperCallable
     ):
         super(BaseUser, self).__init__(irc_msg)
-        self._send_whisper_callback: Callable = send_whisper_callback
+        self._send_whisper_callback: SendWhisperCallable = send_whisper_callback
 
     async def send_whisper(
             self,
@@ -28,12 +31,13 @@ class BaseUser(BaseState, ABC):
         await self._send_whisper_callback(self.login, content, agent=agent)
 
 
-class ChannelMember(BaseUser, BaseLocalState):
+class ChannelUser(BaseUser, LocalState):
+    """TODO"""
     def __init__(
             self, 
             irc_msg: IRCMessage, 
             channel: Channel, 
-            send_wishper_callback: Callable
+            send_wishper_callback: SendWhisperCallable
     ) -> None:
         super().__init__(irc_msg, send_wishper_callback)
         self.channel: Channel = channel
@@ -48,7 +52,7 @@ class ChannelMember(BaseUser, BaseLocalState):
         await self.channel.send_message(f'/timeout {self.login} {seconds}')
 
     async def untimeout(self):
-        await self.channel.send_message(f'/timeout {self.login} 1')
+        await self.channel.send_message(f'/untimeout  {self.login}')
 
     async def vip(self):
         await self.channel.send_message(f'/vip {self.login}')
@@ -63,19 +67,26 @@ class ChannelMember(BaseUser, BaseLocalState):
         await self.channel.send_message(f'/unmod {self.login}')
 
 
-class GlobalUser(BaseUser):
-    pass
+class GlobalUser(BaseUser, GlobalState):
+    """TODO"""
 
 
-class ParentMessageUser(BaseUser):
+class ParentMessageUser:
+    """TODO"""
     def __init__(
             self,
             irc_msg: IRCMessage,
-            send_whisper_callback: Callable
+            send_whisper_callback: SendWhisperCallable
     ):
-        irc_msg.tags = {
-            'user-id': irc_msg.tags.get('reply-parent-user-id'),
-            'user-login': irc_msg.tags.get('reply-parent-user-login'),
-            'display-name': irc_msg.tags.get('reply-parent-display-name'),
-        }
-        super().__init__(irc_msg, send_whisper_callback)
+        self.id = irc_msg.tags.pop('reply-parent-user-id')
+        self.login = irc_msg.tags.pop('reply-parent-user-login')
+        self.display_name = irc_msg.tags.pop('reply-parent-display-name')
+        self._send_whisper_callback: SendWhisperCallable = send_whisper_callback
+
+    async def send_whisper(
+            self,
+            content: str,
+            *,
+            agent: str = None
+    ) -> None:
+        await self._send_whisper_callback(self.login, content, agent=agent)

@@ -7,7 +7,9 @@ from .irc_message import IRCMessage
 
 from typing import Dict, Tuple, TypeVar
 
-__all__ = ('BaseState', 'BaseClientState', 'ClientGlobalState', 'BaseLocalState', 'ClientLocalState')
+__all__ = ('BaseState', 'BaseExtState', 'GlobalState', 'LocalState')
+
+_T = TypeVar('_T')
 
 
 class BaseState(ABC):
@@ -18,18 +20,17 @@ class BaseState(ABC):
         self.login: str = irc_msg.tags.get('user-login')
         self.display_name: str = irc_msg.tags.get('display-name')
         self.color: str = irc_msg.tags.get('color')
-        # badges
         self.badges: Dict[str, str] = parse_raw_badges(irc_msg.tags.get('badges', ''))
 
     def update(self, irc_msg: IRCMessage):
         self.__init__(irc_msg)
 
-    def copy(self):
+    def copy(self: _T) -> _T:
         new = copy(self)
         new.badges = copy(self.badges)
         return new
 
-    def __eq__(self, other):
+    def __eq__(self, other) -> bool:
         if isinstance(other, BaseState):
             try:
                 assert self.id == other.id
@@ -44,21 +45,21 @@ class BaseState(ABC):
         return False
 
 
-class BaseClientState(BaseState):
-    """Base class for user states"""
+class BaseExtState(BaseState, ABC):
+    """Base state with extensioned ::"""
     def __init__(self, irc_msg: IRCMessage):
-        super(BaseClientState, self).__init__(irc_msg)
+        super(BaseExtState, self).__init__(irc_msg)
         self.emote_sets: Tuple[str] = tuple(irc_msg.tags.get('emote-sets', '').split(','))
         self.badge_info: Dict[str, str] = parse_raw_badges(irc_msg.tags.get('badge-info', ''))
 
-    def copy(self):
-        new = super(BaseClientState, self).copy()
+    def copy(self: _T) -> _T:
+        new = super(BaseExtState, self).copy()
         new.badge_info = copy(self.badge_info)
         return new
 
     def __eq__(self, other):
-        if isinstance(other, BaseClientState):
-            if super(BaseClientState, self).__eq__(other):
+        if isinstance(other, BaseExtState):
+            if super(BaseExtState, self).__eq__(other):
                 try:
                     assert self.emote_sets == other.emote_sets
                     assert self.badge_info == other.badge_info
@@ -69,11 +70,11 @@ class BaseClientState(BaseState):
         return False
 
 
-class ClientGlobalState(BaseClientState):
+class GlobalState(BaseExtState):
     """Class represents global state of a twitch-user :class:`ttv.irc.Client`"""
 
 
-class BaseLocalState(BaseClientState, ABC):
+class LocalState(BaseExtState, ABC):
     """Class represents local state of a user in a :class:`ttv.irc.Channel`"""
 
     @property
@@ -111,9 +112,3 @@ class BaseLocalState(BaseClientState, ABC):
     @property
     def bits(self) -> int:
         return int(self.badges.get('bits', 0))
-
-
-class ClientLocalState(BaseLocalState):
-    """Class represents local state of a user (:class:`ttv.irc.Client`) in a channel (:class:`ttv.irc.Channel`)"""
-
-

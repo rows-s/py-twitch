@@ -1,7 +1,7 @@
 from copy import copy
 
 from .irc_message import IRCMessage
-from .user_states import BaseLocalState
+from .user_states import LocalState
 
 from typing import Callable, Optional, Dict, Union, List, Tuple, Coroutine
 
@@ -12,17 +12,17 @@ class Channel:
     def __init__(
             self,
             irc_msg: IRCMessage,
-            local_state: BaseLocalState,
+            client_state: LocalState,
             names: Tuple[str],
-            _send_callback: Callable
+            _send_callback: Callable[[str], Coroutine]
     ) -> None:
         self._irc_msg: IRCMessage = irc_msg
-        self.local_state: BaseLocalState = local_state
-        # TODO: logically the class must not have this variable (local_state),
+        self.client_state: LocalState = client_state
+        # TODO: logically the class must not have this variable (client_state),
         #  because it represents state of a IRCUser not anything of IRCChannel.
         #  But that way's easier to understand and to use
         self.names: Tuple[str] = names
-        self._send: Callable = _send_callback
+        self._send: Callable[[str], Coroutine] = _send_callback
 
     @property
     def id(self) -> str:
@@ -68,7 +68,7 @@ class Channel:
         self._irc_msg.tags.update(irc_msg.tags)
 
     def copy(self):
-        return self.__class__(self._irc_msg.copy(), self.local_state.copy(), self.names, self._send)
+        return self.__class__(self._irc_msg.copy(), self.client_state.copy(), self.names, self._send)
 
     async def send_message(
             self,
@@ -98,8 +98,8 @@ class ChannelsAccumulator:
             channel_ready_callback: Callable[[Channel], None],
             send_callback: Callable[[str], Coroutine]
     ) -> None:
-        self.room_states: Dict[str, IRCMessage] = {}
-        self.local_states: Dict[str, BaseLocalState] = {}
+        self.channel_states: Dict[str, IRCMessage] = {}
+        self.client_states: Dict[str, LocalState] = {}
         self.names: Dict[str, Union[List[str], Tuple[str]]] = {}
         self.channel_ready_callback: Callable[[Channel], None] = channel_ready_callback
         self.send_callback: Callable[[str], Coroutine] = send_callback
@@ -108,25 +108,25 @@ class ChannelsAccumulator:
             self,
             state: IRCMessage
     ) -> None:
-        self.room_states[state.channel] = state
+        self.channel_states[state.channel] = state
 
     def update_room_state(
             self,
             irc_msg: IRCMessage
     ) -> None:
-        room_state = self.room_states.get(irc_msg.channel)
+        room_state = self.channel_states.get(irc_msg.channel)
         if room_state is None:
-            self.room_states[irc_msg.channel] = irc_msg
+            self.channel_states[irc_msg.channel] = irc_msg
         else:
             room_state.tags.update(irc_msg.tags)
         if self.is_channel_ready(irc_msg.channel):
             self.call_channel_ready_callback(irc_msg.channel)
 
-    def add_local_state(
+    def add_client_state(
             self,
             irc_msg: IRCMessage
     ) -> None:
-        self.local_states[irc_msg.channel] = BaseLocalState(irc_msg)
+        self.client_states[irc_msg.channel] = LocalState(irc_msg)
         if self.is_channel_ready(irc_msg.channel):
             self.call_channel_ready_callback(irc_msg.channel)
 
@@ -160,8 +160,8 @@ class ChannelsAccumulator:
             channel_login: str
     ) -> bool:
         return all((
-            isinstance(self.room_states.get(channel_login), IRCMessage),
-            isinstance(self.local_states.get(channel_login), BaseLocalState),
+            isinstance(self.channel_states.get(channel_login), IRCMessage),
+            isinstance(self.client_states.get(channel_login), LocalState),
             isinstance(self.names.get(channel_login), tuple)
         ))
 
@@ -174,7 +174,7 @@ class ChannelsAccumulator:
             self,
             channel_login: str
     ) -> Channel:
-        room_state = self.room_states.pop(channel_login)
-        local_state = self.local_states.pop(channel_login)
+        room_state = self.channel_states.pop(channel_login)
+        local_state = self.client_states.pop(channel_login)
         names = self.names.pop(channel_login)
         return Channel(room_state, local_state, names, self.send_callback)

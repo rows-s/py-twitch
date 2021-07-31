@@ -1,4 +1,4 @@
-from .users import ChannelMember
+from .users import ChannelUser
 from .channel import Channel
 
 from .utils import parse_raw_emotes
@@ -32,10 +32,10 @@ class BaseUserEvent(ABC):
     def __init__(
             self,
             irc_msg: IRCMessage,
-            author: ChannelMember,
+            author: ChannelUser,
             channel: Channel
     ) -> None:
-        self.author: ChannelMember = author
+        self.author: ChannelUser = author
         self.channel: Channel = channel
         self.content: str = irc_msg.content
         # tags
@@ -53,7 +53,7 @@ class BaseSub(BaseUserEvent):
     def __init__(
             self,
             irc_msg: IRCMessage,
-            author: ChannelMember,
+            author: ChannelUser,
             channel: Channel
     ) -> None:
         super().__init__(irc_msg, author, channel)
@@ -77,7 +77,7 @@ class ReSub(BaseSub):
     def __init__(
             self, 
             irc_msg: IRCMessage, 
-            author: ChannelMember, 
+            author: ChannelUser,
             channel: Channel
     ) -> None:
         super().__init__(irc_msg, author, channel)
@@ -99,7 +99,7 @@ class BaseGift(BaseUserEvent):
     def __init__(
             self,
             irc_msg: IRCMessage,
-            author: ChannelMember,
+            author: ChannelUser,
             channel: Channel
     ) -> None:
         super().__init__(irc_msg, author, channel)
@@ -113,7 +113,7 @@ class SubMysteryGift(BaseUserEvent):
     def __init__(
             self, 
             irc_msg: IRCMessage, 
-            author: ChannelMember, 
+            author: ChannelUser,
             channel: Channel
     ) -> None:
         super().__init__(irc_msg, author, channel)
@@ -124,7 +124,7 @@ class SubGift(BaseUserEvent):
     def __init__(
             self, 
             irc_msg: IRCMessage, 
-            author: ChannelMember, 
+            author: ChannelUser,
             channel: Channel
     ) -> None:
         super().__init__(irc_msg, author, channel)
@@ -144,7 +144,7 @@ class GiftPaidUpgrade(BaseUserEvent):
     def __init__(
             self, 
             irc_msg: IRCMessage, 
-            author: ChannelMember, 
+            author: ChannelUser,
             channel: Channel
     ) -> None:
         super().__init__(irc_msg, author, channel)
@@ -157,7 +157,7 @@ class PrimePaidUpgrade(BaseUserEvent):
     def __init__(
             self, 
             irc_msg: IRCMessage, 
-            author: ChannelMember, 
+            author: ChannelUser,
             channel: Channel
     ) -> None:
         super().__init__(irc_msg, author, channel)
@@ -168,7 +168,7 @@ class BasePayForward(BaseUserEvent):
     def __init__(
             self, 
             irc_msg: IRCMessage, 
-            author: ChannelMember, 
+            author: ChannelUser,
             channel: Channel
     ) -> None:
         super().__init__(irc_msg, author, channel)
@@ -183,7 +183,7 @@ class StandardPayForward(BasePayForward):
     def __init__(
             self,
             irc_msg: IRCMessage,
-            author: ChannelMember,
+            author: ChannelUser,
             channel: Channel
     ) -> None:
         super().__init__(irc_msg, author, channel)
@@ -201,7 +201,7 @@ class Raid(BaseUserEvent):
     def __init__(
             self,
             irc_msg: IRCMessage,
-            author: ChannelMember,
+            author: ChannelUser,
             channel: Channel
     ) -> None:
         super().__init__(irc_msg, author, channel)
@@ -219,7 +219,7 @@ class BitsBadgeTier(BaseUserEvent):
     def __init__(
             self,
             irc_msg: IRCMessage,
-            author: ChannelMember,
+            author: ChannelUser,
             channel: Channel
     ) -> None:
         super().__init__(irc_msg, author, channel)
@@ -230,7 +230,7 @@ class Ritual(BaseUserEvent):
     def __init__(
             self,
             irc_msg: IRCMessage,
-            author: ChannelMember,
+            author: ChannelUser,
             channel: Channel
     ) -> None:
         super().__init__(irc_msg, author, channel)

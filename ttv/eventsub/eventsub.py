@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 # project
 from .events import *
-from ..exceptions import UnknownEvent, FunctionIsNotCoroutine
 from ..utils import calc_sha256, str_to_datetime
 # type hints
 from typing import Coroutine, Dict, Awaitable, Tuple, List, Type, Callable
@@ -240,26 +239,12 @@ class EventSub:
             handler: Callable[..., Coroutine]
     ) -> Callable[..., Coroutine]:
         if not iscoroutinefunction(handler):
-            raise FunctionIsNotCoroutine(handler.__name__)
+            raise TypeError(handler.__name__)
         if handler.__name__ in EventSub._events_handlers_names:
             setattr(self, handler.__name__, handler)
         else:
-            raise UnknownEvent(f'{handler.__name__} is unknown name of event')
+            raise NameError(f'{handler.__name__} is unknown name of event')
         return handler
-
-    def events(
-            self,
-            *event_names: str
-    ) -> Callable[[Callable[..., Coroutine]], Callable[..., Coroutine]]:
-        def decorator(coro: Callable[..., Coroutine]):
-            if not iscoroutinefunction(coro):
-                raise FunctionIsNotCoroutine(coro.__name__)
-            for handler_name in event_names:
-                if handler_name in EventSub._events_handlers_names:
-                    setattr(self, handler_name, coro)
-                else:
-                    raise UnknownEvent(f'{handler_name} is unknown name of event')
-        return decorator
 
     def _do_later(
             self,
