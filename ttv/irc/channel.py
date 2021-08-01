@@ -1,9 +1,7 @@
-from copy import copy
-
 from .irc_message import IRCMessage
 from .user_states import LocalState
 
-from typing import Callable, Optional, Dict, Union, List, Tuple, Coroutine
+from typing import Callable, Dict, Union, List, Tuple, Coroutine
 
 __all__ = ('Channel', 'ChannelsAccumulator')
 
@@ -85,6 +83,7 @@ class Channel:
     def __eq__(self, other):
         if isinstance(other, Channel):
             return self._irc_msg == other._irc_msg
+        return False
 
 
 class ChannelsAccumulator:

@@ -55,25 +55,16 @@ def parse_raw_badges(
 
 
 def escape_tag_value(value: str):
+    r"""
+    Unescapes escaped value: ' ' -> '\s', ';' -> '\:', '\' -> '\\'.
+    '\r' and '\n' (CR and LF) don't need to be escaped.
+    """
     return value.replace('\\', '\\\\').replace(' ', r'\s').replace(';', r'\:')
 
 
 def unescape_tag_value(value: str) -> str:
     r"""
-    Unescapes escaped value: '\s' -> ' ', '\:' -> ';', '\\' -> '\', '\' -> ''.
+    Unescapes escaped value: '\s' -> ' ', '\:' -> ';', '\\' -> '\'.
     '\r' and '\n' (CR and LF) don't need to be unescaped.
     """
-    if value:
-        i = 0
-        replacements = {'s': ' ', ':': ';'}
-        value = list(value)
-        while i < len(value):  # don't check the last
-            if value[i] == '\\':
-                if i+1 == len(value):
-                    value.pop()
-                else:
-                    value.pop(i)
-                    if value[i] in replacements:
-                        value[i] = replacements[value[i]]
-            i += 1
-    return ''.join(value)  # return str
+    return value.replace(r'\:', ';').replace(r'\s', ' ').replace('\\\\', '\\')

@@ -228,7 +228,7 @@ class Client:
             uri: str = 'wss://irc-ws.chat.twitch.tv:443'
     ):
         """Creates new websocket connection if not open, requires capabilities and login into twitch IRC"""
-        if not self._websocket.open:
+        if not self._websocket.open:  # TODO: :meth:`_restart` must have way to reopen the websocket
             self._websocket = await websockets.connect(uri)
             # capabilities
             await self._send('CAP REQ :twitch.tv/membership twitch.tv/commands twitch.tv/tags')

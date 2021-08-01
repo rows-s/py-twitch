@@ -12,7 +12,7 @@ API_TOKEN = os.environ['TTV_API_TOKEN']
 
 class IRCClient(Client):
     async def on_ready(self):
-        print(f'Successfully logged in as @{self.global_state.display_name} ({self.global_state.id})')
+        print(f'Successfully logged in as @{self.login} ({self.global_state.id})')
 
     async def on_channel_join(self, channel: Channel):
         print(f'Has join #{channel.login}')
@@ -22,14 +22,6 @@ class IRCClient(Client):
         if message.author.login == self.login:
             if message.content == '!stop':
                 await self.stop()
-                await await_all_tasks(self.loop)
-
-
-async def await_all_tasks(loop, timeout: float = 5):
-    tasks = asyncio.all_tasks(loop)
-    await asyncio.wait_for(
-        asyncio.gather(*tasks), timeout
-    )
 
 
 async def main():

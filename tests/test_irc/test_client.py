@@ -1,6 +1,6 @@
 import asyncio
 import os
-from typing import Tuple
+from typing import Tuple, Iterable
 
 import websockets
 import pytest
@@ -254,28 +254,46 @@ async def test_restart():
     assert is_local_state_updated
     assert is_nameslist_updated
 
+CAP = IRCMessage(':tmi.twitch.tv CAP * ACK :twitch.tv/membership twitch.tv/commands twitch.tv/tags')
+GS = IRCMessage('@badges=;badge-info=;color=;display-name=Target;emote-sets=;user-id=12345 GLOBALUSERSTATE')
+RS = IRCMessage('@emote-only=0;followers-only=-1;r9k=0;rituals=0;room-id=12345;slow=0;subs-only=0 ROOMSTATE #target')
+NP = IRCMessage('353 #target :username username2 username3')
+NP2 = IRCMessage('353 #target :username4 username5 username6')
+NAMES = ['username', 'username2', 'username3'] + ['username4', 'username5', 'username6']
+NE = IRCMessage('366 #target')
+LS = IRCMessage('@badges=;badge-info=;color=;display-name=Target;emote-sets=;user-id=12345 USERSTATE #target')
+MSG = IRCMessage('@badges=moderator/1,subscriber/2;@badge-info=subscriber/7;color=#FFFFFF;display-name=UserName;'
+                 'emotes=555555558:23-24;flags=;'
+                 'tmi-sent-ts=1627200608549;id=4678496c-3fcd-4ae5-90c0-e85cd15bd81d;room-id=12345;user-id=98765;'
+                 'user-type=;bits= '
+                 ':username!username@username PRIVMSG #target :content with a @metion :(')
+
+
+async def handle_commands(client: Client, irc_msgs: Iterable[IRCMessage]):
+    for irc_msg in irc_msgs:
+        await client._handle_command(irc_msg)
+
 
 @pytest.mark.asyncio
 async def test_handle_command():
     pass
     # delay msg
-    privmsg = IRCMessage(':fernandx_z!fernandx_z@fernandx_z.tmi.twitch.tv PRIVMSG #axozer :@some_user text')
+    privmsg = IRCMessage(':fernandx_z!fernandx_z@fernandx_z.tmi.twitch.tv PRIVMSG #taget :@some_user text')
     ttv_bot = Client('token', 'login')
     @ttv_bot.event
-    async def on_message(_: ChannelMessage): pass
+    async def on_message(_): pass
     await ttv_bot._handle_command(privmsg)
     assert ttv_bot._delayed_irc_msgs['axozer'] == [privmsg]
     # on_unknown_command
-    ack_msg = IRCMessage(':tmi.twitch.tv CAP * ACK :twitch.tv/membership twitch.tv/commands twitch.tv/tags')
     is_on_unknown_command_called = False
 
     @ttv_bot.event
     async def on_unknown_command(irc_msg: IRCMessage):
         nonlocal is_on_unknown_command_called
-        if irc_msg is ack_msg:
-            is_on_unknown_command_called = True
+        assert irc_msg is CAP
+        is_on_unknown_command_called = True
 
-    await ttv_bot._handle_command(ack_msg)
+    await ttv_bot._handle_command(CAP)
     await asyncio.sleep(0.001)
     assert is_on_unknown_command_called
     # also is being tested in test_handle_* tests
@@ -285,26 +303,19 @@ async def test_handle_command():
 async def test_handle_names_part():
     ttv_bot = Client('token', 'login')
     # set(update)
-    irc_msg_nmsp = IRCMessage(':username.tmi.twitch.tv 353 username = #username :username username2 username3')
-    names = ['username', 'username2', 'username3']
-    await ttv_bot._handle_command(irc_msg_nmsp)
-    assert ttv_bot._channels_accumulator.names[irc_msg_nmsp.channel] == names
+    await ttv_bot._handle_command(NP)
+    assert ttv_bot._channels_accumulator.names[NP.channel] == NAMES[:3]
     # update
-    irc_msg_nmsp2 = IRCMessage(':username.tmi.twitch.tv 353 username = #username :username4 username5 username6')
-    await ttv_bot._handle_command(irc_msg_nmsp2)
-    names2 = ['username4', 'username5', 'username6']
-    assert ttv_bot._channels_accumulator.pop_names(irc_msg_nmsp2.channel) == names + names2
+    await ttv_bot._handle_command(NP2)
+    assert ttv_bot._channels_accumulator.pop_names(NP2.channel) == tuple(NAMES)
 
 
 @pytest.mark.asyncio
 async def test_handle_names_end():
     ttv_bot = Client('token', 'login')
     # end
-    irc_msg_nmsp = IRCMessage(':username.tmi.twitch.tv 353 username = #username :username username2 username3')
-    irc_msg_nmse = IRCMessage(':username.tmi.twitch.tv 366 username #username :End of /NAMES list')
-    await ttv_bot._handle_command(irc_msg_nmsp)
-    await ttv_bot._handle_command(irc_msg_nmse)
-    assert ttv_bot._channels_accumulator.pop_names(irc_msg_nmse.channel) == ('username', 'username2', 'username3')
+    await handle_commands(ttv_bot, [NP, NE])
+    assert ttv_bot._channels_accumulator.pop_names(NE.channel) == ('username', 'username2', 'username3')
     # also is being tested in `test_handle_names_update()`
 
 
