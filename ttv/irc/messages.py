@@ -33,6 +33,9 @@ class BaseMessage(ABC):
         self.emote_only: bool = irc_msg.tags.get('emote-only') == '1'
         self.emotes: Dict[str, List[Tuple[int, int]]] = parse_raw_emotes(irc_msg.tags.get('emotes', ''))
 
+    def __str__(self):
+        return f'@{self.author.login} :{self.content}'
+
 
 class ParentMessage:
     def __init__(
@@ -69,6 +72,9 @@ class ChannelMessage(BaseMessage):
     @property
     def is_reply(self):
         return self.parent_message is not None
+
+    def __str__(self):
+        return f'@{self.author.login} to #{self.channel.login} :{self.content}'
 
     def _crate_parent_message(
             self,

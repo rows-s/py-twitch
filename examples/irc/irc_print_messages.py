@@ -9,12 +9,12 @@ bot = Client(TOKEN, USERNAME)
 
 @bot.event
 async def on_ready():
-    print(f'Ready to listen the chat as @{bot.login}')
+    print(f'Ready to listen the chat as @{bot.login} ({bot.global_state.id})')
 
 
 @bot.event
 async def on_message(message: ChannelMessage):
-    print(f'@{message.author.login} in #{message.channel.login} :{message.content}')
+    print(message)
     if message.author.login == bot.login:
         if message.content == '!stop':
             await bot.stop()

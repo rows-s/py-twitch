@@ -15,20 +15,23 @@ class IRCClient(Client):
         print(f'Successfully logged in as @{self.login} ({self.global_state.id})')
 
     async def on_channel_join(self, channel: Channel):
-        print(f'Listening to #{channel.login}')
+        print(f'Has join #{channel.login}')
 
     async def on_message(self, message: ChannelMessage):
-        print(message)
         if message.author.login == self.login:
             if message.content == '!stop':
                 await self.stop()
+        elif message.flags:
+            print(message)
+            for flag in message.flags:
+                for sub_flag in flag:
+                    print('   ', sub_flag)
 
 
 async def main():
     ttv_api = await Api.create(API_TOKEN)
     channel = [stream['user_login'] async for stream in ttv_api.get_streams(CHANNEL_COUNT - 1)] + [USERNAME]
     await ttv_api.close()
-    channel.append(USERNAME)
     await IRCClient(PASS, USERNAME).start(channel)
 
-asyncio.get_event_loop().run_until_complete(main())
+asyncio.run(main())
