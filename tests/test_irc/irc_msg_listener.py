@@ -272,7 +272,7 @@ if __name__ == '__main__':
                 write(f'{command}: {command_count} instances')
                 tags_types = await conn.fetch(
                     'SELECT id, keys, array_length(keys, 1) AS len, count '
-                    'FROM keys WHERE command=$1 ORDER BY len, count',
+                    'FROM keys WHERE command=$1 ORDER BY len, count  DESC',
                     command
                 )
                 base_keys = set(tags_types[0]['keys'])

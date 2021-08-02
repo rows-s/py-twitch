@@ -1,9 +1,11 @@
 from typing import Dict, Tuple, List
+from .flags import Flag
 
 
 __all__ = (
     'parse_raw_emotes',
     'is_emote_only',
+    'parse_raw_flags',
     'parse_raw_badges',
     'escape_tag_value',
     'unescape_tag_value'
@@ -54,9 +56,21 @@ def parse_raw_badges(
     return result  # result = {'predictions': 'KEENY DEYY', 'vip': '1'}
 
 
+def parse_raw_flags(raw_flags: str, content: str) -> List[Flag]:
+    flags: List[Flag] = []
+    if raw_flags:
+        for raw_flag in raw_flags.split(','):
+            raw_position, raw_flag_ids = raw_flag.split(':', 1)
+            start, end = map(int, raw_position.split('-', 1))
+            end += 1
+            flags_ids = raw_flag_ids.split('/')
+            flags.append(Flag(flags_ids, content[start:end], start, end))
+    return flags
+
+
 def escape_tag_value(value: str):
     r"""
-    Unescapes escaped value: ' ' -> '\s', ';' -> '\:', '\' -> '\\'.
+    Escapes value: ' ' -> '\s', ';' -> '\:', '\' -> '\\'.
     '\r' and '\n' (CR and LF) don't need to be escaped.
     """
     return value.replace('\\', '\\\\').replace(' ', r'\s').replace(';', r'\:')

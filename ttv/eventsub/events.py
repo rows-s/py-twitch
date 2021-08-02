@@ -39,14 +39,14 @@ class WebhookSubscription:
 #################################
 # Event ABCs
 #
-class EventSubABC(ABC):
+class BaseEvent(ABC):
     """ Base class for ALL events """
     def __init__(self, raw_event: dict):
         self.event_id: str = raw_event.get('event_id')
         self.event_time: str = raw_event.get('event_time')
 
 
-class BroadcasterEventABC(EventSubABC, ABC):
+class BaseBroadcasterEvent(BaseEvent, ABC):
     """ Base class for BROADCASTER based events """
     def __init__(self, raw_event: dict):
         super().__init__(raw_event)
@@ -55,7 +55,7 @@ class BroadcasterEventABC(EventSubABC, ABC):
         self.broadcaster_name: str = raw_event.get('broadcaster_user_name')
 
 
-class UserEventABC(EventSubABC, ABC):
+class BaseUserEvent(BaseEvent, ABC):
     """ Base class for USER based events """
     def __init__(self, raw_event: dict):
         super().__init__(raw_event)
@@ -64,28 +64,22 @@ class UserEventABC(EventSubABC, ABC):
         self.user_name: str = raw_event.get('user_name')
 
 
-class BroadcasterUserEventABC(BroadcasterEventABC, UserEventABC, ABC):
+class BaseBroadcasterUserEvent(BaseBroadcasterEvent, BaseUserEvent, ABC):
     # TODO: maybe better don't use abstract class that just inherits 2 others?
     #  And use multiple inheritance for each sub-class of this?
     """ Base class for BROADCASTER & USER based events """
     def __init__(self, raw_event: dict):
         super().__init__(raw_event)
-#
-# end of Event ABCs
-#################################
 
 
-#################################
-# BROADCASTER & USER based events
-#
-class SubscribeEvent(BroadcasterUserEventABC):
+class SubscribeEvent(BaseBroadcasterUserEvent):
     def __init__(self, raw_event: dict):
         super().__init__(raw_event)
         self.tier: str = raw_event.get('tier')
         self.is_gift: bool = raw_event.get('is_gift')
 
 
-class CheerEvent(BroadcasterUserEventABC):
+class CheerEvent(BaseBroadcasterUserEvent):
     def __init__(self, raw_event: dict):
         super().__init__(raw_event)
         self.bits: int = raw_event.get('bits')
@@ -93,42 +87,30 @@ class CheerEvent(BroadcasterUserEventABC):
         self.is_anonymous: bool = raw_event.get('is_anonymous')
 
 
-class FollowEvent(BroadcasterUserEventABC):
+class FollowEvent(BaseBroadcasterUserEvent):
     pass
 
 
-class BanEvent(BroadcasterUserEventABC):
+class BanEvent(BaseBroadcasterUserEvent):
     pass
 
 
-class UnbanEvent(BroadcasterUserEventABC):
+class UnbanEvent(BaseBroadcasterUserEvent):
     pass
-#
-# end of BROADCASTER & USER based events
-#################################
 
 
-#################################
-# STREAM events
-#
-class StreamOnlineEvent(BroadcasterEventABC):
+class StreamOnlineEvent(BaseBroadcasterEvent):
     def __init__(self, raw_event: dict):
         super().__init__(raw_event)
         self.id: int = raw_event.get('id')
         self.type: int = raw_event.get('type')
 
 
-class StreamOfflineEvent(BroadcasterEventABC):
+class StreamOfflineEvent(BaseBroadcasterEvent):
     pass
-#
-# end of STREAM events
-#################################
 
 
-#################################
-# Hype Train events
-#
-class HypetrainEventABC(BroadcasterEventABC, ABC):
+class BaseHypetrainEvent(BaseBroadcasterEvent, ABC):
     """ Base class for HYPE TRAIN events """
     def __init__(self, raw_event: dict):
         super().__init__(raw_event)
@@ -137,7 +119,7 @@ class HypetrainEventABC(BroadcasterEventABC, ABC):
         self.top_contributions: list = raw_event.get('top_contributions')
 
 
-class HypetrainBeginEvent(HypetrainEventABC):
+class HypetrainBeginEvent(BaseHypetrainEvent):
     def __init__(self, raw_event: dict):
         super().__init__(raw_event)
         self.progress: int = raw_event.get('progress')
@@ -146,7 +128,7 @@ class HypetrainBeginEvent(HypetrainEventABC):
         self.last_contribution: dict = raw_event.get('last_contribution')
 
 
-class HypetrainProgressEvent(HypetrainEventABC):
+class HypetrainProgressEvent(BaseHypetrainEvent):
     def __init__(self, raw_event: dict):
         super().__init__(raw_event)
         self.level: int = raw_event.get('level')
@@ -156,21 +138,15 @@ class HypetrainProgressEvent(HypetrainEventABC):
         self.last_contribution: dict = raw_event.get('last_contribution')
 
 
-class HypetrainEndEvent(HypetrainEventABC):
+class HypetrainEndEvent(BaseHypetrainEvent):
     def __init__(self, raw_event: dict):
         super().__init__(raw_event)
         self.level: int = raw_event.get('level')
         self.ended_at: str = raw_event.get('ended_at')
         self.cooldown_ends_at: str = raw_event.get('cooldown_ends_at')
-#
-# end of Hype Train events
-#################################
 
 
-#################################
-# Rewards events
-#
-class RewardEventABC(BroadcasterEventABC, ABC):
+class BaseRewardEvent(BaseBroadcasterEvent, ABC):
     """ Base class for REWARD events """
     def __init__(self, event: dict):
         super().__init__(event)
@@ -193,25 +169,19 @@ class RewardEventABC(BroadcasterEventABC, ABC):
         self.image: dict = event.get('image')
 
 
-class RewardAddEvent(RewardEventABC):
+class RewardAddEvent(BaseRewardEvent):
     pass
 
 
-class RewardUpdateEvent(RewardEventABC):
+class RewardUpdateEvent(BaseRewardEvent):
     pass
 
 
-class RewardRemoveEvent(RewardEventABC):
+class RewardRemoveEvent(BaseRewardEvent):
     pass
-#
-# end of Rewards events
-#################################
 
 
-#################################
-# Redemption events
-#
-class RedemptionEventABC(BroadcasterUserEventABC, ABC):
+class BaseRedemptionEvent(BaseBroadcasterUserEvent, ABC):
     """ Base class for reward REDEMPTION events """
     def __init__(self, event: dict):
         super().__init__(event)
@@ -222,21 +192,15 @@ class RedemptionEventABC(BroadcasterUserEventABC, ABC):
         self.redeemed_at: str = event.get('redeemed_at')
 
 
-class RedemptionAddEvent(RedemptionEventABC):
+class RedemptionAddEvent(BaseRedemptionEvent):
     pass
 
 
-class RedemptionUpdateEvent(RedemptionEventABC):
+class RedemptionUpdateEvent(BaseRedemptionEvent):
     pass
-#
-# end of Redemption events
-#################################
 
 
-#################################
-# Update events
-#
-class ChannelUpdateEvent(BroadcasterEventABC):
+class ChannelUpdateEvent(BaseBroadcasterEvent):
     def __init__(self, raw_event: dict):
         super().__init__(raw_event)
         self.title: str = raw_event.get('title')
@@ -246,17 +210,14 @@ class ChannelUpdateEvent(BroadcasterEventABC):
         self.is_mature: bool = raw_event.get('is_mature')
 
 
-class UserUpdateEvent(UserEventABC):
+class UserUpdateEvent(BaseUserEvent):
     def __init__(self, raw_event: dict):
         super().__init__(raw_event)
         self.email: int = raw_event.get('email')
         self.description: int = raw_event.get('description')
-#
-# end of Update events
-#################################
 
 
-class AuthorizationRevokeEvent(UserEventABC):
+class AuthorizationRevokeEvent(BaseUserEvent):
     def __init__(self, raw_event: dict):
         super().__init__(raw_event)
         self.client_id: int = raw_event.get('client_id')

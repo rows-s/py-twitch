@@ -2,8 +2,9 @@ from abc import ABC
 
 from .irc_message import IRCMessage
 from .channel import Channel
+from .flags import Flag
 from .users import BaseUser, ChannelUser, ParentMessageUser, GlobalUser
-from .utils import parse_raw_emotes, is_emote_only
+from .utils import parse_raw_emotes, is_emote_only, parse_raw_flags
 
 from typing import Dict, Optional, Tuple, List
 
@@ -27,7 +28,7 @@ class BaseMessage(ABC):
         # stable tags
         self.id: str = irc_msg.tags.get('id')
         self.time: int = int(irc_msg.tags.get('tmi-sent-ts', 0))
-        self.flags: str = irc_msg.tags.get('flags')
+        self.flags: List[Flag] = parse_raw_flags(irc_msg.tags.get('flags'), irc_msg.content)
         # emotes
         self.emote_only: bool = irc_msg.tags.get('emote-only') == '1'
         self.emotes: Dict[str, List[Tuple[int, int]]] = parse_raw_emotes(irc_msg.tags.get('emotes', ''))
