@@ -2,7 +2,6 @@ import asyncio
 import os
 from dataclasses import dataclass
 from itertools import combinations
-from time import time
 from typing import Iterable, Dict, List, Optional, AsyncIterator, Set
 import asyncpg
 
@@ -15,12 +14,13 @@ class IRCListener(Client):
             self,
             token: str,
             login: str,
+            name: str,
             *,
             should_restart: bool = True,
             whisper_agent: str = None
     ):
         super().__init__(token, login, should_restart=should_restart, whisper_agent=whisper_agent)
-        self.start_time = 0
+        self.name = name
 
     async def start(
             self,
@@ -30,10 +30,12 @@ class IRCListener(Client):
         await self.join_channels(channels)
         # start main listener
         self.is_running = True
-        self.start_time = time()
         async for irc_msg in self._read_websocket():
             yield irc_msg
         self.is_running = False
+
+    async def on_reconnect(self):
+        print(f'Oops {self.name}')
 
 
 if __name__ == '__main__':
@@ -199,13 +201,11 @@ if __name__ == '__main__':
                 await listeners[i].join_channels(top_channels[start:end])
             print('CHANNEL UPDATED')
 
-
     async def start_listener(listener: IRCListener, channels: Iterable[str]):
         async for irc_msg in listener.start(channels):
             if irc_msg.command == 'USERNOTICE':
                 irc_msg.command = irc_msg.tags['msg-id'].upper()
             await check_irc_msg(irc_msg)
-
 
     async def main():
         await create_tables()
@@ -215,26 +215,25 @@ if __name__ == '__main__':
 
         @bot.event
         async def on_message(message: ChannelMessage):
-            if message.channel.login == IRC_NICK:
-                if message.author.login == IRC_NICK:
-                    if message.content == '!write':
-                        count = await save_tags_in_file()
-                        await message.channel.send_message(str(count))
-                    elif message.content.startswith('!smart'):
-                        if 'privmsg' in message.content:
-                            await save_privmsg_smart_log()
-                        else:
-                            await save_smart_log()
-                    elif message.content.startswith('!stop'):
-                        print('STOP has been requested')
-                        for listener in listeners:
-                            await listener._websocket.close()
-                        await bot._websocket.close()
+            if message.author.login == IRC_NICK:
+                if message.content == '!write':
+                    count = await save_tags_in_file()
+                    await message.channel.send_message(str(count))
+                elif message.content.startswith('!smart'):
+                    if 'privmsg' in message.content:
+                        await save_privmsg_smart_log()
+                    else:
+                        await save_smart_log()
+                elif message.content.startswith('!stop'):
+                    print('STOP has been requested')
+                    for listener in listeners:
+                        await listener.stop()
+                    await bot.stop()
 
         run_mod = input('Run mode (listen or ttv_console, default: ttv_console): ')
         if run_mod == 'listen':
-            listeners = [IRCListener(IRC_TOKEN, IRC_NICK) for _ in range(5)]
-            await start_listeners(listeners, 50)
+            listeners = [IRCListener(IRC_TOKEN, IRC_NICK, f'listener n.{i}') for i in range(1)]
+            await start_listeners(listeners, 10)
         elif run_mod == 'ttv_console':
             asyncio.get_event_loop().create_task(bot.start([IRC_NICK]))
         else:

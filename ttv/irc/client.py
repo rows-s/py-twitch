@@ -9,7 +9,7 @@ from .messages import ChannelMessage, Whisper
 from .channel import Channel, ChannelsAccumulator
 from .users import ChannelUser, GlobalUser
 from .user_states import GlobalState
-from .events import ClearChatFromUser
+from .events import OnClearChatFromUser, OnChannelJoinError, OnNotice, OnMessageDelete
 from .user_events import *
 from .exceptions import *
 
@@ -405,13 +405,13 @@ class Client:
         # if channel join error
         if notice_id in ('msg_room_not_found', 'msg_channel_suspended'):
             self.joined_channel_logins.discard(irc_msg.channel)
-            self._call_event('on_channel_join_error', irc_msg.channel, notice_id, irc_msg.content)
+            self._call_event('on_channel_join_error', OnChannelJoinError(irc_msg.channel, notice_id, irc_msg.content))
         elif notice_id.startswith('msg'):
             pass
             # if hasattr(self, '')
         else:
             channel = self._get_prepared_channel(irc_msg.channel)
-            self._call_event('on_notice', channel, notice_id, irc_msg.content)
+            self._call_event('on_notice', OnNotice(channel, notice_id, irc_msg.content))
 
     def _handle_clearchat(
             self,
@@ -439,7 +439,7 @@ class Client:
             # handle later
             self._call_event(
                 'on_clear_chat_from_user',
-                channel,  ClearChatFromUser(target_user_login, target_user_id, target_message_id, ban_duration)
+                channel,  OnClearChatFromUser(target_user_login, target_user_id, target_message_id, ban_duration)
             )
 
     def _handle_clear_chat(
@@ -461,7 +461,10 @@ class Client:
             message_id = irc_msg.tags.get('target-msg-id')
             tmi_time = int(irc_msg.tags.get('tmi-sent-ts', 0))
             # handle later
-            self._call_event('on_message_delete', channel, user_login, irc_msg.content, message_id, tmi_time)
+            self._call_event(
+                'on_message_delete',
+                OnMessageDelete(channel, user_login, irc_msg.content, message_id, tmi_time)
+            )
 
     def _handle_usernotice(
             self,

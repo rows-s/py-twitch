@@ -34,40 +34,6 @@ class MessageDuplicate:
 class EventSub:
     """ Class to handle your webhooks verifications, notifications and revocations """
 
-    notification_events: Dict[str, Event] = {
-        # 'notification_type': Event
-        'channel.follow': Event('on_follow', FollowEvent),
-        'channel.subscribe': Event('on_subscribe', SubscribeEvent),
-        'channel.cheer': Event('on_cheer', CheerEvent),
-        'channel.ban': Event('on_ban', BanEvent),
-        'channel.unban': Event('on_unban', UnbanEvent),
-        'stream.online': Event('on_stream_online', StreamOnlineEvent),
-        'stream.offline': Event('on_stream_offline', StreamOfflineEvent),
-        'user.update': Event('on_user_update', UserUpdateEvent),
-        'channel.update': Event('on_channel_update', ChannelUpdateEvent),
-        'channel.hype_train.begin': Event('on_hypetrain_begin', HypetrainBeginEvent),
-        'channel.hype_train.progress': Event('on_hypetrain_progress', HypetrainProgressEvent),
-        'channel.hype_train.end': Event('on_hypetrain_end', HypetrainEndEvent),
-        'channel.channel_points_custom_reward.add': Event('on_reward_add', RewardAddEvent),
-        'channel.channel_points_custom_reward.update': Event('on_reward_update', RewardUpdateEvent),
-        'channel.channel_points_custom_reward.remove': Event('on_reward_remove', RewardRemoveEvent),
-        'channel.channel_points_custom_reward_redemption.add': Event('on_redemption_add', RedemptionAddEvent),
-        'channel.channel_points_custom_reward_redemption.update': Event('on_redemption_update', RedemptionUpdateEvent),
-        'user.authorization.revoke': Event('on_authorization_revoke', AuthorizationRevokeEvent),
-    }
-
-    _events_handlers_names: Tuple[str] = (
-        'on_follow', 'on_subscribe', 'on_cheer', 'on_ban', 'on_unban',  # broadcaster and user based events
-        'on_stream_online', 'on_stream_offline',  # stream events
-        'on_user_update', 'on_channel_update',  # update events
-        'on_hypetrain_begin', 'on_hypetrain_progress', 'on_hypetrain_end',  # Hype Train events
-        'on_reward_add', 'on_reward_update', 'on_reward_remove',  # rewards events
-        'on_redemption_add', 'on_redemption_update',  # redemption events
-        'on_authorization_revoke',  # authorization revoke
-        'on_verification', 'custom_verification', 'on_revocation',  # webhook-subscription events
-        'on_unknown_event'  # unknown event
-    )
-
     def __init__(
             self,
             secret: str,
@@ -252,3 +218,37 @@ class EventSub:
     ):
         """ creates task for event loop from attribute 'self.loop' """
         self.loop.create_task(task)
+
+    notification_events: Dict[str, Event] = {
+        # 'notification_type': Event
+        'channel.follow': Event('on_follow', FollowEvent),
+        'channel.subscribe': Event('on_subscribe', SubscribeEvent),
+        'channel.cheer': Event('on_cheer', CheerEvent),
+        'channel.ban': Event('on_ban', BanEvent),
+        'channel.unban': Event('on_unban', UnbanEvent),
+        'stream.online': Event('on_stream_online', StreamOnlineEvent),
+        'stream.offline': Event('on_stream_offline', StreamOfflineEvent),
+        'user.update': Event('on_user_update', UserUpdateEvent),
+        'channel.update': Event('on_channel_update', ChannelUpdateEvent),
+        'channel.hype_train.begin': Event('on_hypetrain_begin', HypetrainBeginEvent),
+        'channel.hype_train.progress': Event('on_hypetrain_progress', HypetrainProgressEvent),
+        'channel.hype_train.end': Event('on_hypetrain_end', HypetrainEndEvent),
+        'channel.channel_points_custom_reward.add': Event('on_reward_add', RewardAddEvent),
+        'channel.channel_points_custom_reward.update': Event('on_reward_update', RewardUpdateEvent),
+        'channel.channel_points_custom_reward.remove': Event('on_reward_remove', RewardRemoveEvent),
+        'channel.channel_points_custom_reward_redemption.add': Event('on_redemption_add', RedemptionAddEvent),
+        'channel.channel_points_custom_reward_redemption.update': Event('on_redemption_update', RedemptionUpdateEvent),
+        'user.authorization.revoke': Event('on_authorization_revoke', AuthorizationRevokeEvent),
+    }
+
+    _events_handlers_names: Tuple[str] = (
+        'on_follow', 'on_subscribe', 'on_cheer', 'on_ban', 'on_unban',  # broadcaster and user based events
+        'on_stream_online', 'on_stream_offline',  # stream events
+        'on_user_update', 'on_channel_update',  # update events
+        'on_hypetrain_begin', 'on_hypetrain_progress', 'on_hypetrain_end',  # Hype Train events
+        'on_reward_add', 'on_reward_update', 'on_reward_remove',  # rewards events
+        'on_redemption_add', 'on_redemption_update',  # redemption events
+        'on_authorization_revoke',  # authorization revoke
+        'on_verification', 'custom_verification', 'on_revocation',  # webhook-subscription events
+        'on_unknown_event'  # unknown event
+    )
