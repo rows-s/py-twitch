@@ -7,3 +7,7 @@ from .irc_message import IRCMessage
 from . import events
 from . import user_events
 from . import exceptions
+
+
+ANON_LOGIN = 'justinfan0'
+ANON_TOKEN = ''
