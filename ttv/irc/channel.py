@@ -3,7 +3,7 @@ from .user_states import LocalState
 
 from typing import Callable, Dict, Union, List, Tuple, Coroutine
 
-__all__ = ('Channel', 'ChannelsAccumulator')
+__all__ = ('Channel', 'ChannelsAccumulator', 'AnonChannelsAccumulator')
 
 
 class Channel:
@@ -105,9 +105,11 @@ class ChannelsAccumulator:
 
     def add_room_state(
             self,
-            state: IRCMessage
+            irc_msg: IRCMessage
     ) -> None:
-        self.channel_states[state.channel] = state
+        self.channel_states[irc_msg.channel] = irc_msg
+        if self.is_channel_ready(irc_msg.channel):
+            self.call_channel_ready_callback(irc_msg.channel)
 
     def update_room_state(
             self,
@@ -115,11 +117,11 @@ class ChannelsAccumulator:
     ) -> None:
         room_state = self.channel_states.get(irc_msg.channel)
         if room_state is None:
-            self.channel_states[irc_msg.channel] = irc_msg
+            self.add_room_state(irc_msg)
         else:
             room_state.tags.update(irc_msg.tags)
-        if self.is_channel_ready(irc_msg.channel):
-            self.call_channel_ready_callback(irc_msg.channel)
+            if self.is_channel_ready(irc_msg.channel):
+                self.call_channel_ready_callback(irc_msg.channel)
 
     def add_client_state(
             self,
@@ -158,11 +160,14 @@ class ChannelsAccumulator:
             self,
             channel_login: str
     ) -> bool:
-        return all((
-            isinstance(self.channel_states.get(channel_login), IRCMessage),
-            isinstance(self.client_states.get(channel_login), LocalState),
-            isinstance(self.names.get(channel_login), tuple)
-        ))
+        try:
+            assert isinstance(self.channel_states.get(channel_login), IRCMessage)
+            assert isinstance(self.client_states.get(channel_login), LocalState)
+            assert isinstance(self.names.get(channel_login), tuple)
+        except AssertionError:
+            return False
+        else:
+            return True
 
     def call_channel_ready_callback(self, channel_login: str):
         self.channel_ready_callback(
@@ -177,3 +182,18 @@ class ChannelsAccumulator:
         local_state = self.client_states.pop(channel_login)
         names = self.names.pop(channel_login)
         return Channel(room_state, local_state, names, self.send_callback)
+
+
+class AnonChannelsAccumulator(ChannelsAccumulator):
+    def is_channel_ready(
+            self,
+            channel_login: str
+    ) -> bool:
+        try:
+            assert isinstance(self.channel_states.get(channel_login), IRCMessage)
+            assert isinstance(self.names.get(channel_login), tuple)
+        except AssertionError:
+            return False
+        else:
+            self.client_states[channel_login] = LocalState(IRCMessage.create_empty())  # no userstate for no-user
+            return True

@@ -1,4 +1,4 @@
-from .client import Client
+from .client import Client, ANON_TOKEN, ANON_LOGIN
 from .channel import Channel
 from .messages import BaseMessage, ChannelMessage, ParentMessage, Whisper
 from .users import BaseUser, ChannelUser, GlobalUser, ParentMessageUser
@@ -7,7 +7,3 @@ from .irc_message import IRCMessage
 from . import events
 from . import user_events
 from . import exceptions
-
-
-ANON_LOGIN = 'justinfan0'
-ANON_TOKEN = ''

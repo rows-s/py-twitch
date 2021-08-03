@@ -6,7 +6,7 @@ from time import time
 
 from .irc_message import IRCMessage
 from .messages import ChannelMessage, Whisper
-from .channel import Channel, ChannelsAccumulator
+from .channel import Channel, ChannelsAccumulator, AnonChannelsAccumulator
 from .users import ChannelUser, GlobalUser
 from .user_states import GlobalState
 from .events import OnClearChatFromUser, OnChannelJoinError, OnNotice, OnMessageDelete
@@ -14,12 +14,12 @@ from .user_events import *
 from .exceptions import *
 
 from typing import Coroutine, Iterable, Tuple, Any, Awaitable, Callable, List, Optional, Dict, AsyncGenerator, \
-    Set, Generator, TypeVar
+    Set, Generator, TypeVar, Union
+
+__all__ = ('Client', 'ANON_TOKEN', 'ANON_LOGIN')
 
 
-__all__ = (
-    'Client',
-)
+ANON_TOKEN, ANON_LOGIN = '', 'justinfan0'
 
 
 _Client = TypeVar('_Client')
@@ -46,8 +46,12 @@ class Client:
         self.joined_channel_logins: Set[str] = set()
         self._channels_by_id: Dict[str, Channel] = {}  # id_channel: Channel
         self._channels_by_login: Dict[str, Channel] = {}  # channel_login: Channel
-        self._channels_accumulator: ChannelsAccumulator = ChannelsAccumulator(self._save_channel, self._send)
-        "Will accumulate channels' parts (ROOMSTATE, LOCALSTATE, names)"
+        self._channels_accumulator: Union[ChannelsAccumulator, AnonChannelsAccumulator]
+        if not self.is_anon:
+            self._channels_accumulator = ChannelsAccumulator(self._save_channel, self._send)
+        else:
+            self._channels_accumulator = AnonChannelsAccumulator(self._save_channel, self._send)
+        "Will accumulate channels' parts (ROOMSTATE, USERSTATE, names)"
         self._delayed_irc_msgs: Dict[str, List[IRCMessage]] = {}  # channel_login: [irc_msg, ...]
         "It's possible to receive a message before the channel is accumulated, all premature messages will be delayed"
         self.is_running = False
@@ -74,6 +78,10 @@ class Client:
     @property
     def is_restarting(self) -> bool:
         return self._running_restart_task is not None
+
+    @property
+    def is_anon(self) -> bool:
+        return (self.token, self.login) == (ANON_TOKEN, ANON_LOGIN)
 
     def get_channel(
             self,
@@ -167,15 +175,17 @@ class Client:
                 Iterable object with logins of channel to join
         """
         # try log in
-        await self._first_log_in_irc()
+        if self.is_anon:
+            await self._log_in_irc()
+        else:
+            await self._first_log_in_irc()
         await self.join_channels(channels)
         # start main listener
         self.is_running = True
         async for irc_msg in self._read_websocket():
-            try:
-                await self._handle_command(irc_msg)
-            finally:  # protection from a shutdown caused by an exception
-                pass
+            self._do_later(
+                self._handle_command(irc_msg)  # protection from a shutdown caused by an exception
+            )
         self.is_running = False
 
     async def restart(self):
@@ -233,9 +243,11 @@ class Client:
             # capabilities
             await self._send('CAP REQ :twitch.tv/membership twitch.tv/commands twitch.tv/tags')
             # logging in
-            if self.token:  # don't need pass if a anon login
+            if self.is_anon:
+                await self._send(f'NICK {self.login}')
+            else:
                 await self._send(f'PASS {self.token}')
-            await self._send(f'NICK {self.login}')
+                await self._send(f'NICK {self.login}')
 
     async def _read_websocket(
             self

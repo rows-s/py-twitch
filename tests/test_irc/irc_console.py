@@ -35,8 +35,8 @@ if __name__ == '__main__':
     IRC_TOKEN = os.environ['TTV_IRC_TOKEN']
     IRC_NICK = os.environ['TTV_IRC_NICK']
 
-    # irc_console_client = IRCConsole('', 'justinfan0')
-    irc_console_client = IRCConsole(IRC_TOKEN, IRC_NICK)
+    irc_console_client = IRCConsole('', 'justinfan0')
+    # irc_console_client = IRCConsole(IRC_TOKEN, IRC_NICK)
 
     @irc_console_client.event
     async def on_reconnect(): print('\n\nRESTARTED\n\n')
