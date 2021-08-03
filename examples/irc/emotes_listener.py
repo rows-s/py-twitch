@@ -21,17 +21,17 @@ class IRCClient(Client):
         if message.author.login == self.login:
             if message.content == '!stop':
                 await self.stop()
-        elif message.flags:
+        elif message.emotes:
             print(message)
-            for flag in message.flags:
-                for sub_flag in flag:
-                    print('   ', sub_flag)
+            for emote in message.emotes:
+                for sub_emote in emote:
+                    print('   ', sub_emote)
 
 
 async def main():
-    api = await Api.create(API_TOKEN)
-    channels = [stream['user_login'] async for stream in api.get_streams(CHANNEL_COUNT - 1)] + [USERNAME]
-    await api.close()
+    ttv_api = await Api.create(API_TOKEN)
+    channels = [stream['user_login'] async for stream in ttv_api.get_streams(CHANNEL_COUNT - 1)] + [USERNAME]
+    await ttv_api.close()
     await IRCClient(PASS, USERNAME).start(channels)
 
 asyncio.run(main())

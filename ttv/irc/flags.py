@@ -16,7 +16,7 @@ class BaseFlag(ABC):
 
 
 class SubFlag(BaseFlag):
-    """Class represents a sub flag with its ids, content, and position(start, end)."""
+    """Class represents a sub flag with its id, content, and position(start, end)."""
     def __init__(self, id_: str, content: str, start: int, end: int):
         super(SubFlag, self).__init__(content, start, end)
         self.id: str = id_
@@ -35,26 +35,19 @@ class Flag(BaseFlag):
         >>> flag2 = Flag(('',), 'https://twitch.tv', 11, 28)
         >>> flag3 = Flag(('A.6', 'I.5', 'P.6'), 'bitch', 29, 34)
         >>> flags = (flag, flag2, flag3)
-        >>> content[flag.start:flag.end] == flag.content
-        True
+        >>> assert content[flag.start:flag.end] == flag.content
         >>> # Checking if there is an id in a flag
-        >>> 'P.6' in flag3
-        True
+        >>> assert 'P.6' in flag3
         >>> # __eq__(==) is the same with __containts__(in) so you can check if there is an id in flags
-        >>> 'P.0' in flags
-        True
+        >>> assert 'P.0' in flags
         >>> # Checking if there are ids in a flag (if there is a flag from `flags` that contains each id of given flag)
-        >>> Flag(('I.5', 'P.6'), '', 0, 0) in flags
-        True
+        >>> assert Flag(('I.5', 'P.6'), '', 0, 0) in flags
         >>> # Checking if there is a sub id (an id starts with 'I')
-        >>> flag.has_sub_id('I')
-        False
-        >>> flag3.has_sub_id('I')
-        True
+        >>> assert not flag.has_sub_id('I')
+        >>> assert flag3.has_sub_id('I')
         >>> # Checking if there is an empty id (need cause every `str` starts with '')
-        >>> flag2.has_empty_id
-        True
-        >>> # __iter__ yields :class:`SubFlag` for each id in flag.ids
+        >>> assert flag2.has_empty_id
+        >>> # For take each id as a single sub flag use __iter__(in) yeilds :class:`SubFlag`
         >>> for sub_flag in flag3:
         ...     print(sub_flag)
         sub flag A.6 in position (29, 34) :bitch

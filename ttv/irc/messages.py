@@ -3,10 +3,11 @@ from abc import ABC
 from .irc_message import IRCMessage
 from .channel import Channel
 from .flags import Flag
+from .emotes import Emote
 from .users import BaseUser, ChannelUser, ParentMessageUser, GlobalUser
 from .utils import parse_raw_emotes, is_emote_only, parse_raw_flags
 
-from typing import Dict, Optional, Tuple, List
+from typing import Optional,  List
 
 __all__ = (
     'BaseMessage',
@@ -31,7 +32,7 @@ class BaseMessage(ABC):
         self.flags: List[Flag] = parse_raw_flags(irc_msg.tags.get('flags'), irc_msg.content)
         # emotes
         self.emote_only: bool = irc_msg.tags.get('emote-only') == '1'
-        self.emotes: Dict[str, List[Tuple[int, int]]] = parse_raw_emotes(irc_msg.tags.get('emotes', ''))
+        self.emotes: List[Emote] = parse_raw_emotes(irc_msg.tags.get('emotes', ''), irc_msg.content)
 
     def __str__(self):
         return f'@{self.author.login} :{self.content}'
@@ -51,6 +52,9 @@ class ParentMessage:
 
     async def delete(self):
         await self.channel.send_message(f'/delete {self.id}')
+
+    def __str__(self):
+        return f'@{self.author.login} to #{self.channel.login} :{self.content}'
 
 
 class ChannelMessage(BaseMessage):

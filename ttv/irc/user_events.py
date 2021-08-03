@@ -3,9 +3,10 @@ from .channel import Channel
 
 from .utils import parse_raw_emotes
 from .irc_message import IRCMessage
+from .emotes import Emote
 
 from abc import ABC
-from typing import Dict, List, Tuple
+from typing import List
 
 __all__ = (
     'BaseUserEvent',
@@ -44,7 +45,7 @@ class BaseUserEvent(ABC):
         self.flags: str = irc_msg.tags.get('flags')
         # emotes
         self.emote_only: bool = irc_msg.tags.get('emote-only') == '1'
-        self.emotes: Dict[str, List[Tuple[int, int]]] = parse_raw_emotes(irc_msg.tags.get('emotes', ''))
+        self.emotes: List[Emote] = parse_raw_emotes(irc_msg.tags.get('emotes', ''), irc_msg.content)
         self.system_message: str = irc_msg.tags.get('system-msg', '')
         self.event_type: str = irc_msg.tags.get('msg-id')
 

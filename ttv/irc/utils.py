@@ -1,5 +1,6 @@
-from typing import Dict, Tuple, List
+from typing import Dict, Tuple, List, Iterable
 from .flags import Flag
+from .emotes import Emote
 
 
 __all__ = (
@@ -13,32 +14,39 @@ __all__ = (
 
 
 def parse_raw_emotes(
-        emotes: str
-) -> Dict[str, List[Tuple[int, int]]]:
-    if not emotes:
-        return {}
-    result = {}
-    # for example: emotes = 'emote1:0-1,2-3,4-5,8-9/emote2:6-7'
-    for emote in emotes.split('/'):  # emote = 'emote1:0-1,2-3,4-5,8-9'
-        positions = []  # positions of current emote_id
-        emote_id, raw_positions = emote.split(':', 1)  # emote_id = 'emote1', raw_positions = '0-1,2-3,4-5,8-9'
-        for raw_position in raw_positions.split(','):  # raw_position = '0-1' from = ('0-1', '2-3', '4-5', '8-9')
-            start, end = raw_position.split('-')  # start = '0', end = '1'
-            positions.append((int(start), int(end)))  # positions = [(0, 1)]
-        result[emote_id] = positions  # result = {'emote1': [(0, 1), (2, 3), (4, 5), (8, 9)]}
-    return result  # result = {'emote1': [(0, 1), (2, 3), (4, 5), (8, 9)], 'emote2': [(6, 7)]}
+        raw_emotes: str,
+        content: str
+) -> List[Emote]:
+    try:
+        emotes = []
+        if raw_emotes:
+            for emote in raw_emotes.split('/'):
+                emote_id, raw_positions = emote.split(':', 1)
+                positions = tuple(map(_split_raw_position, raw_positions.split(',')))
+                start, end = positions[0]
+                emotes.append(Emote(emote_id, content[start: end], positions))
+        return emotes
+    except Exception as e:
+        print(e)
+        raise
+
+
+def _split_raw_position(raw_position: str):
+    start, end = map(int, raw_position.split('-', 1))
+    return start, end+1
 
 
 def is_emote_only(
         content: str,
-        emotes: Dict[str, List[Tuple[int, int]]]
+        emotes: Iterable[Emote]
 ) -> bool:
+    if not content:
+        return False
     emotes_count: int = 0
     emotes_length: int = 0
-    for positions in emotes.values():
-        emotes_count += len(positions)
-        for start, end in positions:
-            emotes_length += end - start + 1
+    for emote in emotes:
+        emotes_count += emote.count
+        emotes_length += emote.count * len(emote.content)
     # if length of all emotes + count of space between each emote equals all content -> is emotes only
     return emotes_length + (emotes_count - 1) == len(content)
 
