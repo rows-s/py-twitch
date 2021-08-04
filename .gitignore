@@ -1,7 +1,7 @@
 *__pycache__*
 *.pytest_cache*
 /ttv/api/Api_docstring_generator.py
-/examples/irc/performance.py
+/tests/test_irc/performance.py
 /examples/irc/channel_preformance.py
 /ttv/experiments.py
 /examples/irc/irc_msg_performance.py

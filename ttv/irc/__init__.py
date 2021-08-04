@@ -1,4 +1,4 @@
-from .client import Client, ANON_TOKEN, ANON_LOGIN
+from .client import Client, ANON_LOGIN
 from .channel import Channel
 from .messages import BaseMessage, ChannelMessage, ParentMessage, Whisper
 from .users import BaseUser, ChannelUser, GlobalUser, ParentMessageUser

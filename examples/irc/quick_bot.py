@@ -1,4 +1,4 @@
-from ttv.irc import Client, ANON_TOKEN, ANON_LOGIN
+from ttv.irc import Client
 
 
 class Bot(Client):
@@ -6,4 +6,4 @@ class Bot(Client):
         print(message)
 
 
-Bot(ANON_TOKEN, ANON_LOGIN).run(['ananonymousgifter'])  # send a message to https://www.twitch.tv/ananonymousgifter
+Bot('', 'justinfan0').run(['ananonymousgifter'])  # send a message to https://www.twitch.tv/ananonymousgifter

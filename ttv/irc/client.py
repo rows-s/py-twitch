@@ -16,10 +16,10 @@ from .exceptions import *
 from typing import Coroutine, Iterable, Tuple, Any, Awaitable, Callable, List, Optional, Dict, AsyncGenerator, \
     Set, Generator, TypeVar, Union
 
-__all__ = ('Client', 'ANON_TOKEN', 'ANON_LOGIN')
+__all__ = ('Client', 'ANON_LOGIN')
 
 
-ANON_TOKEN, ANON_LOGIN = '', 'justinfan0'
+ANON_LOGIN = 'justinfan0'
 
 
 _Client = TypeVar('_Client')
@@ -81,7 +81,7 @@ class Client:
 
     @property
     def is_anon(self) -> bool:
-        return (self.token, self.login) == (ANON_TOKEN, ANON_LOGIN)
+        return self.login.startswith('justinfan') and not self.login == 'justinfan'
 
     def get_channel(
             self,
@@ -175,10 +175,10 @@ class Client:
                 Iterable object with logins of channel to join
         """
         # try log in
-        if self.is_anon:
-            await self._log_in_irc()
-        else:
+        if not self.is_anon:
             await self._first_log_in_irc()
+        else:
+            await self._log_in_irc()
         await self.join_channels(channels)
         # start main listener
         self.is_running = True
@@ -243,10 +243,10 @@ class Client:
             # capabilities
             await self._send('CAP REQ :twitch.tv/membership twitch.tv/commands twitch.tv/tags')
             # logging in
-            if self.is_anon:
+            if not self.is_anon:
+                await self._send(f'PASS {self.token}')
                 await self._send(f'NICK {self.login}')
             else:
-                await self._send(f'PASS {self.token}')
                 await self._send(f'NICK {self.login}')
 
     async def _read_websocket(
