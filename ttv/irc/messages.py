@@ -85,7 +85,7 @@ class ChannelMessage(BaseMessage):
             irc_msg: IRCMessage
     ) -> Optional[ParentMessage]:
         if 'reply-parent-msg-id' in irc_msg.tags:
-            # TODO: Could be better than take private field... but how?
+            # TODO: Could be better thn take private field... but how?
             author = ParentMessageUser(irc_msg.copy(), self.author._send_whisper_callback)
             return ParentMessage(irc_msg.copy(), self.channel, author)
         else:
@@ -101,7 +101,14 @@ class Whisper(BaseMessage):
             irc_msg: IRCMessage,
             author: GlobalUser
     ):
-        irc_msg.tags['id'] = irc_msg.tags['message-id']  # rename the field
+        irc_msg.tags['id'] = irc_msg.tags.get('message-id')  # rename the field
         super().__init__(irc_msg, author)
         self.thread_id = irc_msg.tags.get('thread-id')
-        self.emote_only: bool = is_emote_only(irc_msg.content, self.emotes)
+
+    @property
+    def emote_only(self):
+        return is_emote_only(self.content, self.emotes)
+
+    @emote_only.setter
+    def emote_only(self, value):
+        pass

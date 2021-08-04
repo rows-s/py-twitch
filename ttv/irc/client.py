@@ -228,7 +228,7 @@ class Client:
             elif irc_msg.command == 'NOTICE' and irc_msg.middles[0] == '*':
                 raise LoginFailed(irc_msg.content)
             elif irc_msg.command == 'CAP' and irc_msg.middles[1] == 'NAK':
-                raise CapabilitiesReqError(irc_msg)
+                raise CapReqError(irc_msg)
             elif irc_msg.command not in expected_commands:
                 return
 
@@ -371,7 +371,6 @@ class Client:
         else:
             channel.client_state.update(irc_msg)
 
-
     def _handle_privmsg(
             self,
             irc_msg: IRCMessage
@@ -418,9 +417,11 @@ class Client:
         if notice_id in ('msg_room_not_found', 'msg_channel_suspended'):
             self.joined_channel_logins.discard(irc_msg.channel)
             self._call_event('on_channel_join_error', OnChannelJoinError(irc_msg.channel, notice_id, irc_msg.content))
-        elif notice_id.startswith('msg'):
+        # if message send error
+        elif notice_id.startswith('msg'):  # NOTE: 'msg_room_not_found'&'msg_channel_suspended' are handled in previos
+            # if hasattr(self, 'on_message_send_error'):
+            # self._call_event('on_message_send_error', OnMessageSendError())
             pass
-            # if hasattr(self, '')
         else:
             channel = self._get_prepared_channel(irc_msg.channel)
             self._call_event('on_notice', OnNotice(channel, notice_id, irc_msg.content))

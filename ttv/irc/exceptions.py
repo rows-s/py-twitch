@@ -5,7 +5,7 @@ __all__ = (
     'IRCException',
     'ChannelNotPrepared',
     'LoginFailed',
-    'CapabilitiesReqError'
+    'CapReqError'
 )
 
 
@@ -21,5 +21,5 @@ class LoginFailed(IRCException, exceptions.LoginFailed):
     """Is raised if token or login is incorrect"""
 
 
-class CapabilitiesReqError(IRCException, exceptions.CapabilitiesReqError):
+class CapReqError(IRCException, exceptions.CapabilitiesReqError):
     """Is raised if failed on capabilities request"""

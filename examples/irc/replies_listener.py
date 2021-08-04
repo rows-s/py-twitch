@@ -1,10 +1,10 @@
 import asyncio
 import os
 
-from ttv.irc import Client, Channel, ChannelMessage, ANON_TOKEN, ANON_LOGIN
+from ttv.irc import Client, Channel, ChannelMessage, ANON_LOGIN
 from ttv.api import Api
 
-TOKEN = os.getenv('TTV_IRC_TOKEN', ANON_TOKEN)
+TOKEN = os.getenv('TTV_IRC_TOKEN', '')
 LOGIN = os.getenv('TTV_IRC_NICK', ANON_LOGIN)
 CHANNEL_COUNT = int(os.getenv('TTV_IRC_CHANNEL_COUNT', 10))
 API_TOKEN = os.environ['TTV_API_TOKEN']
