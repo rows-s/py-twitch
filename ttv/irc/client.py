@@ -9,7 +9,7 @@ from .messages import ChannelMessage, Whisper
 from .channel import Channel, ChannelsAccumulator, AnonChannelsAccumulator
 from .users import ChannelUser, GlobalUser
 from .user_states import GlobalState
-from .events import OnClearChatFromUser, OnChannelJoinError, OnNotice, OnMessageDelete
+from .events import OnClearChatFromUser, OnChannelJoinError, OnNotice, OnMessageDelete, OnMessageSendError
 from .user_events import *
 from .exceptions import *
 
@@ -416,11 +416,14 @@ class Client:
         # if channel join error
         if notice_id in ('msg_room_not_found', 'msg_channel_suspended'):
             self.joined_channel_logins.discard(irc_msg.channel)
-            self._call_event('on_channel_join_error', OnChannelJoinError(irc_msg.channel, notice_id, irc_msg.content))
+            reason = notice_id.removeprefix('msg_')
+            self._call_event('on_channel_join_error', OnChannelJoinError(irc_msg.channel, reason, irc_msg.content))
         # if message send error
-        elif notice_id.startswith('msg'):  # NOTE: 'msg_room_not_found'&'msg_channel_suspended' are handled in previos
-            # if hasattr(self, 'on_message_send_error'):
-            # self._call_event('on_message_send_error', OnMessageSendError())
+        elif notice_id.startswith('msg'):
+            # NOTE: 'msg_room_not_found'&'msg_channel_suspended' are handled in the previous condition
+            channel = self._get_prepared_channel(irc_msg.channel)
+            reason = notice_id.removeprefix('msg_')
+            self._call_event('on_message_send_error', OnMessageSendError(channel, reason, irc_msg.content))
             pass
         else:
             channel = self._get_prepared_channel(irc_msg.channel)

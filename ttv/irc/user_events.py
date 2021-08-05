@@ -28,8 +28,8 @@ __all__ = (
 )
 
 
-class BaseUserEvent(ABC):
-    """Base class for all IRC user events"""
+class BaseUserEvent(ABC):  # TODO: must base on BaseMessage(ChannelMessage) from messages
+    """Base class for all user events"""
     def __init__(
             self,
             irc_msg: IRCMessage,

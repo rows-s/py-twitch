@@ -28,7 +28,7 @@ class BaseMessage(ABC):
         self.content: str = irc_msg.content
         # stable tags
         self.id: str = irc_msg.tags.get('id')
-        self.time: int = int(irc_msg.tags.get('tmi-sent-ts', 0))
+        self.timestamp: int = int(irc_msg.tags.get('tmi-sent-ts', 0))
         self.flags: List[Flag] = parse_raw_flags(irc_msg.tags.get('flags'), irc_msg.content)
         # emotes
         self.emote_only: bool = irc_msg.tags.get('emote-only') == '1'
