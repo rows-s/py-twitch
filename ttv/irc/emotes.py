@@ -23,7 +23,7 @@ class SubEmote(BaseEmote):
         return self.start, self.end
 
     def __str__(self):
-        return super(SubEmote, self).__str__() + f' in position {self.position}'
+        return f'emote {self.id} ({self.content}) in position {self.position}'
 
 
 class Emote(BaseEmote):
@@ -40,4 +40,4 @@ class Emote(BaseEmote):
             yield SubEmote(self.id, self.content, *position)
 
     def __str__(self):
-        return super(Emote, self).__str__() + f' in positions {self.positions}'
+        return f'emotes {self.id} ({self.content}) in positions {self.positions}'

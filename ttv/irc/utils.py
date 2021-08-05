@@ -22,7 +22,7 @@ def parse_raw_emotes(
         if raw_emotes:
             for emote in raw_emotes.split('/'):
                 emote_id, raw_positions = emote.split(':', 1)
-                positions = tuple(map(_split_raw_position, raw_positions.split(',')))
+                positions = [_split_raw_position(raw_position) for raw_position in raw_positions.split(',')]
                 start, end = positions[0]
                 emotes.append(Emote(emote_id, content[start: end], positions))
         return emotes

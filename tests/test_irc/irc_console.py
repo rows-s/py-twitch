@@ -1,7 +1,7 @@
 import asyncio
 import os
 
-from ttv.irc import Client
+from ttv.irc import Client, ANON_LOGIN
 from aioconsole import ainput
 
 
@@ -32,11 +32,11 @@ class IRCConsole(Client):
 
 
 if __name__ == '__main__':
-    IRC_TOKEN = os.environ['TTV_IRC_TOKEN']
-    IRC_NICK = os.environ['TTV_IRC_NICK']
+    TOKEN = os.getenv('TTV_IRC_TOKEN', '')
+    LOGIN = os.getenv('TTV_IRC_NICK', ANON_LOGIN)
 
-    irc_console_client = IRCConsole('', 'justinfan0')
-    # irc_console_client = IRCConsole(IRC_TOKEN, IRC_NICK)
+    # irc_console_client = IRCConsole('', 'justinfan0')
+    irc_console_client = IRCConsole(TOKEN, LOGIN)
 
     @irc_console_client.event
     async def on_reconnect(): print('\n\nRESTARTED\n\n')

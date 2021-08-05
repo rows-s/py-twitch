@@ -22,7 +22,7 @@ class SubFlag(BaseFlag):
         self.id: str = id_
 
     def __str__(self):
-        return f'sub flag {self.id} in position {self.position} :{self.content}'
+        return f'Flag {self.id} in position {self.position} :{self.content}'
 
 
 class Flag(BaseFlag):
@@ -38,12 +38,14 @@ class Flag(BaseFlag):
         >>> assert content[flag.start:flag.end] == flag.content
         >>> # Checking if there is an id in a flag
         >>> assert 'P.6' in flag3
-        >>> # __eq__(==) is the same with __containts__(in) so you can check if there is an id in flags
+        >>> # Checking if there is a flag from `flags` that contains given id
         >>> assert 'P.0' in flags
-        >>> # Checking if there are ids in a flag (if there is a flag from `flags` that contains each id of given flag)
-        >>> assert Flag(('I.5', 'P.6'), '', 0, 0) in flags
+        >>> # Checking if there are ids in a flag
+        >>> assert ('I.5', 'P.6') in flag3
+        >>> # Checking if there is a flag from `flags` that contains each given id
+        >>> assert ('I.5', 'P.6') in flags
         >>> # Checking if there is a sub id (an id starts with 'I')
-        >>> assert not flag.has_sub_id('I')
+        >>> assert flag.has_sub_id('P')
         >>> assert flag3.has_sub_id('I')
         >>> # Checking if there is an empty id (need cause every `str` starts with '')
         >>> assert flag2.has_empty_id
@@ -86,19 +88,19 @@ class Flag(BaseFlag):
             yield SubFlag(_id, self.content, self.start, self.end)
 
     def __contains__(self, item):
-        if isinstance(item, Flag):
-            for flag_id in item.ids:
-                if flag_id not in self.ids:
-                    return False
-            else:
-                return True
-        elif isinstance(item, str):
+        if isinstance(item, str):
             return item in self.ids
-        else:
-            return False
+        elif hasattr(item, '__iter__'):
+            if item:  # must one of list, tuple, set, dict etc. those return False if are empty.
+                for sub_item in item:
+                    if sub_item not in self.ids:
+                        return False
+                else:
+                    return True
+        return False
 
     def __eq__(self, other):
         return self.__contains__(other)
 
     def __str__(self):
-        return f'flag {self.ids} in position {self.position} :{self.content}'
+        return f'Flags {self.ids} in position {self.position} :{self.content}'

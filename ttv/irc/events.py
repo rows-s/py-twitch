@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 from .channel import Channel
 
-__all__ = ('OnClearChatFromUser', 'OnChannelJoinError', 'OnNotice', 'OnMessageDelete', 'OnMessageSendError')
+__all__ = ('OnClearChatFromUser', 'OnChannelJoinError', 'OnNotice', 'OnMessageDelete', 'OnSendMessageError')
 
 
 @dataclass
@@ -37,7 +37,7 @@ class OnMessageDelete:
 
 
 @dataclass
-class OnMessageSendError:
+class OnSendMessageError:
     channel: Channel
     reason: str
     content: str

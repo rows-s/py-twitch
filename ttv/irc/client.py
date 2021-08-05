@@ -9,7 +9,7 @@ from .messages import ChannelMessage, Whisper
 from .channel import Channel, ChannelsAccumulator, AnonChannelsAccumulator
 from .users import ChannelUser, GlobalUser
 from .user_states import GlobalState
-from .events import OnClearChatFromUser, OnChannelJoinError, OnNotice, OnMessageDelete, OnMessageSendError
+from .events import OnClearChatFromUser, OnChannelJoinError, OnNotice, OnMessageDelete, OnSendMessageError
 from .user_events import *
 from .exceptions import *
 
@@ -32,36 +32,38 @@ class Client:
             token: str,
             login: str,
             *,
-            should_restart: bool = True,
             whisper_agent: str = 'ananonymousgifter',
+            should_restart: bool = True,
+            should_accum_commands=False,
             loop: AbstractEventLoop = None
     ) -> None:
         self.token: str = token
         self.login: str = login
-        self.global_state: Optional[GlobalState] = None
-        # kwards
-        self.should_restart: bool = should_restart
+        # state
+        self.is_running = False
         self.whisper_agent: str = whisper_agent
+        self.should_restart: bool = should_restart
+        self.global_state: Optional[GlobalState] = None
         # channels
         self.joined_channel_logins: Set[str] = set()
         self._channels_by_id: Dict[str, Channel] = {}  # id_channel: Channel
         self._channels_by_login: Dict[str, Channel] = {}  # channel_login: Channel
         self._channels_accumulator: Union[ChannelsAccumulator, AnonChannelsAccumulator]
         if not self.is_anon:
-            self._channels_accumulator = ChannelsAccumulator(self._save_channel, self._send)
+            self._channels_accumulator = ChannelsAccumulator(channel_ready_callback=self._save_channel,
+                                                             send_callback=self._send,
+                                                             should_accum_commands=should_accum_commands)
         else:
             self._channels_accumulator = AnonChannelsAccumulator(self._save_channel, self._send)
-        "Will accumulate channels' parts (ROOMSTATE, USERSTATE, names)"
         self._delayed_irc_msgs: Dict[str, List[IRCMessage]] = {}  # channel_login: [irc_msg, ...]
-        "It's possible to receive a message before the channel is accumulated, all premature messages will be delayed"
-        self.is_running = False
-        self.loop: AbstractEventLoop = asyncio.get_event_loop() if loop is None else loop
-        # protected
+
+        # websocket staff
         self._websocket: WebSocketClientProtocol = WebSocketClientProtocol()
         self._delay_gen: Generator[int, None] = Client._delay_gen()
-        'Class field is generator-function, object field is generator-object. Will yeild delay for :meth:`restart`'
         self._running_restart_task: Optional[asyncio.tasks.Task] = None
-        'If :meth:`restart` is running must not run another, must await the running task'
+
+        # other
+        self.loop: AbstractEventLoop = asyncio.get_event_loop() if loop is None else loop
 
     @property
     def token(self) -> str:
@@ -265,7 +267,7 @@ class Client:
             except ConnectionClosedOK:
                 return
             # if websocket is closed
-            except ConnectionClosedError as e:
+            except ConnectionClosedError:
                 if self.is_restarting:
                     await self._running_restart_task
                 elif self.should_restart:
@@ -356,7 +358,7 @@ class Client:
         if irc_msg.channel in self._channels_by_login:
             self._handle_userstate_update(irc_msg)
         else:
-            self._channels_accumulator.add_client_state(irc_msg)
+            self._channels_accumulator.update_client_state(irc_msg)
 
     def _handle_userstate_update(
             self,
@@ -415,19 +417,49 @@ class Client:
         notice_id = irc_msg.tags.get('msg-id')
         # if channel join error
         if notice_id in ('msg_room_not_found', 'msg_channel_suspended'):
-            self.joined_channel_logins.discard(irc_msg.channel)
-            reason = notice_id.removeprefix('msg_')
-            self._call_event('on_channel_join_error', OnChannelJoinError(irc_msg.channel, reason, irc_msg.content))
+            self._handle_channel_join_error(irc_msg)
         # if message send error
         elif notice_id.startswith('msg'):
-            # NOTE: 'msg_room_not_found'&'msg_channel_suspended' are handled in the previous condition
-            channel = self._get_prepared_channel(irc_msg.channel)
-            reason = notice_id.removeprefix('msg_')
-            self._call_event('on_message_send_error', OnMessageSendError(channel, reason, irc_msg.content))
+            # NOTE: 'msg_room_not_found' & 'msg_channel_suspended' are handled in the previous condition
+            self._handle_send_message_error(irc_msg)
             pass
+        elif notice_id == 'cmds_available':
+            self._handle_cmds_available(irc_msg)
         else:
             channel = self._get_prepared_channel(irc_msg.channel)
             self._call_event('on_notice', OnNotice(channel, notice_id, irc_msg.content))
+            
+    def _handle_channel_join_error(
+            self,
+            irc_msg: IRCMessage
+    ) -> None:
+        self.joined_channel_logins.discard(irc_msg.channel)
+        reason = irc_msg.tags['msg-id'].removeprefix('msg_')
+        self._call_event('on_channel_join_error', OnChannelJoinError(irc_msg.channel, reason, irc_msg.content))
+            
+    def _handle_send_message_error(
+            self,
+            irc_msg: IRCMessage
+    ) -> None:
+        channel = self._get_prepared_channel(irc_msg.channel)
+        reason = irc_msg.tags['msg-id'].removeprefix('msg_')
+        self._call_event('on_send_message_error', OnSendMessageError(channel, reason, irc_msg.content))
+
+    def _handle_cmds_available(
+            self,
+            irc_msg: IRCMessage
+    ) -> None:
+        try:
+            channel = self._get_prepared_channel(irc_msg.channel)
+        except ChannelNotPrepared:
+            self._channels_accumulator.update_commands(irc_msg)
+        else:
+            raw_commands = irc_msg.content.split(': ', 1)[0]
+            raw_commands = raw_commands.split(' More', 1)[0]  # remove 'More help: ...'
+            commands = tuple(raw_commands.split(' '))
+            before = channel.commands
+            channel.commands = commands
+            self._call_event('on_channel_commands_update', channel, before, channel.commands)
 
     def _handle_clearchat(
             self,
@@ -673,6 +705,8 @@ class Client:
         """Sends command to join the channel and adds its login to `self.joined_channels_logins`"""
         self.joined_channel_logins.add(login)
         await self._send(f'JOIN #{login}')
+        if self._channels_accumulator.should_accum_commands:
+            await self.send_message(login, '/help')
 
     async def join_channels(
             self,
@@ -692,6 +726,9 @@ class Client:
             self.joined_channel_logins.update(logins)
             logins_str = ',#'.join(logins)
             await self._send(f'JOIN #{logins_str}')
+            if self._channels_accumulator.should_accum_commands:
+                for login in logins:
+                    self._do_later(self.send_message(login, '/help'))
 
     async def part_channel(
             self,
@@ -864,9 +901,9 @@ class Client:
         'on_clear_chat_from_user', 'on_clear_chat',  # CLEARCHAT
         'on_message_delete',  # CLEARMSG
         'on_host_start', 'on_host_stop',  # HOSTTARGET
-        'on_notice', 'on_join_error',  # NOTICE
+        'on_notice', 'on_channel_join_error', 'on_send_message_error', 'on_channel_commands_update',  # NOTICE
         'on_user_event', 'on_unknown_user_event',  # USERNOTICE
-        'on_reconnect', 'on_unknown_command', 'on_channel_join_error'
+        'on_reconnect', 'on_unknown_command',
     )
 
     USER_EVENTS = (
@@ -876,5 +913,5 @@ class Client:
         'on_bits_badge_tier',  # bits badges tier
         'on_reward_gift',  # rewards
         'on_raid', 'on_unraid',  # raids
-        'on_ritual'  # rituals
+        'on_ritual', # rituals
     )

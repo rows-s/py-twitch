@@ -9,7 +9,7 @@ bot = Client(TOKEN, USERNAME)
 
 @bot.event
 async def on_ready():
-    print(f'Ready to listen the chat as @{bot.login} ({bot.global_state.id})')
+    print(f'Ready as @{bot.login} ({bot.global_state.id})')
 
 
 @bot.event

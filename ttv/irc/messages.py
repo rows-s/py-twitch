@@ -66,6 +66,7 @@ class ChannelMessage(BaseMessage):
     ) -> None:
         super().__init__(irc_msg, author)
         # variable tags
+        self.author: ChannelUser
         self.channel: Channel = channel
         self.bits: int = int(irc_msg.tags.get('bits', 0))
         self.msg_id: Optional[str] = irc_msg.tags.get('msg-id')
