@@ -38,14 +38,14 @@ class BaseUserEvent(ABC):  # TODO: must base on BaseMessage(ChannelMessage) from
     ) -> None:
         self.author: ChannelUser = author
         self.channel: Channel = channel
-        self.content: str = irc_msg.content
+        self.content: str = irc_msg.trailing
         # tags
         self.id: str = irc_msg.tags.get('id')
         self.time: int = int(irc_msg.tags.get('tmi-sent-ts', 0))
         self.flags: str = irc_msg.tags.get('flags')
         # emotes
         self.emote_only: bool = irc_msg.tags.get('emote-only') == '1'
-        self.emotes: List[Emote] = parse_raw_emotes(irc_msg.tags.get('emotes', ''), irc_msg.content)
+        self.emotes: List[Emote] = parse_raw_emotes(irc_msg.tags.get('emotes', ''), irc_msg.trailing)
         self.system_message: str = irc_msg.tags.get('system-msg', '')
         self.event_type: str = irc_msg.tags.get('msg-id')
 

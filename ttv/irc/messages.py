@@ -25,14 +25,14 @@ class BaseMessage(ABC):
     ) -> None:
         # prepared
         self.author: BaseUser = author
-        self.content: str = irc_msg.content
+        self.content: str = irc_msg.trailing
         # stable tags
         self.id: str = irc_msg.tags.get('id')
         self.timestamp: int = int(irc_msg.tags.get('tmi-sent-ts', 0))
-        self.flags: List[Flag] = parse_raw_flags(irc_msg.tags.get('flags'), irc_msg.content)
+        self.flags: List[Flag] = parse_raw_flags(irc_msg.tags.get('flags'), irc_msg.trailing)
         # emotes
         self.emote_only: bool = irc_msg.tags.get('emote-only') == '1'
-        self.emotes: List[Emote] = parse_raw_emotes(irc_msg.tags.get('emotes', ''), irc_msg.content)
+        self.emotes: List[Emote] = parse_raw_emotes(irc_msg.tags.get('emotes', ''), irc_msg.trailing)
 
     def __str__(self):
         return f'@{self.author.login} :{self.content}'

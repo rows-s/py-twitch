@@ -1,8 +1,7 @@
 from copy import copy
+from typing import Tuple, Optional, Dict
 
 from .utils import escape_tag_value, unescape_tag_value
-
-from typing import Tuple, Optional, Dict
 
 __all__ = ('IRCMessage',)
 
@@ -12,23 +11,23 @@ class IRCMessage:
             self,
             raw_irc_msg: str
     ) -> None:
-        self.prefix: str
         self.command: str
-        raw_tags, self.prefix, self.command, raw_params = self._parse_raw_irc_msg(raw_irc_msg)
-        # tags
-        self.tags: Dict[str, Optional[str]] = self._parse_raw_tags(raw_tags)
+        # raw_tags
+        self.tags: Dict[str, Optional[str]]
         # prefix
         self.servername: Optional[str]
         self.nickname: Optional[str]
         self.user: Optional[str]
         self.host: Optional[str]
-        self.servername, self.nickname, self.user, self.host = self._parse_prefix(self.prefix)
-        # params
+        # raw_params
         self.middles: Tuple[str]
         self.trailing: Optional[str]
         self.channel: Optional[str]
-        self.middles, self.trailing, self.channel = self._parse_raw_params(raw_params)
-        self.content: Optional[str] = self.trailing
+        # parsing
+        raw_tags, prefix, raw_params = self._parse_raw_irc_msg(raw_irc_msg)  # command
+        self._parse_raw_tags(raw_tags)  # tags
+        self._parse_prefix(prefix)  # servername, nickname, user, host
+        self._parse_raw_params(raw_params)  # middles, trailing, channel
 
     @classmethod
     def create_empty(cls):
@@ -39,35 +38,32 @@ class IRCMessage:
         new.tags = self.tags.copy()
         return new
 
-    @staticmethod
     def _parse_raw_irc_msg(
-            raw_irc_msg
-    ) -> Tuple[Optional[str], Optional[str], str, Optional[str]]:
-        raw_irc_message = raw_irc_msg
-        # tags
-        if raw_irc_message.startswith('@'):  # at least one tag, ends with ' '
-            raw_tags, raw_irc_message = raw_irc_message[1:].split(' ', 1)
-        else:
-            raw_tags = None
-        # prefix
-        if raw_irc_message.startswith(':'):  # if starts with ':' then contains prefix. ends with ' '
-            prefix, raw_irc_message = raw_irc_message[1:].split(' ', 1)
-        else:
-            prefix = None
-        # command & raw_params
-        try:
-            command, raw_params = raw_irc_message.split(' ', 1)
-        # if has not params
-        except ValueError:
-            command = raw_irc_message
-            raw_params = None
-        return raw_tags, prefix, command, raw_params
+            self,
+            raw_irc_msg: str
+    ):
+        raw_tags = None
+        prefix = None
+        raw_params = None
 
-    @staticmethod
+        if raw_irc_msg.startswith('@'):
+            raw_tags, raw_irc_msg = raw_irc_msg[1:].split(' ', 1)  # at least one tag, ends with ' '
+        if raw_irc_msg.startswith(':'):
+            prefix, raw_irc_msg = raw_irc_msg[1:].split(' ', 1)  # ends with ' '
+        try:
+            command, raw_params = raw_irc_msg.split(' ', 1)
+        except ValueError:
+            command = raw_irc_msg  # if has not params
+
+        self.command = command
+        return raw_tags, prefix, raw_params
+
     def _parse_raw_tags(
+            self,
             raw_tags: Optional[str]
-    ) -> Dict[str, Optional[str]]:
-        tags = {}  # is not None if raw_params is None to exclude exceptions from: for, in, [key] etc.
+    ):
+        tags = {}  # is not None if raw_params is None to exclude exceptions from: for, in, .get() etc.
+
         if raw_tags:  # parses only if there is raw_tags
             parsed_tags = raw_tags.split(';')
             for raw_tag in parsed_tags:
@@ -80,16 +76,18 @@ class IRCMessage:
                     key = raw_tag
                     value = None
                 tags[key] = value
-        return tags
 
-    @staticmethod
+        self.tags = tags
+
     def _parse_prefix(
+            self,
             prefix: Optional[str]
-    ) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
+    ):
         servername = None  # better than do it within conditions
         nickname = None
         user = None
         host = None
+
         if prefix:  # may be None
             if '@' in prefix:
                 prefix, host = prefix.split('@', 1)
@@ -102,22 +100,18 @@ class IRCMessage:
                     servername = prefix
                 else:
                     nickname = prefix
-        return servername, nickname, user, host
 
-    @staticmethod
+        self.servername = servername
+        self.nickname = nickname
+        self.user = user
+        self.host = host
+
     def _parse_raw_params(
+            self,
             raw_params: Optional[str]
-    ) -> Tuple[Tuple, Optional[str], Optional[str]]:
-        # possible cases:             # middle may contain ':', trailing may contain ' ', ':', ' :'.
-        # None                        # no params
-        # 'middle'                    # middles, no trailing
-        # 'middle :trailing'          # middles, trailing (starts with ':')
-        # 'middle :trai :ling'        # same and trailing contains separators (' ', ':', ' :')
-        # 'middle '*14 + 'trailing'   # middles(max), trailing (starts without ':')
-        # 'middle '*14 + 'trai :ling' # same and trailing contains separators (' ', ':', ' :')
-        # ':trailing'                 # no middle, trailing
+    ):
 
-        middles = []
+        middles = ()
         trailing = None
         channel = None
 
@@ -142,7 +136,9 @@ class IRCMessage:
                 else:
                     middles = raw_parsed_params
 
-        return tuple(middles), trailing, channel
+        self.middles = tuple(middles)
+        self.trailing = trailing
+        self.channel = channel
 
     def _join_tags(self) -> Optional[str]:
         if not self.tags:
@@ -195,14 +191,10 @@ class IRCMessage:
                 return True
 
     def __repr__(self):
-        raw_tags = self._join_tags()
-        raw_irc_message = f'@{raw_tags} ' if raw_tags is not None else ''
-        prefix = self._join_prefix_parts()
-        raw_irc_message += f':{prefix} ' if prefix is not None else ''
-        raw_irc_message += self.command
-        raw_params = self._join_params()
-        raw_irc_message += f' {raw_params}' if raw_params is not None else ''
-        return raw_irc_message
+        raw_tags = f'@{raw_tags} ' if (raw_tags := self._join_tags()) is not None else ''
+        prefix = f':{prefix} ' if (prefix := self._join_prefix_parts()) is not None else ''
+        raw_params = f' {raw_params}' if (raw_params := self._join_params()) is not None else ''
+        return f'{raw_tags}{prefix}{self.command}{raw_params}'
 
     def __str__(self):
         return self.__repr__()

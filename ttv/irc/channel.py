@@ -12,16 +12,17 @@ class Channel:
             irc_msg: IRCMessage,
             client_state: LocalState,
             names: Tuple[str, ...],
+            commands: Tuple[str, ...],
             _send_callback: Callable[[str], Coroutine]
     ) -> None:
         self._irc_msg: IRCMessage = irc_msg
         self.client_state: LocalState = client_state
         # TODO: logically the class must not have this variable (client_state),
-        #  because it represents state of a IRCUser not anything of IRCChannel.
+        #  because it represents state of a :class:`Client` not anything of :class:`Channel`.
         #  But that way's easier to understand and to use
         self.names: Tuple[str, ...] = names
+        self.commands: Tuple[str, ...] = commands
         self._send: Callable[[str], Coroutine] = _send_callback
-        self.commands: Tuple[str, ...] = ()
 
     @property
     def id(self) -> str:
@@ -63,11 +64,23 @@ class Channel:
     def is_followers_only(self) -> bool:
         return self.followers_only_minutes != -1
 
-    def update_state(self, irc_msg: IRCMessage):
+    def update_state(
+            self,
+            irc_msg: IRCMessage
+    ):
+        """
+        Updates state-attributes with new values provided in :arg:`irc_msg`.
+
+        Notes:
+            Does not change a value if there isn't the value in `irc_msg`.
+        Args:
+            irc_msg :class:`IRCMessage`:
+                 IRCMessage with new values
+        """
         self._irc_msg.tags.update(irc_msg.tags)
 
     def copy(self):
-        return self.__class__(self._irc_msg.copy(), self.client_state.copy(), self.names, self._send)
+        return self.__class__(self._irc_msg.copy(), self.client_state.copy(), self.names, self.commands, self._send)
 
     async def send_message(
             self,
@@ -106,7 +119,7 @@ class ChannelsAccumulator:
         self.channel_states: Dict[str, IRCMessage] = {}
         self.client_states: Dict[str, LocalState] = {}
         self.names: Dict[str, Union[List[str], Tuple[str]]] = {}
-        self.commands: Dict[str, Tuple[str]] = {}
+        self.commands: Dict[str, Tuple[str, ...]] = {}
         self.channel_ready_callback: Callable[[Channel], None] = channel_ready_callback
         self.send_callback: Callable[[str], Coroutine] = send_callback
         self.should_accum_commands: bool = should_accum_commands
@@ -160,7 +173,7 @@ class ChannelsAccumulator:
             self,
             irc_msg: IRCMessage
     ):
-        raw_cmds = irc_msg.content.split(': ', 1)[1]
+        raw_cmds = irc_msg.trailing.split(': ', 1)[1]
         raw_cmds = raw_cmds.split(' More', 1)[0]  # remove 'More help: https://help.twitch.tv/s/article/chat-commands'
         cmds = tuple(raw_cmds.split(' '))
         saved_cmds = self.commands.get(irc_msg.channel, ())
@@ -197,9 +210,7 @@ class ChannelsAccumulator:
         local_state = self.client_states.pop(channel_login)
         names = self.names.pop(channel_login)
         commands = self.commands.pop(channel_login, ())
-        channel = Channel(room_state, local_state, names, self.send_callback)
-        channel.commands = commands
-        return channel
+        return Channel(room_state, local_state, names, commands, self.send_callback)
 
 
 class AnonChannelsAccumulator(ChannelsAccumulator):

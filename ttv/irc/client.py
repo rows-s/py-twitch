@@ -27,7 +27,7 @@ _Client = TypeVar('_Client')
 
 class Client:
 
-    def __init__(
+    def __init__(  # TODO: add `should_accum_names`, then remove `AnonChannelsAccumulator`
             self,
             token: str,
             login: str,
@@ -228,7 +228,7 @@ class Client:
                 self._call_event('on_ready')
                 return
             elif irc_msg.command == 'NOTICE' and irc_msg.middles[0] == '*':
-                raise LoginFailed(irc_msg.content)
+                raise LoginFailed(irc_msg.trailing)
             elif irc_msg.command == 'CAP' and irc_msg.middles[1] == 'NAK':
                 raise CapReqError(irc_msg)
             elif irc_msg.command not in expected_commands:
@@ -427,7 +427,7 @@ class Client:
             self._handle_cmds_available(irc_msg)
         else:
             channel = self._get_prepared_channel(irc_msg.channel)
-            self._call_event('on_notice', OnNotice(channel, notice_id, irc_msg.content))
+            self._call_event('on_notice', OnNotice(channel, notice_id, irc_msg.trailing))
             
     def _handle_channel_join_error(
             self,
@@ -435,7 +435,7 @@ class Client:
     ) -> None:
         self.joined_channel_logins.discard(irc_msg.channel)
         reason = irc_msg.tags['msg-id'].removeprefix('msg_')
-        self._call_event('on_channel_join_error', OnChannelJoinError(irc_msg.channel, reason, irc_msg.content))
+        self._call_event('on_channel_join_error', OnChannelJoinError(irc_msg.channel, reason, irc_msg.trailing))
             
     def _handle_send_message_error(
             self,
@@ -443,7 +443,7 @@ class Client:
     ) -> None:
         channel = self._get_prepared_channel(irc_msg.channel)
         reason = irc_msg.tags['msg-id'].removeprefix('msg_')
-        self._call_event('on_send_message_error', OnSendMessageError(channel, reason, irc_msg.content))
+        self._call_event('on_send_message_error', OnSendMessageError(channel, reason, irc_msg.trailing))
 
     def _handle_cmds_available(
             self,
@@ -454,7 +454,7 @@ class Client:
         except ChannelNotPrepared:
             self._channels_accumulator.update_commands(irc_msg)
         else:
-            raw_commands = irc_msg.content.split(': ', 1)[0]
+            raw_commands = irc_msg.trailing.split(': ', 1)[0]
             raw_commands = raw_commands.split(' More', 1)[0]  # remove 'More help: ...'
             commands = tuple(raw_commands.split(' '))
             before = channel.commands
@@ -466,7 +466,7 @@ class Client:
             irc_msg: IRCMessage
     ) -> None:
         # if clear user
-        if irc_msg.content:  # text contains login of the user
+        if irc_msg.trailing:  # text contains login of the user
             self._handle_clear_chat_from_user(irc_msg)
         # if clear chat
         else:
@@ -480,7 +480,7 @@ class Client:
             # channel
             channel = self._get_prepared_channel(irc_msg.channel)
             # values
-            target_user_login = irc_msg.content
+            target_user_login = irc_msg.trailing
             target_user_id = irc_msg.tags.get('target-user-id')
             target_message_id = irc_msg.tags.get('target-msg-id')
             ban_duration = int(irc_msg.tags.get('ban-duration', 0))
@@ -511,7 +511,7 @@ class Client:
             # handle later
             self._call_event(
                 'on_message_delete',
-                OnMessageDelete(channel, user_login, irc_msg.content, message_id, tmi_time)
+                OnMessageDelete(channel, user_login, irc_msg.trailing, message_id, tmi_time)
             )
 
     def _handle_usernotice(
@@ -545,7 +545,7 @@ class Client:
             irc_msg: IRCMessage
     ) -> None:
         if hasattr(self, 'on_host_start') or hasattr(self, 'on_host_stop'):
-            host_login, viewers_count = irc_msg.content.split(' ', 1)
+            host_login, viewers_count = irc_msg.trailing.split(' ', 1)
             if host_login == '-':
                 self._handle_host_start(irc_msg)
             else:
@@ -557,7 +557,7 @@ class Client:
     ) -> None:
         if hasattr(self, 'on_host_start'):
             channel = self._get_prepared_channel(irc_msg.channel)
-            host_login, viewers_count = irc_msg.content.split(' ', 1)
+            host_login, viewers_count = irc_msg.trailing.split(' ', 1)
             viewers_count = int(viewers_count) if (viewers_count != '-') else 0
             self._call_event('on_host_start', host_login, viewers_count)
 
@@ -567,7 +567,7 @@ class Client:
     ) -> None:
         if hasattr(self, 'on_host_stop'):
             channel = self._get_prepared_channel(irc_msg.channel)
-            _, viewers_count = irc_msg.content.split(' ', 1)
+            _, viewers_count = irc_msg.trailing.split(' ', 1)
             viewers_count = int(viewers_count) if (viewers_count != '-') else None
             self._call_event('on_host_stop', viewers_count)
 
