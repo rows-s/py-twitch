@@ -24,11 +24,9 @@ class BaseUser(BaseState, ABC):
 
     async def send_whisper(
             self,
-            content: str,
-            *,
-            agent: str = None
+            content: str
     ) -> None:
-        await self._send_whisper_callback(self.login, content, agent=agent)
+        await self._send_whisper_callback(self.login, content)
 
 
 class ChannelUser(BaseUser, LocalState):
@@ -85,8 +83,6 @@ class ParentMessageUser:
 
     async def send_whisper(
             self,
-            content: str,
-            *,
-            agent: str = None
+            content: str
     ) -> None:
-        await self._send_whisper_callback(self.login, content, agent=agent)
+        await self._send_whisper_callback(self.login, content)
