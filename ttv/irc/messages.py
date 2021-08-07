@@ -1,4 +1,5 @@
 from abc import ABC
+from functools import cached_property
 
 from .irc_message import IRCMessage
 from .channel import Channel
@@ -23,16 +24,22 @@ class BaseMessage(ABC):
             irc_msg: IRCMessage,
             author: BaseUser
     ) -> None:
-        # prepared
         self.author: BaseUser = author
         self.content: str = irc_msg.trailing
-        # stable tags
         self.id: str = irc_msg.tags.get('id')
         self.timestamp: int = int(irc_msg.tags.get('tmi-sent-ts', 0))
-        self.flags: List[Flag] = parse_raw_flags(irc_msg.tags.get('flags'), irc_msg.trailing)
+        self._raw_flags: str = irc_msg.tags.get('flags', '')
         # emotes
         self.emote_only: bool = irc_msg.tags.get('emote-only') == '1'
-        self.emotes: List[Emote] = parse_raw_emotes(irc_msg.tags.get('emotes', ''), irc_msg.trailing)
+        self._raw_emotes: str = irc_msg.tags.get('emotes', '')
+
+    @cached_property
+    def flags(self):
+        return parse_raw_flags(self._raw_flags, self.content)
+
+    @cached_property
+    def emotes(self):
+        return parse_raw_emotes(self._raw_emotes, self.content)
 
     def __str__(self):
         return f'@{self.author.login} :{self.content}'
@@ -71,15 +78,18 @@ class ChannelMessage(BaseMessage):
         self.bits: int = int(irc_msg.tags.get('bits', 0))
         self.msg_id: Optional[str] = irc_msg.tags.get('msg-id')
         self.custom_reward_id: Optional[str] = irc_msg.tags.get('custom-reward-id')
-        # parent message
-        self.parent_message: Optional[ParentMessage] = self._crate_parent_message(irc_msg.copy())
+        self._irc_msg: IRCMessage = irc_msg
+
+    async def delete(self):
+        await self.channel.send_message(f'/delete {self.id}')
+
+    @cached_property
+    def parent_message(self) -> Optional[ParentMessage]:
+        return self._crate_parent_message(self._irc_msg)
 
     @property
     def is_reply(self):
-        return self.parent_message is not None
-
-    def __str__(self):
-        return f'@{self.author.login} to #{self.channel.login} :{self.content}'
+        return 'reply-parent-msg-id' in self._irc_msg.tags
 
     def _crate_parent_message(
             self,
@@ -92,8 +102,8 @@ class ChannelMessage(BaseMessage):
         else:
             return None
 
-    async def delete(self):
-        await self.channel.send_message(f'/delete {self.id}')
+    def __str__(self):
+        return f'@{self.author.login} to #{self.channel.login} :{self.content}'
 
 
 class Whisper(BaseMessage):
@@ -106,10 +116,6 @@ class Whisper(BaseMessage):
         super().__init__(irc_msg, author)
         self.thread_id = irc_msg.tags.get('thread-id')
 
-    @property
+    @cached_property
     def emote_only(self):
         return is_emote_only(self.content, self.emotes)
-
-    @emote_only.setter
-    def emote_only(self, value):
-        pass

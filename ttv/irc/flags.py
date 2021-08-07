@@ -47,14 +47,14 @@ class Flag(BaseFlag):
         >>> # Checking if there is a sub id (an id starts with 'I')
         >>> assert flag.has_sub_id('P')
         >>> assert flag3.has_sub_id('I')
-        >>> # Checking if there is an empty id (need cause every `str` starts with '')
-        >>> assert flag2.has_empty_id
+        >>> # Checking if there is an empty id
+        >>> assert '' in flag2
         >>> # For take each id as a single sub flag use __iter__(in) yeilds :class:`SubFlag`
         >>> for sub_flag in flag3:
         ...     print(sub_flag)
-        sub flag A.6 in position (29, 34) :bitch
-        sub flag I.5 in position (29, 34) :bitch
-        sub flag P.6 in position (29, 34) :bitch
+        Flag A.6 in position (29, 34) :bitch
+        Flag I.5 in position (29, 34) :bitch
+        Flag P.6 in position (29, 34) :bitch
     """
 
     def __init__(self, ids: Iterable[str], content: str, start: int, end: int):
@@ -91,7 +91,7 @@ class Flag(BaseFlag):
         if isinstance(item, str):
             return item in self.ids
         elif hasattr(item, '__iter__'):
-            if item:  # must one of list, tuple, set, dict etc. those return False if are empty.
+            if item:  # must be one of list, tuple, set, dict etc. those return False if are empty.
                 for sub_item in item:
                     if sub_item not in self.ids:
                         return False
