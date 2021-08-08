@@ -14,7 +14,7 @@ class BaseEmote:
 
 class SubEmote(BaseEmote):
     def __init__(self, id_: str, content: str, start, end):
-        super(SubEmote, self).__init__(id_, content)
+        super().__init__(id_, content)
         self.start = start
         self.end = end
 
@@ -28,7 +28,7 @@ class SubEmote(BaseEmote):
 
 class Emote(BaseEmote):
     def __init__(self, id_: str, content: str, positions: Iterable[Tuple[int, int]]):
-        super(Emote, self).__init__(id_, content)
+        super().__init__(id_, content)
         self.positions: Tuple[Tuple[int, int], ...] = tuple(positions)
 
     @property

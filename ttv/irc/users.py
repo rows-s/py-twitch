@@ -19,7 +19,7 @@ class BaseUser(BaseState, ABC):
             irc_msg: IRCMessage,
             send_whisper_callback: SendWhisperCallable
     ):
-        super(BaseUser, self).__init__(irc_msg)
+        super().__init__(irc_msg)
         self._send_whisper_callback: SendWhisperCallable = send_whisper_callback
 
     async def send_whisper(

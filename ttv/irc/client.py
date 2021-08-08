@@ -8,7 +8,7 @@ from .irc_message import IRCMessage
 from .messages import ChannelMessage, Whisper
 from .channel import Channel, ChannelsAccumulator, AnonChannelsAccumulator
 from .users import ChannelUser, GlobalUser
-from .user_states import GlobalState
+from .user_states import GlobalState, LocalState
 from .events import OnClearChatFromUser, OnChannelJoinError, OnNotice, OnMessageDelete, OnSendMessageError
 from .user_events import *
 from .exceptions import *
@@ -314,14 +314,9 @@ class Client:
             irc_msg: IRCMessage
     ):
         channel = self._channels_by_login[irc_msg.channel]
-        names = self._channels_accumulator.pop_names(irc_msg.channel)  # if update no need to save parts
-        if hasattr(self, 'on_channel_update'):  # Channel.copy() cost much
-            before = channel.copy()
-            channel.names = names
-            after = channel.copy()
-            self._call_event('on_channel_update', before, after)
-        else:
-            channel.names = names
+        before = channel.names
+        after = channel.names = self._channels_accumulator.pop_names(irc_msg.channel)  # if update no need to save parts
+        self._call_event('on_names_update', channel, before, after)
 
     def _handle_roomstate(
             self,
@@ -337,7 +332,7 @@ class Client:
             irc_msg: IRCMessage
     ) -> None:
         channel = self._channels_by_login[irc_msg.channel]
-        if hasattr(self, 'on_channel_update'):  # Channel.copy() cost much
+        if hasattr(self, 'on_channel_update'):  # Channel.copy() cost us much time
             before = channel.copy()
             channel.update_state(irc_msg)
             after = channel.copy()
@@ -351,7 +346,7 @@ class Client:
     ) -> None:
         # prepare tags
         if 'user-login' not in irc_msg.tags:
-            irc_msg.tags['user-login'] = self.global_state.login
+            irc_msg.tags['user-login'] = self.login
         if 'user-id' not in irc_msg.tags:
             irc_msg.tags['user-id'] = self.global_state.id
         # if prepared
@@ -365,13 +360,9 @@ class Client:
             irc_msg: IRCMessage
     ):
         channel = self._channels_by_login[irc_msg.channel]
-        if hasattr(self, 'on_channel_update'):
-            before = channel.copy()
-            channel.client_state.update(irc_msg)
-            after = channel.copy()
-            self._call_event('on_channel_update', before, after)
-        else:
-            channel.client_state.update(irc_msg)
+        before = channel.client_state
+        after = channel.client_state = LocalState(irc_msg)
+        self._call_event('on_client_state_update', channel, before, after)
 
     def _handle_privmsg(
             self,
@@ -892,8 +883,8 @@ class Client:
     EVENTS = (
         'on_message',  # PRIVMSG
         'on_whisper',  # WHISPER
-        'on_channel_update', 'on_channel_join',  # ROOMSTATE
-        'on_local_state_update',  # USERSTATE
+        'on_channel_join', 'on_channel_update',  # ROOMSTATE
+        'on_client_state_update',  # USERSTATE
         'on_names_update',  # 366
         'on_ready', 'on_global_state_update',  # GLOBALUSERSTATE
         'on_user_join',  # JOIN

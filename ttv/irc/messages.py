@@ -8,7 +8,7 @@ from .emotes import Emote
 from .users import BaseUser, ChannelUser, ParentMessageUser, GlobalUser
 from .utils import parse_raw_emotes, is_emote_only, parse_raw_flags
 
-from typing import Optional,  List
+from typing import Optional, List
 
 __all__ = (
     'BaseMessage',
@@ -29,16 +29,15 @@ class BaseMessage(ABC):
         self.id: str = irc_msg.tags.get('id')
         self.timestamp: int = int(irc_msg.tags.get('tmi-sent-ts', 0))
         self._raw_flags: str = irc_msg.tags.get('flags', '')
-        # emotes
         self.emote_only: bool = irc_msg.tags.get('emote-only') == '1'
         self._raw_emotes: str = irc_msg.tags.get('emotes', '')
 
     @cached_property
-    def flags(self):
+    def flags(self) -> List[Flag]:
         return parse_raw_flags(self._raw_flags, self.content)
 
     @cached_property
-    def emotes(self):
+    def emotes(self) -> List[Emote]:
         return parse_raw_emotes(self._raw_emotes, self.content)
 
     def __str__(self):
@@ -96,7 +95,7 @@ class ChannelMessage(BaseMessage):
             irc_msg: IRCMessage
     ) -> Optional[ParentMessage]:
         if 'reply-parent-msg-id' in irc_msg.tags:
-            # TODO: Could be better thn take private field... but how?
+            # TODO: Could be better than take private field... but how?
             author = ParentMessageUser(irc_msg.copy(), self.author._send_whisper_callback)
             return ParentMessage(irc_msg.copy(), self.channel, author)
         else:
@@ -116,6 +115,9 @@ class Whisper(BaseMessage):
         super().__init__(irc_msg, author)
         self.thread_id = irc_msg.tags.get('thread-id')
 
-    @cached_property
-    def emote_only(self):
+    @property  # may be cached but must not be used more than once.
+    def emote_only(self) -> bool:
         return is_emote_only(self.content, self.emotes)
+
+    def __str__(self):
+        return f'Whisper form @{self.author.login} :{self.content}'

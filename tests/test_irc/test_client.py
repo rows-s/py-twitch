@@ -225,7 +225,7 @@ async def test_restart():
             assert before.login == after.login == IRC_USERNAME
             self.is_global_state_updated = True
         # TODO: turn it back
-        # async def on_local_state_update(self, channel: Channel, before: LocalState, after: LocalState):
+        # async def on_client_state_update(self, channel: Channel, before: LocalState, after: LocalState):
         #     assert channel.login == before.login == after.login == IRC_USERNAME
         #     assert before.is_broadcaster and after.is_broadcaster
         #     self.is_local_state_updated = True
@@ -364,7 +364,7 @@ async def test_handle_userstate_update():  # TODO: test after it's turned back
             super().__init__(token, login, should_restart=should_restart, whisper_agent=whisper_agent)
             self.is_userstate_updated = False
 
-        async def on_local_state_update(self, channel: Channel, before: LocalState, after: LocalState):
+        async def on_client_state_update(self, channel: Channel, before: LocalState, after: LocalState):
             assert channel.login == 'target'
             assert before.login == after.login == 'username'
             assert not before.is_broadcaster and after.is_broadcaster

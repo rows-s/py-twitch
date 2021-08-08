@@ -80,4 +80,4 @@ class PaginatedRequest(BaseRequest):
             first = self.calc_first_param(limit=limit)
             if first is not None:
                 kwargs['first'] = first
-        return super(PaginatedRequest, self).distribute_raw_params(raw_params, *args, **kwargs)
+        return super().distribute_raw_params(raw_params, *args, **kwargs)

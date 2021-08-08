@@ -18,7 +18,7 @@ class BaseFlag(ABC):
 class SubFlag(BaseFlag):
     """Class represents a sub flag with its id, content, and position(start, end)."""
     def __init__(self, id_: str, content: str, start: int, end: int):
-        super(SubFlag, self).__init__(content, start, end)
+        super().__init__(content, start, end)
         self.id: str = id_
 
     def __str__(self):
@@ -69,7 +69,7 @@ class Flag(BaseFlag):
             end (int):
                 position of the last symbol (+1) of the flagged content in the message content
         """
-        super(Flag, self).__init__(content, start, end)
+        super().__init__(content, start, end)
         self.ids: Tuple[str] = tuple(ids)
 
     @property
