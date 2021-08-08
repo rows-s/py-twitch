@@ -176,13 +176,11 @@ class Client:
             channels: (Iterable[str])
                 Iterable object with logins of channel to join
         """
-        # try log in
         if not self.is_anon:
             await self._first_log_in_irc()
         else:
             await self._log_in_irc()
         await self.join_channels(channels)
-        # start main listener
         self.is_running = True
         async for irc_msg in self._read_websocket():
             self._do_later(

@@ -40,14 +40,14 @@ class WebhookSubscription:
 # Event ABCs
 #
 class BaseEvent(ABC):
-    """ Base class for ALL events """
+    """ Base class for events """
     def __init__(self, raw_event: dict):
         self.event_id: str = raw_event.get('event_id')
         self.event_time: str = raw_event.get('event_time')
 
 
 class BaseBroadcasterEvent(BaseEvent, ABC):
-    """ Base class for BROADCASTER based events """
+    """ Base class for broadcaster based events """
     def __init__(self, raw_event: dict):
         super().__init__(raw_event)
         self.broadcaster_id: str = raw_event.get('broadcaster_user_id')
@@ -56,7 +56,7 @@ class BaseBroadcasterEvent(BaseEvent, ABC):
 
 
 class BaseUserEvent(BaseEvent, ABC):
-    """ Base class for USER based events """
+    """ Base class for user based events """
     def __init__(self, raw_event: dict):
         super().__init__(raw_event)
         self.user_id: str = raw_event.get('user_id')
@@ -64,22 +64,14 @@ class BaseUserEvent(BaseEvent, ABC):
         self.user_name: str = raw_event.get('user_name')
 
 
-class BaseBroadcasterUserEvent(BaseBroadcasterEvent, BaseUserEvent, ABC):
-    # TODO: maybe better don't use abstract class that just inherits 2 others?
-    #  And use multiple inheritance for each sub-class of this?
-    """ Base class for BROADCASTER & USER based events """
-    def __init__(self, raw_event: dict):
-        super().__init__(raw_event)
-
-
-class SubscribeEvent(BaseBroadcasterUserEvent):
+class SubscribeEvent(BaseBroadcasterEvent, BaseUserEvent):
     def __init__(self, raw_event: dict):
         super().__init__(raw_event)
         self.tier: str = raw_event.get('tier')
         self.is_gift: bool = raw_event.get('is_gift')
 
 
-class CheerEvent(BaseBroadcasterUserEvent):
+class CheerEvent(BaseBroadcasterEvent, BaseUserEvent):
     def __init__(self, raw_event: dict):
         super().__init__(raw_event)
         self.bits: int = raw_event.get('bits')
@@ -87,15 +79,15 @@ class CheerEvent(BaseBroadcasterUserEvent):
         self.is_anonymous: bool = raw_event.get('is_anonymous')
 
 
-class FollowEvent(BaseBroadcasterUserEvent):
+class FollowEvent(BaseBroadcasterEvent, BaseUserEvent):
     pass
 
 
-class BanEvent(BaseBroadcasterUserEvent):
+class BanEvent(BaseBroadcasterEvent, BaseUserEvent):
     pass
 
 
-class UnbanEvent(BaseBroadcasterUserEvent):
+class UnbanEvent(BaseBroadcasterEvent, BaseUserEvent):
     pass
 
 
@@ -111,7 +103,7 @@ class StreamOfflineEvent(BaseBroadcasterEvent):
 
 
 class BaseHypetrainEvent(BaseBroadcasterEvent, ABC):
-    """ Base class for HYPE TRAIN events """
+    """ Base class for hype train events """
     def __init__(self, raw_event: dict):
         super().__init__(raw_event)
         self.total: int = raw_event.get('total')
@@ -147,7 +139,7 @@ class HypetrainEndEvent(BaseHypetrainEvent):
 
 
 class BaseRewardEvent(BaseBroadcasterEvent, ABC):
-    """ Base class for REWARD events """
+    """ Base class for reward events """
     def __init__(self, event: dict):
         super().__init__(event)
         self.id: str = event.get('id')
@@ -181,8 +173,8 @@ class RewardRemoveEvent(BaseRewardEvent):
     pass
 
 
-class BaseRedemptionEvent(BaseBroadcasterUserEvent, ABC):
-    """ Base class for reward REDEMPTION events """
+class BaseRedemptionEvent(BaseBroadcasterEvent, BaseUserEvent, ABC):
+    """ Base class for reward redemption events """
     def __init__(self, event: dict):
         super().__init__(event)
         self.id: str = event.get('id')

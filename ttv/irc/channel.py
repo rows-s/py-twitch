@@ -139,7 +139,7 @@ class ChannelsAccumulator:
     def update_client_state(
             self,
             irc_msg: IRCMessage
-    ) -> None:  # TODO: must be condition for cases when client_state already exists
+    ) -> None:
         self.client_states[irc_msg.channel] = LocalState(irc_msg)
         if self.is_channel_ready(irc_msg.channel):
             self.call_channel_ready_callback(irc_msg.channel)
