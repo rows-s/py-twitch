@@ -22,7 +22,7 @@ class IRCConsole(Client):
 
     async def run_console(self):
         while True:
-            raw_irc_msg = await ainput("IRC message: ")
+            raw_irc_msg = await ainput()
             if raw_irc_msg == 'stop':
                 self._start_task.cancel()
                 return

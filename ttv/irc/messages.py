@@ -8,7 +8,7 @@ from .emotes import Emote
 from .users import BaseUser, ChannelUser, ParentMessageUser, GlobalUser
 from .utils import parse_raw_emotes, is_emote_only, parse_raw_flags
 
-from typing import Optional, List
+from typing import Optional, Tuple
 
 __all__ = (
     'BaseMessage',
@@ -33,11 +33,11 @@ class BaseMessage(ABC):
         self._raw_emotes: str = irc_msg.tags.get('emotes', '')
 
     @cached_property
-    def flags(self) -> List[Flag]:
+    def flags(self) -> Tuple[Flag]:
         return parse_raw_flags(self._raw_flags, self.content)
 
     @cached_property
-    def emotes(self) -> List[Emote]:
+    def emotes(self) -> Tuple[Emote]:
         return parse_raw_emotes(self._raw_emotes, self.content)
 
     def __str__(self):

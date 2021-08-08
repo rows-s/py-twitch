@@ -3,7 +3,6 @@ from functools import cached_property
 
 from .utils import parse_raw_badges
 from .irc_message import IRCMessage
-from .channel import Channel
 
 from typing import Dict, Tuple
 

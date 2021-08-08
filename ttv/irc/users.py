@@ -7,9 +7,7 @@ from typing import Callable, Coroutine
 
 __all__ = ('BaseUser', 'ChannelUser', 'GlobalUser', 'ParentMessageUser')
 
-# TODO: Must be Callable[[str, str, ..., Arg(str, name='agent')], Coroutine]
-#  basing on Client.send_whisper(self, target: str, content: str, *, agent: str = None)
-SendWhisperCallable = Callable[..., Coroutine]
+SendWhisperCallable = Callable[[str, str], Coroutine]
 
 
 class BaseUser(BaseState, ABC):

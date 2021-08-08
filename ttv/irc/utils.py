@@ -16,19 +16,15 @@ __all__ = (
 def parse_raw_emotes(
         raw_emotes: str,
         content: str
-) -> List[Emote]:
-    try:
-        emotes = []
-        if raw_emotes:
-            for emote in raw_emotes.split('/'):
-                emote_id, raw_positions = emote.split(':', 1)
-                positions = [_split_raw_position(raw_position) for raw_position in raw_positions.split(',')]
-                start, end = positions[0]
-                emotes.append(Emote(emote_id, content[start: end], positions))
-        return emotes
-    except Exception as e:
-        print(e)
-        raise
+) -> Tuple[Emote]:
+    emotes = []
+    if raw_emotes:
+        for emote in raw_emotes.split('/'):
+            emote_id, raw_positions = emote.split(':', 1)
+            positions = [_split_raw_position(raw_position) for raw_position in raw_positions.split(',')]
+            start, end = positions[0]
+            emotes.append(Emote(emote_id, content[start: end], positions))
+    return tuple(emotes)
 
 
 def _split_raw_position(raw_position: str):
@@ -64,7 +60,7 @@ def parse_raw_badges(
     return result  # result = {'predictions': 'KEENY DEYY', 'vip': '1'}
 
 
-def parse_raw_flags(raw_flags: str, content: str) -> List[Flag]:
+def parse_raw_flags(raw_flags: str, content: str) -> Tuple[Flag]:
     flags: List[Flag] = []
     if raw_flags:
         for raw_flag in raw_flags.split(','):
@@ -73,7 +69,7 @@ def parse_raw_flags(raw_flags: str, content: str) -> List[Flag]:
             end += 1
             flags_ids = raw_flag_ids.split('/')
             flags.append(Flag(flags_ids, content[start:end], start, end))
-    return flags
+    return tuple(flags)
 
 
 def escape_tag_value(value: str):

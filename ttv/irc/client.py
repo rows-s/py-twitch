@@ -6,7 +6,7 @@ from time import time
 
 from .irc_message import IRCMessage
 from .messages import ChannelMessage, Whisper
-from .channel import Channel, ChannelsAccumulator, AnonChannelsAccumulator
+from .channel import Channel, ChannelsAccumulator
 from .users import ChannelUser, GlobalUser
 from .user_states import GlobalState, LocalState
 from .events import OnClearChatFromUser, OnChannelJoinError, OnNotice, OnMessageDelete, OnSendMessageError
@@ -14,7 +14,7 @@ from .user_events import *
 from .exceptions import *
 
 from typing import Coroutine, Iterable, Tuple, Any, Awaitable, Callable, List, Optional, Dict, AsyncGenerator, \
-    Set, Generator, TypeVar, Union
+    Set, Generator, TypeVar
 
 __all__ = ('Client', 'ANON_LOGIN')
 
@@ -34,7 +34,12 @@ class Client:
             *,
             whisper_agent: str = 'ananonymousgifter',
             should_restart: bool = True,
+            # accumulation
+            should_accum_client_states=True,
+            should_accum_names=False,
             should_accum_commands=False,
+            should_accum_vips=False,
+            should_accum_mods=False,
             loop: AbstractEventLoop = None
     ) -> None:
         self.token: str = token
@@ -46,23 +51,21 @@ class Client:
         self.global_state: Optional[GlobalState] = None
         # channels
         self.joined_channel_logins: Set[str] = set()
-        self._channels_by_id: Dict[str, Channel] = {}  # id_channel: Channel
-        self._channels_by_login: Dict[str, Channel] = {}  # channel_login: Channel
-        self._channels_accumulator: Union[ChannelsAccumulator, AnonChannelsAccumulator]
-        if not self.is_anon:
-            self._channels_accumulator = ChannelsAccumulator(channel_ready_callback=self._save_channel,
-                                                             send_callback=self._send,
-                                                             should_accum_commands=should_accum_commands)
-        else:
-            self._channels_accumulator = AnonChannelsAccumulator(self._save_channel, self._send)
+        self._channels_by_id: Dict[str, Channel] = {}
+        self._channels_by_login: Dict[str, Channel] = {}
         self._delayed_irc_msgs: Dict[str, List[IRCMessage]] = {}  # channel_login: [irc_msg, ...]
-
-        # websocket staff
+        self._channels_accumulator = ChannelsAccumulator(
+            channel_ready_callback=self._save_channel,
+            send_callback=self._send,
+            should_accum_client_states=should_accum_client_states,
+            should_accum_names=should_accum_names,
+            should_accum_commands=should_accum_commands,
+            should_accum_mods=should_accum_mods,
+            should_accum_vips=should_accum_vips,
+        )
         self._websocket: WebSocketClientProtocol = WebSocketClientProtocol()
         self._delay_gen: Generator[int, None] = Client._delay_gen()
         self._running_restart_task: Optional[asyncio.tasks.Task] = None
-
-        # other
         self.loop: AbstractEventLoop = asyncio.get_event_loop() if loop is None else loop
 
     @property
@@ -80,6 +83,26 @@ class Client:
     @property
     def is_restarting(self) -> bool:
         return self._running_restart_task is not None
+
+    @property
+    def should_accum_client_states(self) -> bool:
+        return self._channels_accumulator.should_accum_client_states
+
+    @property
+    def should_accum_names(self) -> bool:
+        return self._channels_accumulator.should_accum_names
+
+    @property
+    def should_accum_commands(self) -> bool:
+        return self._channels_accumulator.should_accum_commands
+
+    @property
+    def should_accum_mods(self) -> bool:
+        return self._channels_accumulator.should_accum_mods
+
+    @property
+    def should_accum_vips(self) -> bool:
+        return self._channels_accumulator.should_accum_vips
 
     @property
     def is_anon(self) -> bool:
@@ -296,7 +319,7 @@ class Client:
             self,
             irc_msg: IRCMessage
     ) -> None:
-        self._channels_accumulator.update_names(irc_msg)
+        self._channels_accumulator.accumulate_part(irc_msg)
 
     def _handle_names_end(
             self,
@@ -305,7 +328,7 @@ class Client:
         if irc_msg.channel in self._channels_by_login:
             self._handle_names_update(irc_msg)
         else:
-            self._channels_accumulator.end_names(irc_msg)
+            self._channels_accumulator.accumulate_part(irc_msg)
 
     def _handle_names_update(
             self,
@@ -323,7 +346,7 @@ class Client:
         if irc_msg.channel in self._channels_by_login:
             self._handle_channel_update(irc_msg)
         else:
-            self._channels_accumulator.update_room_state(irc_msg)
+            self._channels_accumulator.accumulate_part(irc_msg)
 
     def _handle_channel_update(
             self,
@@ -351,7 +374,7 @@ class Client:
         if irc_msg.channel in self._channels_by_login:
             self._handle_userstate_update(irc_msg)
         else:
-            self._channels_accumulator.update_client_state(irc_msg)
+            self._channels_accumulator.accumulate_part(irc_msg)
 
     def _handle_userstate_update(
             self,
@@ -404,16 +427,17 @@ class Client:
             irc_msg: IRCMessage
     ) -> None:
         notice_id = irc_msg.tags.get('msg-id')
-        # if channel join error
         if notice_id in ('msg_room_not_found', 'msg_channel_suspended'):
             self._handle_channel_join_error(irc_msg)
-        # if message send error
         elif notice_id.startswith('msg'):
             # NOTE: 'msg_room_not_found' & 'msg_channel_suspended' are handled in the previous condition
             self._handle_send_message_error(irc_msg)
-            pass
         elif notice_id == 'cmds_available':
             self._handle_cmds_available(irc_msg)
+        elif notice_id in ('room_mods', 'no_mods'):
+            self._handle_mods(irc_msg)
+        elif notice_id in ('vips_success', 'no_vips'):
+            self._handle_vips(irc_msg)
         else:
             channel = self._get_prepared_channel(irc_msg.channel)
             self._call_event('on_notice', OnNotice(channel, notice_id, irc_msg.trailing))
@@ -438,17 +462,39 @@ class Client:
             self,
             irc_msg: IRCMessage
     ) -> None:
-        try:
-            channel = self._get_prepared_channel(irc_msg.channel)
-        except ChannelNotPrepared:
-            self._channels_accumulator.update_commands(irc_msg)
+        if (channel := self.get_channel(irc_msg.channel)) is None:
+            self._channels_accumulator.accumulate_part(irc_msg)
         else:
-            raw_commands = irc_msg.trailing.split(': ', 1)[0]
-            raw_commands = raw_commands.split(' More', 1)[0]  # remove 'More help: ...'
-            commands = tuple(raw_commands.split(' '))
+            raw_commands = irc_msg.trailing.removesuffix(' More help: https://help.twitch.tv/s/article/chat-commands')
+            raw_commands = raw_commands.split(': ', 1)[1]  # 'Commands available to you in this room (...): '
             before = channel.commands
-            channel.commands = commands
-            self._call_event('on_channel_commands_update', channel, before, channel.commands)
+            after = channel.commands = tuple(raw_commands.split(' '))
+            self._call_event('on_commands_update', channel, before, after)
+
+    def _handle_mods(
+            self,
+            irc_msg: IRCMessage
+    ) -> None:
+        if (channel := self.get_channel(irc_msg.channel)) is None:
+            self._channels_accumulator.accumulate_part(irc_msg)
+        else:
+            raw_mods = irc_msg.trailing.split(': ', 1)[1]
+            before = channel.mods
+            after = channel.mods = tuple(raw_mods.split(', '))
+            self._call_event('on_mods_update', channel, before, after)
+
+    def _handle_vips(
+            self,
+            irc_msg: IRCMessage
+    ) -> None:
+        if (channel := self.get_channel(irc_msg.channel)) is None:
+            self._channels_accumulator.accumulate_part(irc_msg)
+        else:
+            raw_vips = irc_msg.trailing.split(': ', 1)[1]
+            raw_vips = raw_vips.removesuffix('.')
+            before = channel.vips
+            after = channel.vips = tuple(raw_vips.split(', '))
+            self._call_event('on_vips_update', channel, before, after)
 
     def _handle_clearchat(
             self,
@@ -545,7 +591,6 @@ class Client:
             irc_msg: IRCMessage
     ) -> None:
         if hasattr(self, 'on_host_start'):
-            channel = self._get_prepared_channel(irc_msg.channel)
             host_login, viewers_count = irc_msg.trailing.split(' ', 1)
             viewers_count = int(viewers_count) if (viewers_count != '-') else 0
             self._call_event('on_host_start', host_login, viewers_count)
@@ -555,7 +600,6 @@ class Client:
             irc_msg: IRCMessage
     ) -> None:
         if hasattr(self, 'on_host_stop'):
-            channel = self._get_prepared_channel(irc_msg.channel)
             _, viewers_count = irc_msg.trailing.split(' ', 1)
             viewers_count = int(viewers_count) if (viewers_count != '-') else None
             self._call_event('on_host_stop', viewers_count)
@@ -694,8 +738,7 @@ class Client:
         """Sends command to join the channel and adds its login to `self.joined_channels_logins`"""
         self.joined_channel_logins.add(login)
         await self._send(f'JOIN #{login}')
-        if self._channels_accumulator.should_accum_commands:
-            await self.send_message(login, '/help')
+        await self._request_channel_parts(login)
 
     async def join_channels(
             self,
@@ -711,13 +754,21 @@ class Client:
         Returns:
             `None`
         """
-        if logins:
+        if logins:  # don't join to no channel
             self.joined_channel_logins.update(logins)
             logins_str = ',#'.join(logins)
             await self._send(f'JOIN #{logins_str}')
-            if self._channels_accumulator.should_accum_commands:
-                for login in logins:
-                    self._do_later(self.send_message(login, '/help'))
+        for login in logins:
+            await self._request_channel_parts(login)
+
+    async def _request_channel_parts(self, login: str):
+        """ Requests commands list, mods list, vips list for the :class:`Channel` with given `login` """
+        if self.should_accum_commands:
+            await self.send_message(login, '/help')
+        if self.should_accum_mods:
+            await self.send_message(login, '/mods')
+        if self.should_accum_vips:
+            await self.send_message(login, '/vips')
 
     async def part_channel(
             self,
@@ -890,7 +941,8 @@ class Client:
         'on_clear_chat_from_user', 'on_clear_chat',  # CLEARCHAT
         'on_message_delete',  # CLEARMSG
         'on_host_start', 'on_host_stop',  # HOSTTARGET
-        'on_notice', 'on_channel_join_error', 'on_send_message_error', 'on_channel_commands_update',  # NOTICE
+        'on_notice', 'on_channel_join_error', 'on_send_message_error',  # NOTICE
+        'on_commands_update', 'on_mods_update', 'on_vips_update',  # NOTICE
         'on_user_event', 'on_unknown_user_event',  # USERNOTICE
         'on_reconnect', 'on_unknown_command',
     )
