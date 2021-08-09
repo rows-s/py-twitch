@@ -27,7 +27,7 @@ _Client = TypeVar('_Client')
 
 class Client:
 
-    def __init__(  # TODO: add `should_accum_names`, then remove `AnonChannelsAccumulator`
+    def __init__(
             self,
             token: str,
             login: str,
