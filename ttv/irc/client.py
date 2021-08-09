@@ -610,13 +610,7 @@ class Client:
     ):
         if 'user-login' not in irc_msg.tags:
             irc_msg.tags['user-login'] = self.login
-        if hasattr(self, 'on_global_state_update'):
-            before = self.global_state
-            self.global_state = GlobalState(irc_msg)
-            after = self.global_state
-            self._call_event('on_global_state_update', before, after)
-        else:
-            self.global_state = GlobalState(irc_msg)
+        self.global_state = GlobalState(irc_msg)
 
     def _handle_reconnect(
             self,
@@ -935,7 +929,7 @@ class Client:
         'on_channel_join', 'on_channel_update',  # ROOMSTATE
         'on_client_state_update',  # USERSTATE
         'on_names_update',  # 366
-        'on_ready', 'on_global_state_update',  # GLOBALUSERSTATE
+        'on_ready',  # GLOBALUSERSTATE
         'on_user_join',  # JOIN
         'on_user_part',  # PART
         'on_clear_chat_from_user', 'on_clear_chat',  # CLEARCHAT

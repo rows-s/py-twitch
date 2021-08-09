@@ -50,7 +50,7 @@ class BaseStateExt(BaseState, ABC):
         return parse_raw_badges(self._raw_badge_info)
 
     def __eq__(self, other):
-        if isinstance(other, GlobalState):
+        if isinstance(other, BaseStateExt):
             try:
                 assert super().__eq__(other)
                 assert self.emote_sets == other.emote_sets

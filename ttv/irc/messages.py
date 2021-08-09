@@ -119,5 +119,9 @@ class Whisper(BaseMessage):
     def emote_only(self) -> bool:
         return is_emote_only(self.content, self.emotes)
 
+    @emote_only.setter
+    def emote_only(self, item):
+        pass
+
     def __str__(self):
         return f'Whisper form @{self.author.login} :{self.content}'

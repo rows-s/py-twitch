@@ -198,7 +198,6 @@ async def test_restart():
             self.is_reconnected = False
             self.is_channel_joined = False
             self.is_channel_updated = False
-            self.is_global_state_updated = False
             self.is_local_state_updated = False
             self.is_nameslist_updated = False
 
@@ -221,19 +220,15 @@ async def test_restart():
             assert before.client_state.login == after.client_state.login == IRC_USERNAME
             self.is_channel_updated = True
 
-        async def on_global_state_update(self, before: GlobalState, after: GlobalState):
-            assert before.login == after.login == IRC_USERNAME
-            self.is_global_state_updated = True
-        # TODO: turn it back
-        # async def on_client_state_update(self, channel: Channel, before: LocalState, after: LocalState):
-        #     assert channel.login == before.login == after.login == IRC_USERNAME
-        #     assert before.is_broadcaster and after.is_broadcaster
-        #     self.is_local_state_updated = True
-        #
-        # async def on_names_update(self, channel: Channel, before, after):
-        #     assert channel.login == IRC_USERNAME
-        #     assert IRC_USERNAME in before and IRC_USERNAME in after
-        #     self.is_nameslist_updated = True
+        async def on_client_state_update(self, channel: Channel, before: LocalState, after: LocalState):
+            assert channel.login == before.login == after.login == IRC_USERNAME
+            assert before.is_broadcaster and after.is_broadcaster
+            self.is_local_state_updated = True
+
+        async def on_names_update(self, channel: Channel, before, after):
+            assert channel.login == IRC_USERNAME
+            assert IRC_USERNAME in before and IRC_USERNAME in after
+            self.is_nameslist_updated = True
 
     valid_bot = LClient(IRC_TOKEN, IRC_USERNAME)
     valid_bot.loop.create_task(valid_bot.start([IRC_USERNAME]))
@@ -246,9 +241,8 @@ async def test_restart():
     assert valid_bot.is_channel_joined
     assert valid_bot.is_reconnected
     assert valid_bot.is_channel_updated
-    assert valid_bot.is_global_state_updated
-    # assert valid_bot.is_local_state_updated
-    # assert valid_bot.is_nameslist_updated
+    assert valid_bot.is_local_state_updated
+    assert valid_bot.is_nameslist_updated
 
 
 async def handle_commands(client: Client, *irc_msgs: IRCMessage):
@@ -301,7 +295,7 @@ async def test_handle_names_end():
 
 
 @pytest.mark.asyncio
-async def test_handle_names_update():  # TODO: test after it's turned back
+async def test_handle_names_update():
     class LClient(Client):
         def __init__(self, token: str, login: str, *, should_restart: bool = True, whisper_agent: str = None):
             super().__init__(token, login, should_restart=should_restart, whisper_agent=whisper_agent)
@@ -358,7 +352,7 @@ async def test_handle_userstate():
 
 
 @pytest.mark.asyncio
-async def test_handle_userstate_update():  # TODO: test after it's turned back
+async def test_handle_userstate_update():
     class LClient(Client):
         def __init__(self, token: str, login: str, *, should_restart: bool = True, whisper_agent: str = None):
             super().__init__(token, login, should_restart=should_restart, whisper_agent=whisper_agent)
@@ -366,7 +360,7 @@ async def test_handle_userstate_update():  # TODO: test after it's turned back
 
         async def on_client_state_update(self, channel: Channel, before: LocalState, after: LocalState):
             assert channel.login == 'target'
-            assert before.login == after.login == 'username'
+            assert before.login == after.login == 'login'
             assert not before.is_broadcaster and after.is_broadcaster
             self.is_userstate_updated = True
 

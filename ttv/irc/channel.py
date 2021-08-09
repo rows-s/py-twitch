@@ -272,7 +272,7 @@ class ChannelsAccumulator:
     ) -> Channel:
         room_state = self.channel_states.pop(channel_login)
         client_state = self.client_states.pop(channel_login, self.EMPTY_CLIENT_STATE)
-        names = self.names.pop(channel_login)
+        names = self.names.pop(channel_login, ())
         commands = self.commands.pop(channel_login, ())
         mods = self.mods.pop(channel_login, ())
         vips = self.vips.pop(channel_login, ())
