@@ -8,6 +8,7 @@ import websockets
 
 from tests.test_irc.irc_msgs import *  # TODO: bad import
 from ttv.irc import Client, Channel, GlobalState, LocalState, ChannelMessage, Whisper
+from ttv.irc.events import OnNotice, OnChannelJoinError, OnSendMessageError
 from ttv.irc.exceptions import *
 
 IRC_TOKEN = os.getenv('TTV_IRC_TOKEN')
@@ -381,7 +382,7 @@ async def test_handle_privmsg():
 
         async def on_message(self, msg: ChannelMessage):
             assert msg.channel.login == 'target'
-            assert msg.content == 'content with a @metion :('
+            assert msg.content == 'content with a @mention :('
             assert msg.author.login == 'username' and msg.author.display_name == 'UserName'
             assert not msg.is_reply
             self.did_handle_message = True
@@ -400,7 +401,7 @@ async def test_handle_whisper():
 
         async def on_whisper(self, whisper: Whisper):
             assert whisper.author.login == 'username'
-            assert whisper.content == 'content with a @metion :('
+            assert whisper.content == 'content with a @mention :('
             assert not whisper.emote_only
             self.did_handle_whisper = True
     bot = LClient('token', 'login')
@@ -443,3 +444,118 @@ async def test_handle_part():
     await handle_commands(bot, *CHANNEL_PARTS, PT)
     await asyncio.sleep(0.001)
     assert bot.did_part
+
+
+@pytest.mark.asyncio
+async def test_handle_notice():
+    class LClient(Client):
+        def __init__(self, token: str, login: str, *, should_restart: bool = True, whisper_agent: str = None):
+            super().__init__(token, login, should_restart=should_restart, whisper_agent=whisper_agent)
+            self.got_notice = False
+
+        async def on_notice(self, event: OnNotice):
+            assert event.message == 'You cannot whisper to yourself.'
+            assert event.notice_id == 'whisper_invalid_self'
+            assert event.channel.login == 'target'
+            self.got_notice = True
+
+    bot = LClient('token', 'login')
+    await handle_commands(bot, *CHANNEL_PARTS, NT)
+    await asyncio.sleep(0.001)
+    assert bot.got_notice
+    # also is being tested in several next tests
+
+
+@pytest.mark.asyncio
+async def test_handle_channel_join_error():
+    class LClient(Client):
+        def __init__(self, token: str, login: str, *, should_restart: bool = True, whisper_agent: str = None):
+            super().__init__(token, login, should_restart=should_restart, whisper_agent=whisper_agent)
+            self.got_channel_join_error = False
+
+        async def on_channel_join_error(self, event: OnChannelJoinError):
+            assert event.message == 'This channel has been suspended.'
+            assert event.reason == 'channel_suspended'
+            assert event.channel_login == 'target'
+            self.got_channel_join_error = True
+
+    bot = LClient('token', 'login')
+    await handle_commands(bot, *CHANNEL_PARTS, NT_CS)
+    await asyncio.sleep(0.001)
+    assert bot.got_channel_join_error
+
+
+@pytest.mark.asyncio
+async def test_handle_send_message_error():
+    class LClient(Client):
+        def __init__(self, token: str, login: str, *, should_restart: bool = True, whisper_agent: str = None):
+            super().__init__(token, login, should_restart=should_restart, whisper_agent=whisper_agent)
+            self.got_send_message_error = False
+
+        async def on_send_message_error(self, event: OnSendMessageError):
+            assert event.message == 'This room is in followers-only mode. Follow target to join the community!'
+            assert event.reason == 'followersonly_zero'
+            assert event.channel.login == 'target'
+            self.got_send_message_error = True
+
+    bot = LClient('token', 'login')
+    await handle_commands(bot, *CHANNEL_PARTS, NT_FOZ)
+    await asyncio.sleep(0.001)
+    assert bot.got_send_message_error
+
+
+@pytest.mark.asyncio
+async def test_handle_mods():  # TODO: test no_mods
+    class LClient(Client):
+        def __init__(self, token: str, login: str, *, should_restart: bool = True, whisper_agent: str = None):
+            super().__init__(token, login, should_restart=should_restart, whisper_agent=whisper_agent)
+            self.got_on_mods_update = False
+
+        async def on_mods_update(self, channel, before, after):
+            assert channel.login == 'target'
+            assert before == MODS
+            assert after == MODS2
+            self.got_on_mods_update = True
+
+    bot = LClient('token', 'login')
+    await handle_commands(bot, *CHANNEL_PARTS, RM2)
+    await asyncio.sleep(0.001)
+    assert bot.got_on_mods_update
+
+
+@pytest.mark.asyncio
+async def test_handle_vips():  # TODO: test no_vips
+    class LClient(Client):
+        def __init__(self, token: str, login: str, *, should_restart: bool = True, whisper_agent: str = None):
+            super().__init__(token, login, should_restart=should_restart, whisper_agent=whisper_agent)
+            self.got_on_vips_update = False
+
+        async def on_vips_update(self, channel, before, after):
+            assert channel.login == 'target'
+            assert before == VIPS
+            assert after == VIPS2
+            self.got_on_vips_update = True
+
+    bot = LClient('token', 'login')
+    await handle_commands(bot, *CHANNEL_PARTS, VS2)
+    await asyncio.sleep(0.001)
+    assert bot.got_on_vips_update
+
+
+@pytest.mark.asyncio
+async def test_handle_cmds_available():
+    class LClient(Client):
+        def __init__(self, token: str, login: str, *, should_restart: bool = True, whisper_agent: str = None):
+            super().__init__(token, login, should_restart=should_restart, whisper_agent=whisper_agent)
+            self.got_on_commands_update = False
+
+        async def on_commands_update(self, channel, before, after):
+            assert channel.login == 'target'
+            assert before == CMDS
+            assert after == CMDS2
+            self.got_on_commands_update = True
+
+    bot = LClient('token', 'login')
+    await handle_commands(bot, *CHANNEL_PARTS, CA2)
+    await asyncio.sleep(0.001)
+    assert bot.got_on_commands_update

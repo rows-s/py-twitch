@@ -182,11 +182,8 @@ class Api:
         Returns:
             (aiohttp.ClientSession)
         """
-        if Api._session is None:
+        if Api._session is None or Api._session.closed:
             Api._session = aiohttp.ClientSession()
-        elif Api._session.closed:
-            Api._session = aiohttp.ClientSession()
-        # return anyway
         return Api._session
 
     @classmethod
