@@ -40,4 +40,4 @@ class OnMessageDelete:
 class OnSendMessageError:
     channel: Channel
     reason: str
-    content: str
+    message: str

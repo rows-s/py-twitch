@@ -6,7 +6,8 @@ from time import time
 
 from .irc_message import IRCMessage
 from .messages import ChannelMessage, Whisper
-from .channel import Channel, ChannelsAccumulator
+from .channel import Channel
+from .channels_accumulators import ChannelsAccumulator
 from .users import ChannelUser, GlobalUser
 from .user_states import GlobalState, LocalState
 from .events import OnClearChatFromUser, OnChannelJoinError, OnNotice, OnMessageDelete, OnSendMessageError
@@ -27,7 +28,7 @@ _Client = TypeVar('_Client')
 
 class Client:
 
-    def __init__(
+    def __init__(  # TODO: set all the accum bool variables True and review the anon script for them.
             self,
             token: str,
             login: str,
@@ -36,10 +37,10 @@ class Client:
             should_restart: bool = True,
             # accumulation
             should_accum_client_states=True,
-            should_accum_names=False,
-            should_accum_commands=False,
-            should_accum_vips=False,
-            should_accum_mods=False,
+            should_accum_names=True,
+            should_accum_commands=True,
+            should_accum_vips=True,
+            should_accum_mods=True,
             loop: AbstractEventLoop = None
     ) -> None:
         self.token: str = token
@@ -54,6 +55,9 @@ class Client:
         self._channels_by_id: Dict[str, Channel] = {}
         self._channels_by_login: Dict[str, Channel] = {}
         self._delayed_irc_msgs: Dict[str, List[IRCMessage]] = {}  # channel_login: [irc_msg, ...]
+        # accumulation
+
+        should_accum_client_states = False if self.is_anon else should_accum_client_states
         self._channels_accumulator = ChannelsAccumulator(
             channel_ready_callback=self._save_channel,
             send_callback=self._send,
@@ -307,6 +311,8 @@ class Client:
     ) -> None:
         try:
             handler = self._COMMAND_HANDLERS[irc_msg.command]
+            if irc_msg.command != 'PRIVMSG':
+                print(f'{irc_msg.channel}\n    {irc_msg}')
         except KeyError:
             self._call_event('on_unknown_command', irc_msg)
         else:
@@ -464,11 +470,12 @@ class Client:
     ) -> None:
         if (channel := self.get_channel(irc_msg.channel)) is None:
             self._channels_accumulator.accumulate_part(irc_msg)
-        else:
-            raw_commands = irc_msg.trailing.removesuffix(' More help: https://help.twitch.tv/s/article/chat-commands')
-            raw_commands = raw_commands.split(': ', 1)[1]  # 'Commands available to you in this room (...): '
+        else:  # TODO: check msg-id = 'no_help'
             before = channel.commands
-            after = channel.commands = tuple(raw_commands.split(' '))
+            raw_cmds = irc_msg.trailing.split(' More')[0]  # 'More help: https://help.twitch.tv/...'
+            raw_cmds = raw_cmds.split(': ', 1)[1]  # 'Commands available to you in this room (...): '
+            commands = tuple(raw_cmds.split(' '))
+            after = channel.commands = commands
             self._call_event('on_commands_update', channel, before, after)
 
     def _handle_mods(
@@ -478,9 +485,13 @@ class Client:
         if (channel := self.get_channel(irc_msg.channel)) is None:
             self._channels_accumulator.accumulate_part(irc_msg)
         else:
-            raw_mods = irc_msg.trailing.split(': ', 1)[1]
             before = channel.mods
-            after = channel.mods = tuple(raw_mods.split(', '))
+            if irc_msg.tags['msg-id'] == 'no_mods':
+                mods = ()
+            else:
+                raw_mods = irc_msg.trailing.split(': ', 1)[1]  # remove 'The moderators of this channel are: '
+                mods = tuple(raw_mods.split(', '))
+            after = channel.mods = mods
             self._call_event('on_mods_update', channel, before, after)
 
     def _handle_vips(
@@ -490,10 +501,14 @@ class Client:
         if (channel := self.get_channel(irc_msg.channel)) is None:
             self._channels_accumulator.accumulate_part(irc_msg)
         else:
-            raw_vips = irc_msg.trailing.split(': ', 1)[1]
-            raw_vips = raw_vips.removesuffix('.')
             before = channel.vips
-            after = channel.vips = tuple(raw_vips.split(', '))
+            if irc_msg.tags['msg-id'] == 'no_vips':
+                vips = ()
+            else:
+                raw_vips = irc_msg.trailing.split(': ', 1)[1]  # remove 'The VIPs of this channel are: '
+                raw_vips = raw_vips.removesuffix('.')
+                vips = tuple(raw_vips.split(', '))
+            after = channel.vips = vips
             self._call_event('on_vips_update', channel, before, after)
 
     def _handle_clearchat(
@@ -778,13 +793,6 @@ class Client:
     ) -> None:
         """
         Sends commands to part the channels and discards their logins from `self.joined_channels_logins`
-
-        Args:
-            logins: Iterable[`str`]
-                Iterable object with channels' logins
-
-        Returns:
-            `None`
         """
         if logins:
             self.joined_channel_logins.difference_update(logins)

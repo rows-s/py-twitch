@@ -6,7 +6,7 @@ from .utils import escape_tag_value, unescape_tag_value
 __all__ = ('IRCMessage',)
 
 
-class IRCMessage:
+class IRCMessage:  # TODO: add `__getitem__`, `get`. think about `__getattr__`
     def __init__(
             self,
             raw_irc_msg: str

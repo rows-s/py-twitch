@@ -6,7 +6,7 @@ from ttv.api import Api
 
 TOKEN = os.getenv('TTV_IRC_TOKEN', '')
 LOGIN = os.getenv('TTV_IRC_NICK', ANON_LOGIN)
-CHANNEL_COUNT = int(os.getenv('TTV_IRC_CHANNEL_COUNT', 10))
+CHANNEL_COUNT = int(os.getenv('TTV_IRC_CHANNEL_COUNT', 5))
 API_TOKEN = os.environ['TTV_API_TOKEN']
 
 
