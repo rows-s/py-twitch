@@ -8,7 +8,8 @@ import websockets
 
 from tests.test_irc.irc_msgs import *  # TODO: bad import
 from ttv.irc import Client, Channel, GlobalState, LocalState, ChannelMessage, Whisper
-from ttv.irc.events import OnNotice, OnChannelJoinError, OnSendMessageError
+from ttv.irc.events import OnNotice, OnChannelJoinError, OnSendMessageError, OnUserBan, OnUserTimeout, OnClearChat, \
+    OnMessageDelete
 from ttv.irc.exceptions import *
 
 IRC_TOKEN = os.getenv('TTV_IRC_TOKEN')
@@ -35,8 +36,8 @@ def test_event_registration():
 @pytest.mark.asyncio
 async def test_channel_getters():
     class LClient(Client):
-        def __init__(self, token: str, login: str, *, should_restart: bool = True, whisper_agent: str = None):
-            super().__init__(token, login, should_restart=should_restart, whisper_agent=whisper_agent)
+        def __init__(self, token: str, login: str):
+            super().__init__(token, login)
             self.channel = None
 
         async def on_channel_join(self, channel: Channel):
@@ -90,8 +91,8 @@ async def test_start():
 
     # Valid test
     class LClient(Client):
-        def __init__(self, token: str, login: str, *, should_restart: bool = True, whisper_agent: str = None):
-            super().__init__(token, login, should_restart=should_restart, whisper_agent=whisper_agent)
+        def __init__(self, token: str, login: str):
+            super().__init__(token, login)
             self.logged_in = False
             self.got_user_join = False
             self.joined_channel = False
@@ -176,14 +177,14 @@ async def test_first_log_in_irc():
         await bot._first_log_in_irc()
 
     class LClient(Client):
-        def __init__(self, token: str, login: str, *, should_restart: bool = True, whisper_agent: str = None):
-            super().__init__(token, login, should_restart=should_restart, whisper_agent=whisper_agent)
+        def __init__(self, token: str, login: str):
+            super().__init__(token, login, should_restart=False)
             self.logined = False
 
         async def on_ready(self):
             self.logined = True
 
-    valid_bot = LClient(IRC_TOKEN, IRC_USERNAME, should_restart=False)
+    valid_bot = LClient(IRC_TOKEN, IRC_USERNAME)
 
     await valid_bot._first_log_in_irc()
     await asyncio.sleep(0.01)  # on_ready is delayed (task created not called) here we let other tasks work
@@ -193,8 +194,8 @@ async def test_first_log_in_irc():
 @pytest.mark.asyncio
 async def test_restart():
     class LClient(Client):
-        def __init__(self, token: str, login: str, *, should_restart: bool = True, whisper_agent: str = None):
-            super().__init__(token, login, should_restart=should_restart, whisper_agent=whisper_agent)
+        def __init__(self, token: str, login: str):
+            super().__init__(token, login)
             self.is_logged_in = False
             self.is_reconnected = False
             self.is_channel_joined = False
@@ -254,8 +255,8 @@ async def handle_commands(client: Client, *irc_msgs: IRCMessage):
 @pytest.mark.asyncio
 async def test_handle_command():
     class LClient(Client):
-        def __init__(self, token: str, login: str, *, should_restart: bool = True, whisper_agent: str = None):
-            super().__init__(token, login, should_restart=should_restart, whisper_agent=whisper_agent)
+        def __init__(self, token: str, login: str):
+            super().__init__(token, login)
             self.is_on_unknown_command_called = False
             
         async def on_message(self, message): pass  # just to make bot handle PRIVMSG
@@ -266,11 +267,9 @@ async def test_handle_command():
 
     # delay msg
     bot = LClient('token', 'login')
-    await bot._handle_command(MSG)
-    assert bot._delayed_irc_msgs['target'] == [MSG]
-
-    await bot._handle_command(CAP)
+    await handle_commands(bot, MSG, CAP)
     await asyncio.sleep(0.001)
+    assert bot._delayed_irc_msgs['target'] == [MSG]
     assert bot.is_on_unknown_command_called
     # also is being tested in test_handle_* tests
 
@@ -289,29 +288,27 @@ async def test_handle_names_part():
 @pytest.mark.asyncio
 async def test_handle_names_end():
     bot = Client('token', 'login')
-    # end
-    await handle_commands(bot, NP, NP2, NE)
-    assert bot._channels_accumulator.names.get(NE.channel) == NAMES
+    await handle_commands(bot, *CHANNEL_PARTS)
+    assert bot.get_channel('target').names == NAMES
     # also is being tested in `test_handle_names_update()`
 
 
 @pytest.mark.asyncio
 async def test_handle_names_update():
     class LClient(Client):
-        def __init__(self, token: str, login: str, *, should_restart: bool = True, whisper_agent: str = None):
-            super().__init__(token, login, should_restart=should_restart, whisper_agent=whisper_agent)
+        def __init__(self, token: str, login: str):
+            super().__init__(token, login)
             self.is_names_updated = False
 
         async def on_names_update(self, channel: Channel, before: Tuple, after: Tuple):
-            assert before + after == NAMES  # was half, became another half
+            assert before == NAMES
+            assert after == NAMES[3:]
             assert channel.login == 'target'
             self.is_names_updated = True
+
     bot = LClient('token', 'login')
-    # end                                # set   # update
-    await handle_commands(bot, GS, RS, US, NP, NE, NP2, NE)
-    await bot._handle_command(NP)
-    await bot._handle_command(NE)
-    assert bot.get_channel_by_login('target').names == ('username', 'username2', 'username3')
+    await handle_commands(bot, *CHANNEL_PARTS, NP2, NE)
+    assert bot.get_channel('target').names == NAMES[3:]
     await asyncio.sleep(0.001)
     assert bot.is_names_updated
 
@@ -327,8 +324,8 @@ async def test_handle_roomstate():
 @pytest.mark.asyncio
 async def test_handle_channel_update():
     class LClient(Client):
-        def __init__(self, token: str, login: str, *, should_restart: bool = True, whisper_agent: str = None):
-            super().__init__(token, login, should_restart=should_restart, whisper_agent=whisper_agent)
+        def __init__(self, token: str, login: str):
+            super().__init__(token, login)
             self.is_channel_updated = False
 
         async def on_channel_update(self, before: Channel, after: Channel):
@@ -355,8 +352,8 @@ async def test_handle_userstate():
 @pytest.mark.asyncio
 async def test_handle_userstate_update():
     class LClient(Client):
-        def __init__(self, token: str, login: str, *, should_restart: bool = True, whisper_agent: str = None):
-            super().__init__(token, login, should_restart=should_restart, whisper_agent=whisper_agent)
+        def __init__(self, token: str, login: str):
+            super().__init__(token, login)
             self.is_userstate_updated = False
 
         async def on_client_state_update(self, channel: Channel, before: LocalState, after: LocalState):
@@ -376,8 +373,8 @@ async def test_handle_userstate_update():
 @pytest.mark.asyncio
 async def test_handle_privmsg():
     class LClient(Client):
-        def __init__(self, token: str, login: str, *, should_restart: bool = True, whisper_agent: str = None):
-            super().__init__(token, login, should_restart=should_restart, whisper_agent=whisper_agent)
+        def __init__(self, token: str, login: str):
+            super().__init__(token, login)
             self.did_handle_message = False
 
         async def on_message(self, msg: ChannelMessage):
@@ -395,8 +392,8 @@ async def test_handle_privmsg():
 @pytest.mark.asyncio
 async def test_handle_whisper():
     class LClient(Client):
-        def __init__(self, token: str, login: str, *, should_restart: bool = True, whisper_agent: str = None):
-            super().__init__(token, login, should_restart=should_restart, whisper_agent=whisper_agent)
+        def __init__(self, token: str, login: str):
+            super().__init__(token, login)
             self.did_handle_whisper = False
 
         async def on_whisper(self, whisper: Whisper):
@@ -413,8 +410,8 @@ async def test_handle_whisper():
 @pytest.mark.asyncio
 async def test_handle_join():
     class LClient(Client):
-        def __init__(self, token: str, login: str, *, should_restart: bool = True, whisper_agent: str = None):
-            super().__init__(token, login, should_restart=should_restart, whisper_agent=whisper_agent)
+        def __init__(self, token: str, login: str):
+            super().__init__(token, login)
             self.did_join = False
 
         async def on_user_join(self, channel: Channel, login: str):
@@ -431,8 +428,8 @@ async def test_handle_join():
 @pytest.mark.asyncio
 async def test_handle_part():
     class LClient(Client):
-        def __init__(self, token: str, login: str, *, should_restart: bool = True, whisper_agent: str = None):
-            super().__init__(token, login, should_restart=should_restart, whisper_agent=whisper_agent)
+        def __init__(self, token: str, login: str):
+            super().__init__(token, login)
             self.did_part = False
 
         async def on_user_part(self, channel: Channel, login: str):
@@ -449,8 +446,8 @@ async def test_handle_part():
 @pytest.mark.asyncio
 async def test_handle_notice():
     class LClient(Client):
-        def __init__(self, token: str, login: str, *, should_restart: bool = True, whisper_agent: str = None):
-            super().__init__(token, login, should_restart=should_restart, whisper_agent=whisper_agent)
+        def __init__(self, token: str, login: str):
+            super().__init__(token, login)
             self.got_notice = False
 
         async def on_notice(self, event: OnNotice):
@@ -469,8 +466,8 @@ async def test_handle_notice():
 @pytest.mark.asyncio
 async def test_handle_channel_join_error():
     class LClient(Client):
-        def __init__(self, token: str, login: str, *, should_restart: bool = True, whisper_agent: str = None):
-            super().__init__(token, login, should_restart=should_restart, whisper_agent=whisper_agent)
+        def __init__(self, token: str, login: str):
+            super().__init__(token, login)
             self.got_channel_join_error = False
 
         async def on_channel_join_error(self, event: OnChannelJoinError):
@@ -488,8 +485,8 @@ async def test_handle_channel_join_error():
 @pytest.mark.asyncio
 async def test_handle_send_message_error():
     class LClient(Client):
-        def __init__(self, token: str, login: str, *, should_restart: bool = True, whisper_agent: str = None):
-            super().__init__(token, login, should_restart=should_restart, whisper_agent=whisper_agent)
+        def __init__(self, token: str, login: str):
+            super().__init__(token, login)
             self.got_send_message_error = False
 
         async def on_send_message_error(self, event: OnSendMessageError):
@@ -507,8 +504,8 @@ async def test_handle_send_message_error():
 @pytest.mark.asyncio
 async def test_handle_mods():  # TODO: test no_mods
     class LClient(Client):
-        def __init__(self, token: str, login: str, *, should_restart: bool = True, whisper_agent: str = None):
-            super().__init__(token, login, should_restart=should_restart, whisper_agent=whisper_agent)
+        def __init__(self, token: str, login: str):
+            super().__init__(token, login)
             self.got_on_mods_update = False
 
         async def on_mods_update(self, channel, before, after):
@@ -526,8 +523,8 @@ async def test_handle_mods():  # TODO: test no_mods
 @pytest.mark.asyncio
 async def test_handle_vips():  # TODO: test no_vips
     class LClient(Client):
-        def __init__(self, token: str, login: str, *, should_restart: bool = True, whisper_agent: str = None):
-            super().__init__(token, login, should_restart=should_restart, whisper_agent=whisper_agent)
+        def __init__(self, token: str, login: str):
+            super().__init__(token, login)
             self.got_on_vips_update = False
 
         async def on_vips_update(self, channel, before, after):
@@ -545,8 +542,8 @@ async def test_handle_vips():  # TODO: test no_vips
 @pytest.mark.asyncio
 async def test_handle_cmds_available():
     class LClient(Client):
-        def __init__(self, token: str, login: str, *, should_restart: bool = True, whisper_agent: str = None):
-            super().__init__(token, login, should_restart=should_restart, whisper_agent=whisper_agent)
+        def __init__(self, token: str, login: str):
+            super().__init__(token, login)
             self.got_on_commands_update = False
 
         async def on_commands_update(self, channel, before, after):
@@ -559,3 +556,90 @@ async def test_handle_cmds_available():
     await handle_commands(bot, *CHANNEL_PARTS, CA2)
     await asyncio.sleep(0.001)
     assert bot.got_on_commands_update
+
+
+@pytest.mark.asyncio
+async def test_handle_clearchat():
+    """Is being tested in `test_handle_timeout`, `test_handle_ban` and `test_hanlde_clear_chat`"""
+
+
+@pytest.mark.asyncio
+async def test_handle_timeout():
+    class LClient(Client):
+        def __init__(self, token: str, login: str):
+            super().__init__(token, login)
+            self.got_on_timeout = False
+
+        async def on_user_timeout(self, event: OnUserTimeout):
+            assert event.message_id == '1-2-3'
+            assert event.user_id == '012345'
+            assert event.user_login == 'username'
+            assert event.duration == 600
+            assert event.channel.login == 'target'
+            self.got_on_timeout = True
+
+    bot = LClient('token', 'login')
+    await handle_commands(bot, *CHANNEL_PARTS, CC_UT)
+    await asyncio.sleep(0.001)
+    assert bot.got_on_timeout
+
+
+@pytest.mark.asyncio
+async def test_handle_ban():
+    class LClient(Client):
+        def __init__(self, token: str, login: str):
+            super().__init__(token, login)
+            self.got_on_ban = False
+
+        async def on_user_ban(self, event: OnUserBan):
+            assert event.message_id == '1-2-3'
+            assert event.user_id == '012345'
+            assert event.user_login == 'username'
+            assert event.channel.login == 'target'
+            self.got_on_ban = True
+
+    bot = LClient('token', 'login')
+    await handle_commands(bot, *CHANNEL_PARTS, CC_UB)
+    await asyncio.sleep(0.001)
+    assert bot.got_on_ban
+
+
+@pytest.mark.asyncio
+async def test_hanlde_clear_chat():
+    class LClient(Client):
+        def __init__(self, token: str, login: str):
+            super().__init__(token, login)
+            self.got_on_clear_chat = False
+
+        async def on_clear_chat(self, event: OnClearChat):
+            assert event.channel.login == 'target'
+            assert event.timestamp == 1629011347771
+            self.got_on_clear_chat = True
+
+    bot = LClient('token', 'login')
+    await handle_commands(bot, *CHANNEL_PARTS, CC_CC)
+    await asyncio.sleep(0.001)
+    assert bot.got_on_clear_chat
+
+
+@pytest.mark.asyncio
+async def test_handle_clearmsg():
+    class LClient(Client):
+        def __init__(self, token: str, login: str):
+            super().__init__(token, login)
+            self.got_on_message_delete = False
+
+        async def on_message_delete(self, event: OnMessageDelete):
+            assert event.message_id == '1-2-3'
+            assert event.user_login == 'username'
+            assert event.content == "deleted message's content"
+            assert event.channel.login == 'target'
+            self.got_on_message_delete = True
+
+    bot = LClient('token', 'login')
+    await handle_commands(bot, *CHANNEL_PARTS, CM)
+    await asyncio.sleep(0.001)
+    assert bot.got_on_message_delete
+
+
+

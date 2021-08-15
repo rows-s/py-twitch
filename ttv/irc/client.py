@@ -10,7 +10,8 @@ from .channel import Channel
 from .channels_accumulators import ChannelsAccumulator
 from .users import ChannelUser, GlobalUser
 from .user_states import GlobalState, LocalState
-from .events import OnClearChatFromUser, OnChannelJoinError, OnNotice, OnMessageDelete, OnSendMessageError
+from .events import OnUserTimeout, OnChannelJoinError, OnNotice, OnMessageDelete, OnSendMessageError, OnUserBan, \
+    OnClearChat
 from .user_events import *
 from .exceptions import *
 
@@ -216,10 +217,12 @@ class Client:
         self.is_running = False
 
     async def restart(self):
+        # TODO: insert all the restart logic in one function but provide two interfaces (public, private)
+        #  those will provide "raise from" way and a exceptions free way.
         """
         1. Reopens websocket connection if not open.
         2. Relogin into twitch IRC
-        3. Rejoins(joins) channel from `self.joined_channels_logins`
+        3. Rejoins(joins) early joined channel
         4. Calls `self.on_reconnect` event if registered.
         """
         self._running_restart_task = asyncio.create_task(self._restart())
@@ -515,62 +518,72 @@ class Client:
             self,
             irc_msg: IRCMessage
     ) -> None:
-        # if clear user
-        if irc_msg.trailing:  # text contains login of the user
-            self._handle_clear_chat_from_user(irc_msg)
-        # if clear chat
+        if irc_msg.trailing:  # trailing contains login of the user
+            if 'ban-duration' in irc_msg.tags:
+                if hasattr(self, 'on_user_timeout'):
+                    self._handle_timeout(irc_msg)
+            else:
+                if hasattr(self, 'on_user_ban'):
+                    self._handle_ban(irc_msg)
         else:
             self._handle_clear_chat(irc_msg)
 
-    def _handle_clear_chat_from_user(
+    def _handle_timeout(
             self,
             irc_msg: IRCMessage
     ) -> None:
-        if hasattr(self, 'on_clear_chat_from_user'):
-            # channel
-            channel = self._get_prepared_channel(irc_msg.channel)
-            # values
-            target_user_login = irc_msg.trailing
-            target_user_id = irc_msg.tags.get('target-user-id')
-            target_message_id = irc_msg.tags.get('target-msg-id')
-            ban_duration = int(irc_msg.tags.get('ban-duration', 0))
-            # handle later
-            self._call_event(
-                'on_clear_chat_from_user',
-                channel,  OnClearChatFromUser(target_user_login, target_user_id, target_message_id, ban_duration)
-            )
+        channel = self._get_prepared_channel(irc_msg.channel)
+        user_login = irc_msg.trailing
+        timestamp = int(irc_msg.tags.get('tmi-sent-ts', 0))
+        user_id = irc_msg.tags.get('target-user-id')
+        message_id = irc_msg.tags.get('target-msg-id')
+        duration = int(irc_msg.tags.get('ban-duration', 0))
+
+        self._call_event(
+            'on_user_timeout', OnUserTimeout(channel,  user_login, user_id, message_id, duration, timestamp)
+        )
+
+    def _handle_ban(
+            self,
+            irc_msg: IRCMessage
+    ) -> None:
+        channel = self._get_prepared_channel(irc_msg.channel)
+        user_login = irc_msg.trailing
+        timestamp = int(irc_msg.tags.get('tmi-sent-ts', 0))
+        user_id = irc_msg.tags.get('target-user-id')
+        message_id = irc_msg.tags.get('target-msg-id')
+
+        self._call_event('on_user_ban', OnUserBan(channel,  user_login, user_id, message_id, timestamp))
 
     def _handle_clear_chat(
             self,
             irc_msg: IRCMessage
     ) -> None:
         channel = self._get_prepared_channel(irc_msg.channel)
-        self._call_event('on_clear_chat', channel)
+        timestamp = int(irc_msg.tags.get('tmi-sent-ts', 0))
+        self._call_event('on_clear_chat', OnClearChat(channel, timestamp))
 
     def _handle_clearmsg(
             self,
             irc_msg: IRCMessage
     ) -> None:
         if hasattr(self, 'on_message_delete'):
-            # channel
             channel = self._get_prepared_channel(irc_msg.channel)
-            # values
             user_login = irc_msg.tags.get('login')
+            content = irc_msg.trailing
             message_id = irc_msg.tags.get('target-msg-id')
-            tmi_time = int(irc_msg.tags.get('tmi-sent-ts', 0))
-            # handle later
+            timestamp = int(irc_msg.tags.get('tmi-sent-ts', 0))
+
             self._call_event(
                 'on_message_delete',
-                OnMessageDelete(channel, user_login, irc_msg.trailing, message_id, tmi_time)
+                OnMessageDelete(channel, user_login, content, message_id, timestamp)
             )
 
     def _handle_usernotice(
             self,
             irc_msg: IRCMessage
     ) -> None:
-        # channel
         channel = self._get_prepared_channel(irc_msg.channel)
-        # select handler
         try:
             event_type = irc_msg.tags.get('msg-id')
             event_name, event_class = self._USER_EVENT_TYPES[event_type]
@@ -644,8 +657,8 @@ class Client:
             channel: Channel
     ) -> None:
         """
-        1. Adds it in `self._channels_by_id` and `self._channels_by_login`
-        3. Creates async tasks that will handle every delayed message
+        1. Adds channel in `self._channels_by_id` and `self._channels_by_login`
+        3. Handles delayed message for the channel
         2. Calls event handler `self.on_channel_join`
 
         Args:
@@ -670,7 +683,8 @@ class Client:
             irc_message: str
     ) -> None:
         """
-        Sends irc message to twitch irc server
+        Sends irc message to twitch irc server.
+        Handles :class:`ConnectionClosedError`: restarts if should
 
         Args:
             irc_message: `str`
@@ -940,7 +954,7 @@ class Client:
         'on_ready',  # GLOBALUSERSTATE
         'on_user_join',  # JOIN
         'on_user_part',  # PART
-        'on_clear_chat_from_user', 'on_clear_chat',  # CLEARCHAT
+        'on_user_timeout', 'on_clear_chat',  # CLEARCHAT
         'on_message_delete',  # CLEARMSG
         'on_host_start', 'on_host_stop',  # HOSTTARGET
         'on_notice', 'on_channel_join_error', 'on_send_message_error',  # NOTICE
