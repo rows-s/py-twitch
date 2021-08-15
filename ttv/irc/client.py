@@ -35,12 +35,6 @@ class Client:
             *,
             whisper_agent: str = 'ananonymousgifter',
             should_restart: bool = True,
-            # accumulation
-            should_accum_client_states=True,
-            should_accum_names=True,
-            should_accum_commands=True,
-            should_accum_vips=True,
-            should_accum_mods=True,
             loop: AbstractEventLoop = None
     ) -> None:
         self.token: str = token
@@ -56,16 +50,10 @@ class Client:
         self._channels_by_login: Dict[str, Channel] = {}
         self._delayed_irc_msgs: Dict[str, List[IRCMessage]] = {}  # channel_login: [irc_msg, ...]
         # accumulation
-
-        should_accum_client_states = False if self.is_anon else should_accum_client_states
         self._channels_accumulator = ChannelsAccumulator(
             channel_ready_callback=self._save_channel,
             send_callback=self._send,
-            should_accum_client_states=should_accum_client_states,
-            should_accum_names=should_accum_names,
-            should_accum_commands=should_accum_commands,
-            should_accum_mods=should_accum_mods,
-            should_accum_vips=should_accum_vips,
+            is_anon=self.is_anon
         )
         self._websocket: WebSocketClientProtocol = WebSocketClientProtocol()
         self._delay_gen: Generator[int, None] = Client._delay_gen()
@@ -87,26 +75,6 @@ class Client:
     @property
     def is_restarting(self) -> bool:
         return self._running_restart_task is not None
-
-    @property
-    def should_accum_client_states(self) -> bool:
-        return self._channels_accumulator.should_accum_client_states
-
-    @property
-    def should_accum_names(self) -> bool:
-        return self._channels_accumulator.should_accum_names
-
-    @property
-    def should_accum_commands(self) -> bool:
-        return self._channels_accumulator.should_accum_commands
-
-    @property
-    def should_accum_mods(self) -> bool:
-        return self._channels_accumulator.should_accum_mods
-
-    @property
-    def should_accum_vips(self) -> bool:
-        return self._channels_accumulator.should_accum_vips
 
     @property
     def is_anon(self) -> bool:
@@ -453,6 +421,7 @@ class Client:
             irc_msg: IRCMessage
     ) -> None:
         self.joined_channel_logins.discard(irc_msg.channel)
+        self._channels_accumulator.remove_timeout(irc_msg.channel)
         reason = irc_msg.tags['msg-id'].removeprefix('msg_')
         self._call_event('on_channel_join_error', OnChannelJoinError(irc_msg.channel, reason, irc_msg.trailing))
             
@@ -716,9 +685,7 @@ class Client:
     async def send_whisper(
             self,
             target: str,
-            content: str,
-            *,
-            agent: str = None
+            content: str
     ) -> None:
         """
         Sends whisper with `content` to the recipient with login equals `recipient_login`
@@ -728,17 +695,13 @@ class Client:
                 login of recipient
             content: `str`
                 content to send
-            agent: `str`
-                login of a channel via the whisper must be sent
 
         Returns:
             `None`
         """
-        if agent is None:
-            agent = self.whisper_agent
         # send
         content = f'/w {target} {content}'
-        await self.send_message(agent, content)
+        await self.send_message(self.whisper_agent, content)
 
     async def join_channel(
             self,
@@ -748,6 +711,7 @@ class Client:
         self.joined_channel_logins.add(login)
         await self._send(f'JOIN #{login}')
         await self._request_channel_parts(login)
+        self._channels_accumulator.add_timeout(login)
 
     async def join_channels(
             self,
@@ -769,14 +733,13 @@ class Client:
             await self._send(f'JOIN #{logins_str}')
         for login in logins:
             await self._request_channel_parts(login)
+            self._channels_accumulator.add_timeout(login)
 
     async def _request_channel_parts(self, login: str):
         """ Requests commands list, mods list, vips list for the :class:`Channel` with given `login` """
-        if self.should_accum_commands:
+        if not self.is_anon:
             await self.send_message(login, '/help')
-        if self.should_accum_mods:
             await self.send_message(login, '/mods')
-        if self.should_accum_vips:
             await self.send_message(login, '/vips')
 
     async def part_channel(
