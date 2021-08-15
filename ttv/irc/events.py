@@ -2,15 +2,34 @@ from dataclasses import dataclass
 
 from .channel import Channel
 
-__all__ = ('OnClearChatFromUser', 'OnChannelJoinError', 'OnNotice', 'OnMessageDelete', 'OnSendMessageError')
+__all__ = (
+    'OnUserTimeout', 'OnUserBan', 'OnChannelJoinError', 'OnNotice', 'OnMessageDelete', 'OnSendMessageError'
+)
 
 
 @dataclass
-class OnClearChatFromUser:
-    target_user_login: str
-    target_user_id: str
-    target_message_id: str
-    ban_duration: int
+class OnUserTimeout:
+    channel: Channel
+    user_login: str
+    user_id: str
+    message_id: str
+    duration: int
+    timestamp: int
+
+
+@dataclass
+class OnUserBan:
+    channel: Channel
+    user_login: str
+    user_id: str
+    message_id: str
+    timestamp: int
+
+
+@dataclass
+class OnClearChat:
+    channel: Channel
+    timestamp: int
 
 
 @dataclass

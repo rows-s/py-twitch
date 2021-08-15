@@ -52,3 +52,8 @@ NT = IRCMessage('@msg-id=whisper_invalid_self NOTICE #target :You cannot whisper
 NT_CS = IRCMessage('@msg-id=msg_channel_suspended NOTICE #target :This channel has been suspended.')
 NT_FOZ = IRCMessage('@msg-id=msg_followersonly_zero NOTICE #target :'
                     'This room is in followers-only mode. Follow target to join the community!')
+
+CC_UT = IRCMessage('@ban-duration=600;target-user-id=012345;target-msg-id=1-2-3 CLEARCHAT #target :username')
+CC_UB = IRCMessage('@target-user-id=012345;target-msg-id=1-2-3 CLEARCHAT #target :username')
+CC_CC = IRCMessage('@tmi-sent-ts=1629011347771 CLEARCHAT #target')
+CM = IRCMessage("@target-msg-id=1-2-3;login=username CLEARMSG #target :deleted message's content")

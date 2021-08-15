@@ -45,7 +45,7 @@ if __name__ == '__main__':
     DB_HOST = os.getenv('DB_HOST', '127.0.0.1')
     IRC_TOKEN = os.environ['TTV_IRC_TOKEN']
     IRC_NICK = os.environ['TTV_IRC_NICK']
-    CHNLS_COUNT = int(os.getenv('TTV_IRC_CHANNEL_COUNT', 50))
+    CHNLS_COUNT = int(os.getenv('TTV_IRC_CHANNEL_COUNT', 5))
     API_TOKEN = os.environ['TTV_API_TOKEN']
 
     loop = asyncio.get_event_loop()
@@ -105,7 +105,7 @@ if __name__ == '__main__':
         else:
             for saved_tags in local_db_copy[irc_msg.command][len(tags)]:
                 if saved_tags.keys() == tags.keys():  # if known one
-                    await increase_couner(irc_msg)
+                    await increase_counter(irc_msg)
                     await check_values(irc_msg, saved_tags)
                     break
             else:  # if unknown one
@@ -172,7 +172,7 @@ if __name__ == '__main__':
                     value, keys_id, key
                 )
 
-    async def increase_couner(irc_msg):
+    async def increase_counter(irc_msg):
         keys = sorted(irc_msg.tags.keys())
         async with db_pool.acquire() as conn:
             await conn.execute(
@@ -230,14 +230,17 @@ if __name__ == '__main__':
                         await listener.stop()
                     await bot.stop()
 
-        run_mod = input('Run mode (listen or ttv_console, default: ttv_console): ')
+        run_mod = input("Run mode ('listen' or 'ttv_console', default: 'ttv_console'): ")
         if run_mod == 'listen':
-            listeners = [IRCListener(IRC_TOKEN, IRC_NICK, f'listener n.{i}') for i in range(1)]
-            await start_listeners(listeners, 10)
+            print(f'Start {CHNLS_COUNT//5} listeners')
+            listeners = [IRCListener(IRC_TOKEN, IRC_NICK, f'listener no.{i}') for i in range(CHNLS_COUNT//5)]
+            await start_listeners(listeners, 5)
         elif run_mod == 'ttv_console':
-            asyncio.get_event_loop().create_task(bot.start([IRC_NICK]))
+            pass
+            # asyncio.get_event_loop().create_task(bot.start([IRC_NICK]))
         else:
-            asyncio.get_event_loop().create_task(bot.start([IRC_NICK]))
+            pass
+        asyncio.get_event_loop().create_task(bot.start([IRC_NICK]))
 
     async def save_tags_in_file(file_name: str = 'tags.txt'):
         def write(text: str):
