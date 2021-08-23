@@ -59,7 +59,7 @@ async def test_channel_getters():
     assert bot.get_channel('12345') is bot.channel
     # if exists
     assert bot._get_prepared_channel('target') is bot.channel
-    with pytest.raises(ChannelNotPrepared):
+    with pytest.raises(ChannelNotAccumulated):
         bot._get_prepared_channel('')
 
 
@@ -279,10 +279,10 @@ async def test_handle_names_part():
     bot = Client('token', 'login')
     # set(update)
     await bot._handle_command(NP)
-    assert bot._channels_accumulator.names['target'] == list(NAMES[:3])
+    assert bot._channels_accumulator.abort_accumulation('target').names == NAMES[:3]
     # update
-    await bot._handle_command(NP2)
-    assert bot._channels_accumulator.pop_names('target') == NAMES
+    await handle_commands(bot, NP, NP2)
+    assert bot._channels_accumulator.get_names('target') == NAMES
 
 
 @pytest.mark.asyncio
@@ -317,7 +317,7 @@ async def test_handle_names_update():
 async def test_handle_roomstate():
     bot = Client('token', 'login')
     await bot._handle_command(RS)
-    assert bot._channels_accumulator.channel_states['target'] is RS
+    assert bot._channels_accumulator.abort_accumulation('target').raw_channel_state == RS
     # also is being tested in `test_handle_channel_update()`
 
 
@@ -346,7 +346,7 @@ async def test_handle_channel_update():
 async def test_handle_userstate():
     bot = Client('token', 'login')
     await handle_commands(bot, GS, US)
-    assert bot._channels_accumulator.client_states['target'] == LocalState(US)
+    assert bot._channels_accumulator.abort_accumulation('target').client_state == LocalState(US)
 
 
 @pytest.mark.asyncio

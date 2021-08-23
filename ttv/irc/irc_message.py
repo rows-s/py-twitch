@@ -167,7 +167,7 @@ class IRCMessage:  # TODO: add `__getitem__`, `get`. think about `__getattr__`
         return prefix
 
     def _join_params(self) -> Optional[str]:
-        if not self.middles and self.trailing is None:
+        if not self.middles and not self.trailing:
             return None
         else:
             raw_params = ' '.join(self.middles)

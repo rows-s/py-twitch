@@ -51,7 +51,7 @@ class Client:
         self._channels_by_login: Dict[str, Channel] = {}
         self._delayed_irc_msgs: Dict[str, List[IRCMessage]] = {}  # channel_login: [irc_msg, ...]
         # accumulation
-        self._channels_accumulator = ChannelsAccumulator(
+        self._channels_accumulator: ChannelsAccumulator = ChannelsAccumulator(
             channel_ready_callback=self._save_channel,
             send_callback=self._send,
             is_anon=self.is_anon
@@ -118,7 +118,7 @@ class Client:
             login: str
     ) -> Channel:
         """
-        returns :class:`Channel` with given login if exists, else raises :exc:`ChannelNotPrepared`
+        returns :class:`Channel` with given login if exists, else raises :exc:`ChannelNotAccumulated`
 
         Args:
             login :class:`str`: login of the channel that must be returned
@@ -126,7 +126,7 @@ class Client:
         try:
             return self._channels_by_login[login]
         except KeyError:
-            raise ChannelNotPrepared(login)
+            raise ChannelNotAccumulated(login)
 
     @classmethod
     def _delay_gen(cls) -> Generator[int, None, None]:
@@ -175,7 +175,7 @@ class Client:
         if not self.is_anon:
             await self._first_log_in_irc()
         else:
-            await self._log_in_irc()
+            await self._log_in_irc()  # there is not GLOBALUSERSTATE for a anon user
         await self.join_channels(channels)
         self.is_running = True
         async for irc_msg in self._read_websocket():
@@ -253,16 +253,16 @@ class Client:
         """
         tries to read websocket:
             1. yields IRCMessage if successfully read;
-            2. if `websockets.ConnectionClosedError`: reconnects irc if `self.should_restart`.
-            3 if `websockets.ConnectionClosedOK`: `StopAsyncIteration`;
-        also handles PING requests.
+            2. if :exc:`ConnectionClosedError`: reconnects to irc if `self.should_restart`.
+            3 if :exc:`ConnectionClosedOK`: returns (rises :exc:`StopAsyncIteration`);
         """
         while True:
             try:
                 raw_irc_messages = await self._websocket.recv()
+            # if closed normally (must be caused by :meth:`stop()`)
             except ConnectionClosedOK:
                 return
-            # if websocket is closed
+            # if closed not normally
             except ConnectionClosedError:
                 if self.is_restarting:
                     await self._running_restart_task
@@ -282,14 +282,12 @@ class Client:
     ) -> None:
         try:
             handler = self._COMMAND_HANDLERS[irc_msg.command]
-            if irc_msg.command != 'PRIVMSG':
-                print(f'{irc_msg.channel}\n    {irc_msg}')
         except KeyError:
             self._call_event('on_unknown_command', irc_msg)
         else:
             try:
                 handler(self, irc_msg)
-            except ChannelNotPrepared:
+            except ChannelNotAccumulated:
                 await self._delay_irc_message(irc_msg)
 
     def _handle_names_part(
@@ -313,7 +311,7 @@ class Client:
     ):
         channel = self._channels_by_login[irc_msg.channel]
         before = channel.names
-        after = channel.names = self._channels_accumulator.pop_names(irc_msg.channel)  # if update no need to save parts
+        after = channel.names = self._channels_accumulator.abort_accumulation(irc_msg.channel).names  # abort -> Parts
         self._call_event('on_names_update', channel, before, after)
 
     def _handle_roomstate(
@@ -347,7 +345,7 @@ class Client:
             irc_msg.tags['user-login'] = self.login
         if 'user-id' not in irc_msg.tags:
             irc_msg.tags['user-id'] = self.global_state.id
-        # if prepared
+        # if accumulated
         if irc_msg.channel in self._channels_by_login:
             self._handle_userstate_update(irc_msg)
         else:
@@ -424,7 +422,7 @@ class Client:
             irc_msg: IRCMessage
     ) -> None:
         self.joined_channel_logins.discard(irc_msg.channel)
-        self._channels_accumulator.remove_timeout(irc_msg.channel)
+        self._channels_accumulator.abort_accumulation(irc_msg.channel, msg=irc_msg.trailing)
         reason = irc_msg.tags['msg-id'].removeprefix('msg_')
         self._call_event('on_channel_join_error', OnChannelJoinError(irc_msg.channel, reason, irc_msg.trailing))
             
@@ -725,7 +723,7 @@ class Client:
         self.joined_channel_logins.add(login)
         await self._send(f'JOIN #{login}')
         await self._request_channel_parts(login)
-        self._channels_accumulator.add_timeout(login)
+        self._channels_accumulator._add_timeout(login)
 
     async def join_channels(
             self,
@@ -747,7 +745,7 @@ class Client:
             await self._send(f'JOIN #{logins_str}')
         for login in logins:
             await self._request_channel_parts(login)
-            self._channels_accumulator.add_timeout(login)
+            self._channels_accumulator._add_timeout(login)
 
     async def _request_channel_parts(self, login: str):
         """ Requests commands list, mods list, vips list for the :class:`Channel` with given `login` """

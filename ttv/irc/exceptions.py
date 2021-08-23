@@ -3,7 +3,7 @@ from .. import exceptions
 
 __all__ = (
     'IRCException',
-    'ChannelNotPrepared',
+    'ChannelNotAccumulated',
     'LoginFailed',
     'CapReqError'
 )
@@ -13,7 +13,7 @@ class IRCException(exceptions.TTVException):
     """Base exception for all package's exceptions"""
 
 
-class ChannelNotPrepared(IRCException, exceptions.ChannelNotPrepared):
+class ChannelNotAccumulated(IRCException, exceptions.ChannelNotPrepared):
     """Is raised if channel not exists"""
 
 
