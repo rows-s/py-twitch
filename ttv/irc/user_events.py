@@ -1,7 +1,7 @@
 from .messages import ChannelMessage
 from .users import ChannelUser
 from .channel import Channel
-from .irc_message import IRCMessage
+from .irc_messages import IRCMessage
 from .emotes import Emote
 from .utils import parse_raw_emotes
 

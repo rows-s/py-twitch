@@ -1,5 +1,5 @@
 from .channel import Channel
-from .irc_message import IRCMessage
+from .irc_messages import IRCMessage
 from .user_states import BaseState, LocalState, GlobalState
 
 from abc import ABC

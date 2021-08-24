@@ -2,7 +2,7 @@ import asyncio
 from asyncio import Task
 from typing import Callable, Coroutine, Dict, Union, List, Tuple, TypeVar, Optional
 from .channel import Channel
-from .irc_message import IRCMessage
+from .irc_messages import IRCMessage
 from .user_states import LocalState
 
 
@@ -53,7 +53,6 @@ class ChannelParts:
             ready_type = self.READY
         except AssertionError:
             pass
-
         return ready_type
 
     def add_part(

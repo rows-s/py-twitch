@@ -1,7 +1,7 @@
 from abc import ABC
 from functools import cached_property
 
-from .irc_message import IRCMessage
+from .irc_messages import IRCMessage
 from .channel import Channel
 from .flags import Flag
 from .emotes import Emote

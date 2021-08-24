@@ -2,7 +2,7 @@ from abc import ABC
 from functools import cached_property
 
 from .utils import parse_raw_badges
-from .irc_message import IRCMessage
+from .irc_messages import IRCMessage
 
 from typing import Dict, Tuple
 

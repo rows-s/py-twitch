@@ -4,7 +4,7 @@ import websockets
 from websockets import WebSocketClientProtocol, ConnectionClosedError, ConnectionClosedOK
 from time import time
 
-from .irc_message import IRCMessage
+from .irc_messages import IRCMessage
 from .messages import ChannelMessage, Whisper
 from .channel import Channel
 from .channels_accumulators import ChannelsAccumulator

@@ -1,4 +1,4 @@
-from .irc_message import IRCMessage
+from .irc_messages import IRCMessage
 from .user_states import LocalState
 
 from typing import Callable, Tuple, Coroutine
