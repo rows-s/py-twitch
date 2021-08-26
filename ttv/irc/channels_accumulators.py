@@ -2,7 +2,7 @@ import asyncio
 from asyncio import Task
 from typing import Callable, Coroutine, Dict, Union, List, Tuple, TypeVar, Optional
 from .channel import Channel
-from .irc_messages import IRCMessage
+from .irc_messages import TwitchIRCMsg
 from .user_states import LocalState
 
 
@@ -22,7 +22,7 @@ class ChannelParts:
             login: str
     ):
         self.login: str = login
-        self.raw_channel_state: Optional[IRCMessage] = None
+        self.raw_channel_state: Optional[TwitchIRCMsg] = None
         self.client_state: Optional[LocalState] = None
         self.names: Optional[Union[List, Tuple]] = None
         self.commands: Optional[Tuple[str]] = None
@@ -39,6 +39,11 @@ class ChannelParts:
                 represents that the parts are ready as during anonymous logging in (have `raw_client_state` and `names`)
             self.READY:
                 represents that the parts are ready (have all the parts)
+
+        Examples:
+            >>> parts = ChannelParts('target')
+            >>> if parts.is_ready == parts.READY:
+            >>>     print('Wow!')
         """
         ready_type: str = self.NOT_READY
 
@@ -57,13 +62,13 @@ class ChannelParts:
 
     def add_part(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ):
         """
-        Takes raw part as a instance of :class:`IRCMessage` and parse the part to the respective attribute
+        Takes raw part as a instance of :class:`TwitchIRCMsg` and parse the part to the respective attribute
 
         Args:
-            irc_msg: :class:`IRCMessage`
+            irc_msg: :class:`TwitchIRCMsg`
                 raw part to be parsed
 
         Notes:
@@ -90,7 +95,7 @@ class ChannelParts:
         """
         return Channel(
             self._get_raw_channel_state(),
-            self.client_state or LocalState(IRCMessage.create_empty()),
+            self.client_state or LocalState(TwitchIRCMsg.create_empty()),
             self.names or (),
             self.commands or (),
             self.mods or (),
@@ -98,41 +103,41 @@ class ChannelParts:
             send_callback
         )
 
-    def _get_raw_channel_state(self) -> IRCMessage:
+    def _get_raw_channel_state(self) -> TwitchIRCMsg:
         if self.raw_channel_state:
             return self.raw_channel_state
         else:
-            raw_channel_state = IRCMessage.create_empty()
+            raw_channel_state = TwitchIRCMsg.create_empty()
             raw_channel_state.channel = self.login
             return raw_channel_state
 
     def _get_handler_for_irc_msg(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ):
         if irc_msg.command != 'NOTICE':
             return self._HANDLERS[irc_msg.command]
         else:
-            return self._NOTICE_HANDLERS[irc_msg.tags['msg-id']]
+            return self._NOTICE_HANDLERS[irc_msg['msg-id']]
 
     def _update_channel_state(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ) -> None:
         if self.raw_channel_state is None:
             self.raw_channel_state = irc_msg
         else:
-            self.raw_channel_state.tags.update(irc_msg.tags)
+            self.raw_channel_state.update(irc_msg)
 
     def _update_client_state(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ) -> None:
         self.client_state = LocalState(irc_msg)
 
     def _update_names(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ) -> None:
         names = irc_msg.trailing.split(' ')
         if isinstance(self.names, list):
@@ -142,13 +147,13 @@ class ChannelParts:
 
     def _end_names(
             self,
-            _: IRCMessage
+            _: TwitchIRCMsg
     ) -> None:
         self.names = tuple(self.names)
 
     def _update_commands(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ):
         raw_cmds = irc_msg.trailing.split(' More')[0]
         raw_cmds = raw_cmds.split(': ', 1)[1]  # 'Commands available to you in this room (...): '
@@ -156,9 +161,9 @@ class ChannelParts:
 
     def _update_mods(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ):
-        if irc_msg.tags['msg-id'] == 'no_mods':
+        if irc_msg['msg-id'] == 'no_mods':
             mods = ()
         else:
             raw_mods = irc_msg.trailing.split(': ', 1)[1]
@@ -167,9 +172,9 @@ class ChannelParts:
 
     def _update_vips(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ):
-        if irc_msg.tags['msg-id'] == 'no_vips':
+        if irc_msg['msg-id'] == 'no_vips':
             vips = ()
         else:
             raw_vips = irc_msg.trailing.split(': ', 1)[1].removesuffix('.')
@@ -180,16 +185,16 @@ class ChannelParts:
     READY_ANON = 'READY_ANON'
     READY = 'READY'
 
-    _EMPTY_CLIENT_STATE = LocalState(IRCMessage.create_empty())
+    _EMPTY_CLIENT_STATE = LocalState(TwitchIRCMsg.create_empty())
 
-    _HANDLERS: Dict[str, Callable[[_ChannelsAccumulator, IRCMessage], None]] = {
+    _HANDLERS: Dict[str, Callable[[_ChannelsAccumulator, TwitchIRCMsg], None]] = {
         'ROOMSTATE': _update_channel_state,
         'USERSTATE': _update_client_state,
         '353': _update_names,
         '366': _end_names,
     }
 
-    _NOTICE_HANDLERS: Dict[str, Callable[[_ChannelsAccumulator, IRCMessage], None]] = {
+    _NOTICE_HANDLERS: Dict[str, Callable[[_ChannelsAccumulator, TwitchIRCMsg], None]] = {
         'cmds_available': _update_commands,
         'room_mods': _update_mods,
         'no_mods': _update_mods,
@@ -270,7 +275,7 @@ class ChannelsAccumulator:
 
     def accumulate_part(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ):
         """
         Add new given part to the respective :class:`ChannelParts`. Creates new :class:`ChannelParts` if not exists.

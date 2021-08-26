@@ -4,7 +4,7 @@ import websockets
 from websockets import WebSocketClientProtocol, ConnectionClosedError, ConnectionClosedOK
 from time import time
 
-from .irc_messages import IRCMessage
+from .irc_messages import TwitchIRCMsg
 from .messages import ChannelMessage, Whisper
 from .channel import Channel
 from .channels_accumulators import ChannelsAccumulator
@@ -49,7 +49,7 @@ class Client:
         self.joined_channel_logins: Set[str] = set()
         self._channels_by_id: Dict[str, Channel] = {}
         self._channels_by_login: Dict[str, Channel] = {}
-        self._delayed_irc_msgs: Dict[str, List[IRCMessage]] = {}  # channel_login: [irc_msg, ...]
+        self._delayed_irc_msgs: Dict[str, List[TwitchIRCMsg]] = {}  # channel_login: [irc_msg, ...]
         # accumulation
         self._channels_accumulator: ChannelsAccumulator = ChannelsAccumulator(
             channel_ready_callback=self._save_channel,
@@ -217,8 +217,8 @@ class Client:
         async for irc_msg in self._read_websocket():
             # if successfully logged in
             if irc_msg.command == 'GLOBALUSERSTATE':
-                if 'user-login' not in irc_msg.tags:
-                    irc_msg.tags['user-login'] = self.login
+                if 'user-login' not in irc_msg:
+                    irc_msg['user-login'] = self.login
                 self.global_state = GlobalState(irc_msg)
                 # if has handler
                 self._call_event('on_ready')
@@ -249,10 +249,10 @@ class Client:
 
     async def _read_websocket(
             self
-    ) -> AsyncGenerator[IRCMessage, None]:
+    ) -> AsyncGenerator[TwitchIRCMsg, None]:
         """
         tries to read websocket:
-            1. yields IRCMessage if successfully read;
+            1. yields TwitchIRCMsg if successfully read;
             2. if :exc:`ConnectionClosedError`: reconnects to irc if `self.should_restart`.
             3 if :exc:`ConnectionClosedOK`: returns (rises :exc:`StopAsyncIteration`);
         """
@@ -274,11 +274,11 @@ class Client:
             else:
                 for raw_irc_message in raw_irc_messages.split('\r\n'):
                     if raw_irc_message:  # might be empty
-                        yield IRCMessage(raw_irc_message)
+                        yield TwitchIRCMsg(raw_irc_message)
 
     async def _handle_command(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ) -> None:
         try:
             handler = self._COMMAND_HANDLERS[irc_msg.command]
@@ -292,13 +292,13 @@ class Client:
 
     def _handle_names_part(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ) -> None:
         self._channels_accumulator.accumulate_part(irc_msg)
 
     def _handle_names_end(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ) -> None:
         if irc_msg.channel in self._channels_by_login:
             self._handle_names_update(irc_msg)
@@ -307,7 +307,7 @@ class Client:
 
     def _handle_names_update(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ):
         channel = self._channels_by_login[irc_msg.channel]
         before = channel.names
@@ -316,7 +316,7 @@ class Client:
 
     def _handle_roomstate(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ) -> None:
         if irc_msg.channel in self._channels_by_login:
             self._handle_channel_update(irc_msg)
@@ -325,7 +325,7 @@ class Client:
 
     def _handle_channel_update(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ) -> None:
         channel = self._channels_by_login[irc_msg.channel]
         if hasattr(self, 'on_channel_update'):  # Channel.copy() cost us much time
@@ -338,13 +338,13 @@ class Client:
 
     def _handle_userstate(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ) -> None:
         # prepare tags
-        if 'user-login' not in irc_msg.tags:
-            irc_msg.tags['user-login'] = self.login
-        if 'user-id' not in irc_msg.tags:
-            irc_msg.tags['user-id'] = self.global_state.id
+        if 'user-login' not in irc_msg:
+            irc_msg['user-login'] = self.login
+        if 'user-id' not in irc_msg:
+            irc_msg['user-id'] = self.global_state.id
         # if accumulated
         if irc_msg.channel in self._channels_by_login:
             self._handle_userstate_update(irc_msg)
@@ -353,7 +353,7 @@ class Client:
 
     def _handle_userstate_update(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ):
         channel = self._channels_by_login[irc_msg.channel]
         before = channel.client_state
@@ -362,46 +362,46 @@ class Client:
 
     def _handle_privmsg(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ) -> None:
         if hasattr(self, 'on_message'):
             channel = self._get_prepared_channel(irc_msg.channel)
-            if 'user-login' not in irc_msg.tags:
-                irc_msg.tags['user-login'] = irc_msg.nickname
+            if 'user-login' not in irc_msg:
+                irc_msg['user-login'] = irc_msg.nickname
             author = ChannelUser(irc_msg, channel, self.send_whisper)
             message = ChannelMessage(irc_msg, channel, author)
             self._call_event('on_message', message)
 
     def _handle_whisper(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ) -> None:
         if hasattr(self, 'on_whisper'):
-            if 'user-login' not in irc_msg.tags:
-                irc_msg.tags['user-login'] = irc_msg.nickname
+            if 'user-login' not in irc_msg:
+                irc_msg['user-login'] = irc_msg.nickname
             author = GlobalUser(irc_msg, self.send_whisper)
             whisper = Whisper(irc_msg, author)
             self._call_event('on_whisper', whisper)
 
     def _handle_join(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ) -> None:
         channel = self._get_prepared_channel(irc_msg.channel)
         self._call_event('on_user_join', channel, irc_msg.nickname)
 
     def _handle_part(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ) -> None:
         channel = self._get_prepared_channel(irc_msg.channel)
         self._call_event('on_user_part', channel, irc_msg.nickname)
 
     def _handle_notice(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ) -> None:
-        notice_id = irc_msg.tags.get('msg-id')
+        notice_id = irc_msg.get('msg-id')
         if notice_id in ('msg_room_not_found', 'msg_channel_suspended'):
             self._handle_channel_join_error(irc_msg)
         elif notice_id.startswith('msg'):
@@ -419,24 +419,24 @@ class Client:
             
     def _handle_channel_join_error(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ) -> None:
         self.joined_channel_logins.discard(irc_msg.channel)
         self._channels_accumulator.abort_accumulation(irc_msg.channel, msg=irc_msg.trailing)
-        reason = irc_msg.tags['msg-id'].removeprefix('msg_')
+        reason = irc_msg['msg-id'].removeprefix('msg_')
         self._call_event('on_channel_join_error', OnChannelJoinError(irc_msg.channel, reason, irc_msg.trailing))
             
     def _handle_send_message_error(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ) -> None:
         channel = self._get_prepared_channel(irc_msg.channel)
-        reason = irc_msg.tags['msg-id'].removeprefix('msg_')
+        reason = irc_msg['msg-id'].removeprefix('msg_')
         self._call_event('on_send_message_error', OnSendMessageError(channel, reason, irc_msg.trailing))
 
     def _handle_cmds_available(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ) -> None:
         if (channel := self.get_channel(irc_msg.channel)) is None:
             self._channels_accumulator.accumulate_part(irc_msg)
@@ -450,13 +450,13 @@ class Client:
 
     def _handle_mods(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ) -> None:
         if (channel := self.get_channel(irc_msg.channel)) is None:
             self._channels_accumulator.accumulate_part(irc_msg)
         else:
             before = channel.mods
-            if irc_msg.tags['msg-id'] == 'no_mods':
+            if irc_msg['msg-id'] == 'no_mods':
                 mods = ()
             else:
                 raw_mods = irc_msg.trailing.split(': ', 1)[1]  # remove 'The moderators of this channel are: '
@@ -466,13 +466,13 @@ class Client:
 
     def _handle_vips(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ) -> None:
         if (channel := self.get_channel(irc_msg.channel)) is None:
             self._channels_accumulator.accumulate_part(irc_msg)
         else:
             before = channel.vips
-            if irc_msg.tags['msg-id'] == 'no_vips':
+            if irc_msg['msg-id'] == 'no_vips':
                 vips = ()
             else:
                 raw_vips = irc_msg.trailing.split(': ', 1)[1]  # remove 'The VIPs of this channel are: '
@@ -483,10 +483,10 @@ class Client:
 
     def _handle_clearchat(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ) -> None:
         if irc_msg.trailing:  # trailing contains login of the user
-            if 'ban-duration' in irc_msg.tags:
+            if 'ban-duration' in irc_msg:
                 if hasattr(self, 'on_user_timeout'):
                     self._handle_timeout(irc_msg)
             else:
@@ -497,14 +497,14 @@ class Client:
 
     def _handle_timeout(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ) -> None:
         channel = self._get_prepared_channel(irc_msg.channel)
         user_login = irc_msg.trailing
-        timestamp = int(irc_msg.tags.get('tmi-sent-ts', 0))
-        user_id = irc_msg.tags.get('target-user-id')
-        message_id = irc_msg.tags.get('target-msg-id')
-        duration = int(irc_msg.tags.get('ban-duration', 0))
+        timestamp = int(irc_msg.get('tmi-sent-ts', 0))
+        user_id = irc_msg.get('target-user-id')
+        message_id = irc_msg.get('target-msg-id')
+        duration = int(irc_msg.get('ban-duration', 0))
 
         self._call_event(
             'on_user_timeout', OnUserTimeout(channel,  user_login, user_id, message_id, duration, timestamp)
@@ -512,34 +512,34 @@ class Client:
 
     def _handle_ban(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ) -> None:
         channel = self._get_prepared_channel(irc_msg.channel)
         user_login = irc_msg.trailing
-        timestamp = int(irc_msg.tags.get('tmi-sent-ts', 0))
-        user_id = irc_msg.tags.get('target-user-id')
-        message_id = irc_msg.tags.get('target-msg-id')
+        timestamp = int(irc_msg.get('tmi-sent-ts', 0))
+        user_id = irc_msg.get('target-user-id')
+        message_id = irc_msg.get('target-msg-id')
 
         self._call_event('on_user_ban', OnUserBan(channel,  user_login, user_id, message_id, timestamp))
 
     def _handle_clear_chat(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ) -> None:
         channel = self._get_prepared_channel(irc_msg.channel)
-        timestamp = int(irc_msg.tags.get('tmi-sent-ts', 0))
+        timestamp = int(irc_msg.get('tmi-sent-ts', 0))
         self._call_event('on_clear_chat', OnClearChat(channel, timestamp))
 
     def _handle_clearmsg(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ) -> None:
         if hasattr(self, 'on_message_delete'):
             channel = self._get_prepared_channel(irc_msg.channel)
-            user_login = irc_msg.tags.get('login')
+            user_login = irc_msg.get('login')
             content = irc_msg.trailing
-            message_id = irc_msg.tags.get('target-msg-id')
-            timestamp = int(irc_msg.tags.get('tmi-sent-ts', 0))
+            message_id = irc_msg.get('target-msg-id')
+            timestamp = int(irc_msg.get('tmi-sent-ts', 0))
 
             self._call_event(
                 'on_message_delete',
@@ -548,11 +548,11 @@ class Client:
 
     def _handle_usernotice(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ) -> None:
         channel = self._get_prepared_channel(irc_msg.channel)
         try:
-            event_type = irc_msg.tags.get('msg-id')
+            event_type = irc_msg.get('msg-id')
             event_name, event_class = self._USER_EVENT_TYPES[event_type]
         # if unknown event
         except KeyError:
@@ -572,7 +572,7 @@ class Client:
 
     def _handle_hosttarget(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ) -> None:
         if hasattr(self, 'on_host_start') or hasattr(self, 'on_host_stop'):
             host_login, viewers_count = irc_msg.trailing.split(' ', 1)
@@ -583,7 +583,7 @@ class Client:
 
     def _handle_host_start(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ) -> None:
         if hasattr(self, 'on_host_start'):
             host_login, viewers_count = irc_msg.trailing.split(' ', 1)
@@ -592,7 +592,7 @@ class Client:
 
     def _handle_host_stop(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ) -> None:
         if hasattr(self, 'on_host_stop'):
             _, viewers_count = irc_msg.trailing.split(' ', 1)
@@ -601,21 +601,21 @@ class Client:
 
     def _handle_globaluserstate(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ):
-        if 'user-login' not in irc_msg.tags:
-            irc_msg.tags['user-login'] = self.login
+        if 'user-login' not in irc_msg:
+            irc_msg['user-login'] = self.login
         self.global_state = GlobalState(irc_msg)
 
     def _handle_reconnect(
             self,
-            _: IRCMessage
+            _: TwitchIRCMsg
     ):
         self._do_later(self.restart())  # does not close connection if open
 
     def _handle_ping(
             self,
-            _: IRCMessage
+            _: TwitchIRCMsg
     ):
         self._do_later(self._send('PONG :tmi.twitch.tv'))
 
@@ -774,13 +774,13 @@ class Client:
             logins_str = ',#'.join(logins)
             await self._send(f'PART #{logins_str}')
 
-    async def _delay_irc_message(self, irc_msg: IRCMessage) -> None:
+    async def _delay_irc_message(self, irc_msg: TwitchIRCMsg) -> None:
         """
         Delays `irc_msg`.
         Delayed message will be handled after the channel with `channel_login` is created
 
         Args:
-            irc_msg: `IRCMessage`
+            irc_msg: `TwitchIRCMsg`
                 message to be delayed
 
         Returns:
@@ -870,7 +870,7 @@ class Client:
         """Creates async task in `self.loop`"""
         self.loop.create_task(coro)
 
-    _COMMAND_HANDLERS: Dict[str, Callable[[_Client, IRCMessage], Any]] = {
+    _COMMAND_HANDLERS: Dict[str, Callable[[_Client, TwitchIRCMsg], Any]] = {
         'PRIVMSG': _handle_privmsg,
         'WHISPER': _handle_whisper,
         'JOIN': _handle_join,

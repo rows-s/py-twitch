@@ -1,7 +1,7 @@
 from abc import ABC
 from functools import cached_property
 
-from .irc_messages import IRCMessage
+from .irc_messages import TwitchIRCMsg
 from .channel import Channel
 from .flags import Flag
 from .emotes import Emote
@@ -21,16 +21,16 @@ __all__ = (
 class BaseMessage(ABC):
     def __init__(
             self,
-            irc_msg: IRCMessage,
+            irc_msg: TwitchIRCMsg,
             author: BaseUser
     ) -> None:
         self.author: BaseUser = author
         self.content: str = irc_msg.trailing
-        self.id: str = irc_msg.tags.get('id')
-        self.timestamp: int = int(irc_msg.tags.get('tmi-sent-ts', 0))
-        self._raw_flags: str = irc_msg.tags.get('flags', '')
-        self.emote_only: bool = irc_msg.tags.get('emote-only') == '1'
-        self._raw_emotes: str = irc_msg.tags.get('emotes', '')
+        self.id: str = irc_msg.get('id')
+        self.timestamp: int = int(irc_msg.get('tmi-sent-ts', 0))
+        self._raw_flags: str = irc_msg.get('flags', '')
+        self.emote_only: bool = irc_msg.get('emote-only') == '1'
+        self._raw_emotes: str = irc_msg.get('emotes', '')
 
     @cached_property
     def flags(self) -> Tuple[Flag]:
@@ -47,14 +47,14 @@ class BaseMessage(ABC):
 class ParentMessage:
     def __init__(
             self,
-            irc_msg: IRCMessage,
+            irc_msg: TwitchIRCMsg,
             channel: Channel,
             author: ParentMessageUser
     ) -> None:
         self.channel: Channel = channel
         self.author: ParentMessageUser = author
-        self.content: str = irc_msg.tags.get('reply-parent-msg-body')
-        self.id: str = irc_msg.tags.get('reply-parent-msg-id')
+        self.content: str = irc_msg.get('reply-parent-msg-body')
+        self.id: str = irc_msg.get('reply-parent-msg-id')
 
     async def delete(self):
         await self.channel.send_message(f'/delete {self.id}')
@@ -66,7 +66,7 @@ class ParentMessage:
 class ChannelMessage(BaseMessage):
     def __init__(
             self,
-            irc_msg: IRCMessage,
+            irc_msg: TwitchIRCMsg,
             channel: Channel,
             author: ChannelUser
     ) -> None:
@@ -74,10 +74,10 @@ class ChannelMessage(BaseMessage):
         # variable tags
         self.author: ChannelUser
         self.channel: Channel = channel
-        self.bits: int = int(irc_msg.tags.get('bits', 0))
-        self.msg_id: Optional[str] = irc_msg.tags.get('msg-id')
-        self.custom_reward_id: Optional[str] = irc_msg.tags.get('custom-reward-id')
-        self._irc_msg: IRCMessage = irc_msg
+        self.bits: int = int(irc_msg.get('bits', 0))
+        self.msg_id: Optional[str] = irc_msg.get('msg-id')
+        self.custom_reward_id: Optional[str] = irc_msg.get('custom-reward-id')
+        self._irc_msg: TwitchIRCMsg = irc_msg
 
     async def delete(self):
         await self.channel.send_message(f'/delete {self.id}')
@@ -88,13 +88,13 @@ class ChannelMessage(BaseMessage):
 
     @property
     def is_reply(self):
-        return 'reply-parent-msg-id' in self._irc_msg.tags
+        return 'reply-parent-msg-id' in self._irc_msg
 
     def _crate_parent_message(
             self,
-            irc_msg: IRCMessage
+            irc_msg: TwitchIRCMsg
     ) -> Optional[ParentMessage]:
-        if 'reply-parent-msg-id' in irc_msg.tags:
+        if 'reply-parent-msg-id' in irc_msg:
             # TODO: Could be better than take private field... but how?
             author = ParentMessageUser(irc_msg.copy(), self.author._send_whisper_callback)
             return ParentMessage(irc_msg.copy(), self.channel, author)
@@ -108,12 +108,12 @@ class ChannelMessage(BaseMessage):
 class Whisper(BaseMessage):
     def __init__(
             self,
-            irc_msg: IRCMessage,
+            irc_msg: TwitchIRCMsg,
             author: GlobalUser
     ):
-        irc_msg.tags['id'] = irc_msg.tags.get('message-id')  # rename the field
+        irc_msg['id'] = irc_msg.get('message-id')  # rename the field
         super().__init__(irc_msg, author)
-        self.thread_id = irc_msg.tags.get('thread-id')
+        self.thread_id = irc_msg.get('thread-id')
 
     @property  # may be cached but must not be used more than once.
     def emote_only(self) -> bool:

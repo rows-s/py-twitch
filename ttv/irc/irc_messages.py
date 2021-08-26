@@ -1,9 +1,9 @@
 from copy import copy
-from typing import Tuple, Optional, Dict
+from typing import Tuple, Optional, Dict, Union
 
 from .utils import escape_tag_value, unescape_tag_value
 
-__all__ = ('IRCMessage',)
+__all__ = ('TwitchIRCMsg',)
 
 
 class IRCMessage:  # TODO: add `__getitem__`, `get`. think about `__getattr__`
@@ -22,16 +22,25 @@ class IRCMessage:  # TODO: add `__getitem__`, `get`. think about `__getattr__`
         # raw_params
         self.middles: Tuple[str]
         self.trailing: Optional[str]
-        self.channel: Optional[str]
-        # parsing
-        raw_tags, prefix, raw_params = self._parse_raw_irc_msg(raw_irc_msg)  # command
-        self._parse_raw_tags(raw_tags)  # tags
-        self._parse_prefix(prefix)  # servername, nickname, user, host
-        self._parse_raw_params(raw_params)  # middles, trailing, channel
+        # whole logic within it
+        self._parse_raw_irc_msg(raw_irc_msg)
 
     @classmethod
     def create_empty(cls):
         return cls('EMPTY')
+
+    def get(self, key, default=None) -> Optional[str]:
+        return self.tags.get(key, default)
+
+    def items(self):
+        for item in self.tags.items():
+            yield item
+
+    def update(self, item: Union['IRCMessage', Dict]):
+        if isinstance(item, IRCMessage):
+            self.tags.update(item.tags)
+        elif isinstance(item, dict):
+            self.tags.update(item)
 
     def copy(self):
         new = copy(self)
@@ -47,7 +56,7 @@ class IRCMessage:  # TODO: add `__getitem__`, `get`. think about `__getattr__`
         raw_params = None
 
         if raw_irc_msg.startswith('@'):
-            raw_tags, raw_irc_msg = raw_irc_msg[1:].split(' ', 1)  # at least one tag, ends with ' '
+            raw_tags, raw_irc_msg = raw_irc_msg[1:].split(' ', 1)  # at least one tag. Ends with ' '
         if raw_irc_msg.startswith(':'):
             prefix, raw_irc_msg = raw_irc_msg[1:].split(' ', 1)  # ends with ' '
         try:
@@ -55,7 +64,12 @@ class IRCMessage:  # TODO: add `__getitem__`, `get`. think about `__getattr__`
         except ValueError:
             command = raw_irc_msg  # if has not params
 
-        self.command = command
+        self.command: str = command
+
+        self._parse_raw_tags(raw_tags)  # tags
+        self._parse_prefix(prefix)  # servername, nickname, user, host
+        self._parse_raw_params(raw_params)  # middles, trailing
+
         return raw_tags, prefix, raw_params
 
     def _parse_raw_tags(
@@ -77,7 +91,7 @@ class IRCMessage:  # TODO: add `__getitem__`, `get`. think about `__getattr__`
                     value = None
                 tags[key] = value
 
-        self.tags = tags
+        self.tags: Dict[str, Optional[str]] = tags
 
     def _parse_prefix(
             self,
@@ -101,10 +115,10 @@ class IRCMessage:  # TODO: add `__getitem__`, `get`. think about `__getattr__`
                 else:
                     nickname = prefix
 
-        self.servername = servername
-        self.nickname = nickname
-        self.user = user
-        self.host = host
+        self.servername: Optional[str] = servername
+        self.nickname: Optional[str] = nickname
+        self.user: Optional[str] = user
+        self.host: Optional[str] = host
 
     def _parse_raw_params(
             self,
@@ -113,16 +127,12 @@ class IRCMessage:  # TODO: add `__getitem__`, `get`. think about `__getattr__`
 
         middles = ()
         trailing = None
-        channel = None
 
         if raw_params:
             raw_parsed_params = raw_params.split(' ', 14)
             for index, param in enumerate(raw_parsed_params):
-                # if channel
-                if param.startswith('#'):
-                    channel = param[1:]
                 # if trailing exists and starts with ':'
-                elif param.startswith(':'):
+                if param.startswith(':'):
                     middles = raw_parsed_params[:index]
                     trailing = ' '.join(raw_parsed_params[index:])
                     trailing = trailing.removeprefix(':')
@@ -136,9 +146,8 @@ class IRCMessage:  # TODO: add `__getitem__`, `get`. think about `__getattr__`
                 else:
                     middles = raw_parsed_params
 
-        self.middles = tuple(middles)
-        self.trailing = trailing
-        self.channel = channel
+        self.middles: Tuple[str] = tuple(middles)
+        self.trailing: Optional[str] = trailing
 
     def _join_tags(self) -> Optional[str]:
         if not self.tags:
@@ -175,7 +184,7 @@ class IRCMessage:  # TODO: add `__getitem__`, `get`. think about `__getattr__`
             return raw_params
 
     def __eq__(self, other) -> bool:
-        if isinstance(other, IRCMessage):
+        if isinstance(other, TwitchIRCMsg):
             try:
                 assert self.command == other.command
                 assert self.servername == other.servername
@@ -198,3 +207,29 @@ class IRCMessage:  # TODO: add `__getitem__`, `get`. think about `__getattr__`
 
     def __str__(self):
         return self.__repr__()
+
+    def __iter__(self):
+        for key in self.tags:
+            yield key
+
+    def __getitem__(self, item) -> Optional[str]:
+        return self.tags[item]
+
+    def __setitem__(self, key, value):
+        self.tags[key] = value
+
+    def __contains__(self, item) -> bool:
+        return item in self.tags
+
+
+class TwitchIRCMsg(IRCMessage):
+    def __init__(self, raw_irc_msg: str):
+        super().__init__(raw_irc_msg)
+        self.channel: Optional[str] = self._get_channel()
+
+    def _get_channel(self):
+        for middle in self.middles:
+            if middle.startswith('#'):
+                return middle[1:]
+        else:
+            return None

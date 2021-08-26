@@ -124,8 +124,8 @@ async def test_read_websocket():
     bot = Client('token', 'login', should_restart=False)
     await bot._log_in_irc()
     irc_msgs = (
-        IRCMessage(':tmi.twitch.tv CAP * ACK :twitch.tv/membership twitch.tv/commands twitch.tv/tags'),
-        IRCMessage(':tmi.twitch.tv NOTICE * :Login authentication failed')
+        TwitchIRCMsg(':tmi.twitch.tv CAP * ACK :twitch.tv/membership twitch.tv/commands twitch.tv/tags'),
+        TwitchIRCMsg(':tmi.twitch.tv NOTICE * :Login authentication failed')
     )
     index = 0
     async for irc_msg in bot._read_websocket():
@@ -147,14 +147,14 @@ async def test_read_websocket():
     valid_bot = Client(IRC_TOKEN, IRC_USERNAME, should_restart=False)
     await valid_bot._log_in_irc()
     irc_msgs = (
-        IRCMessage(':tmi.twitch.tv CAP * ACK :twitch.tv/membership twitch.tv/commands twitch.tv/tags'),
-        IRCMessage(f':tmi.twitch.tv 001 {IRC_USERNAME} :Welcome, GLHF!'),
-        IRCMessage(f':tmi.twitch.tv 002 {IRC_USERNAME} :Your host is tmi.twitch.tv'),
-        IRCMessage(f':tmi.twitch.tv 003 {IRC_USERNAME} :This server is rather new'),
-        IRCMessage(f':tmi.twitch.tv 004 {IRC_USERNAME} :-'),
-        IRCMessage(f':tmi.twitch.tv 375 {IRC_USERNAME} :-'),
-        IRCMessage(f':tmi.twitch.tv 372 {IRC_USERNAME} :You are in a maze of twisty passages, all alike.'),
-        IRCMessage(f':tmi.twitch.tv 376 {IRC_USERNAME} :>')
+        TwitchIRCMsg(':tmi.twitch.tv CAP * ACK :twitch.tv/membership twitch.tv/commands twitch.tv/tags'),
+        TwitchIRCMsg(f':tmi.twitch.tv 001 {IRC_USERNAME} :Welcome, GLHF!'),
+        TwitchIRCMsg(f':tmi.twitch.tv 002 {IRC_USERNAME} :Your host is tmi.twitch.tv'),
+        TwitchIRCMsg(f':tmi.twitch.tv 003 {IRC_USERNAME} :This server is rather new'),
+        TwitchIRCMsg(f':tmi.twitch.tv 004 {IRC_USERNAME} :-'),
+        TwitchIRCMsg(f':tmi.twitch.tv 375 {IRC_USERNAME} :-'),
+        TwitchIRCMsg(f':tmi.twitch.tv 372 {IRC_USERNAME} :You are in a maze of twisty passages, all alike.'),
+        TwitchIRCMsg(f':tmi.twitch.tv 376 {IRC_USERNAME} :>')
     )
     index = 0
     async for irc_msg in valid_bot._read_websocket():
@@ -247,7 +247,7 @@ async def test_restart():
     assert valid_bot.is_nameslist_updated
 
 
-async def handle_commands(client: Client, *irc_msgs: IRCMessage):
+async def handle_commands(client: Client, *irc_msgs: TwitchIRCMsg):
     for irc_msg in irc_msgs:
         await client._handle_command(irc_msg)
 
@@ -278,11 +278,11 @@ async def test_handle_command():
 async def test_handle_names_part():
     bot = Client('token', 'login')
     # set(update)
-    await bot._handle_command(NP)
+    await handle_commands(bot, NP, NE)
     assert bot._channels_accumulator.abort_accumulation('target').names == NAMES[:3]
     # update
-    await handle_commands(bot, NP, NP2)
-    assert bot._channels_accumulator.get_names('target') == NAMES
+    await handle_commands(bot, NP, NP2, NE)
+    assert bot._channels_accumulator.abort_accumulation('target').names == NAMES
 
 
 @pytest.mark.asyncio
@@ -335,7 +335,7 @@ async def test_handle_channel_update():
 
     bot = LClient('token', 'login')
     _RS = RS.copy()
-    _RS.tags.update({'emote-only': '1'})
+    _RS.update({'emote-only': '1'})
     await handle_commands(bot, *CHANNEL_PARTS, _RS)
     assert bot.get_channel_by_login('target').is_emote_only
     await asyncio.sleep(0.001)
@@ -364,7 +364,7 @@ async def test_handle_userstate_update():
 
     bot = LClient('token', 'login')
     _US = US.copy()
-    _US.tags.update({'badges': 'broadcaster/1'})
+    _US.update({'badges': 'broadcaster/1'})
     await handle_commands(bot, *CHANNEL_PARTS, _US)
     await asyncio.sleep(0.001)
     assert bot.is_userstate_updated

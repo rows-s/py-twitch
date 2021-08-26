@@ -1,5 +1,5 @@
 from .channel import Channel
-from .irc_messages import IRCMessage
+from .irc_messages import TwitchIRCMsg
 from .user_states import BaseState, LocalState, GlobalState
 
 from abc import ABC
@@ -14,7 +14,7 @@ class BaseUser(BaseState, ABC):
     """TODO"""
     def __init__(
             self,
-            irc_msg: IRCMessage,
+            irc_msg: TwitchIRCMsg,
             send_whisper_callback: SendWhisperCallable
     ):
         super().__init__(irc_msg)
@@ -31,7 +31,7 @@ class ChannelUser(BaseUser, LocalState):
     """TODO"""
     def __init__(
             self, 
-            irc_msg: IRCMessage, 
+            irc_msg: TwitchIRCMsg,
             channel: Channel, 
             send_wishper_callback: SendWhisperCallable
     ) -> None:
@@ -71,12 +71,12 @@ class ParentMessageUser:
     """TODO"""
     def __init__(
             self,
-            irc_msg: IRCMessage,
+            irc_msg: TwitchIRCMsg,
             send_whisper_callback: SendWhisperCallable
     ):
-        self.id = irc_msg.tags.pop('reply-parent-user-id')
-        self.login = irc_msg.tags.pop('reply-parent-user-login')
-        self.display_name = irc_msg.tags.pop('reply-parent-display-name')
+        self.id = irc_msg.pop('reply-parent-user-id')
+        self.login = irc_msg.pop('reply-parent-user-login')
+        self.display_name = irc_msg.pop('reply-parent-display-name')
         self._send_whisper_callback: SendWhisperCallable = send_whisper_callback
 
     async def send_whisper(

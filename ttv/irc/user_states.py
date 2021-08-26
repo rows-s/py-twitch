@@ -2,7 +2,7 @@ from abc import ABC
 from functools import cached_property
 
 from .utils import parse_raw_badges
-from .irc_messages import IRCMessage
+from .irc_messages import TwitchIRCMsg
 
 from typing import Dict, Tuple
 
@@ -12,12 +12,12 @@ __all__ = ('BaseState', 'GlobalState', 'LocalState')
 class BaseState(ABC):
     """Base class for user states and users"""
 
-    def __init__(self, irc_msg: IRCMessage):
-        self.id: str = irc_msg.tags.get('user-id')
-        self.login: str = irc_msg.tags.get('user-login')
-        self.display_name: str = irc_msg.tags.get('display-name')
-        self.color: str = irc_msg.tags.get('color')
-        self._raw_badges = irc_msg.tags.get('badges', '')
+    def __init__(self, irc_msg: TwitchIRCMsg):
+        self.id: str = irc_msg.get('user-id')
+        self.login: str = irc_msg.get('user-login')
+        self.display_name: str = irc_msg.get('display-name')
+        self.color: str = irc_msg.get('color')
+        self._raw_badges = irc_msg.get('badges', '')
 
     @cached_property
     def badges(self) -> Dict[str, str]:
@@ -40,10 +40,10 @@ class BaseState(ABC):
 
 class BaseStateExt(BaseState, ABC):
     """Extension class for :class:`BaseState` adds emote_sets and badge_info attrs"""
-    def __init__(self, irc_msg: IRCMessage):
+    def __init__(self, irc_msg: TwitchIRCMsg):
         super().__init__(irc_msg)
-        self.emote_sets: Tuple[str] = tuple(irc_msg.tags.get('emote-sets', '').split(','))
-        self._raw_badge_info = irc_msg.tags.get('badge-info', '')
+        self.emote_sets: Tuple[str] = tuple(irc_msg.get('emote-sets', '').split(','))
+        self._raw_badge_info = irc_msg.get('badge-info', '')
 
     @cached_property
     def badge_info(self) -> Dict[str, str]:

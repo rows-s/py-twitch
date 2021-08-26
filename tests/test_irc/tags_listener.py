@@ -5,7 +5,7 @@ from itertools import combinations
 from typing import Iterable, Dict, List, Optional, AsyncIterator, Set
 import asyncpg
 
-from ttv.irc import Client, IRCMessage, ChannelMessage
+from ttv.irc import Client, TwitchIRCMsg, ChannelMessage
 from ttv.api import Api
 
 
@@ -25,7 +25,7 @@ class IRCListener(Client):
     async def start(
             self,
             channels: Iterable[str]
-    ) -> AsyncIterator[IRCMessage]:
+    ) -> AsyncIterator[TwitchIRCMsg]:
         await self._first_log_in_irc()
         await self.join_channels(channels)
         # start main listener
@@ -94,8 +94,8 @@ if __name__ == '__main__':
             tags_list = tags_container.setdefault(len(keys), [])  # [{key: [value, ...]}, ...]
             tags_list.append(tags)
 
-    async def check_irc_msg(irc_msg: IRCMessage):
-        tags = make_values_list(irc_msg.tags)  # new dict
+    async def check_irc_msg(irc_msg: TwitchIRCMsg):
+        tags = make_values_list(irc_msg)  # new dict
         if irc_msg.command not in local_db_copy:  # if new command
             local_db_copy[irc_msg.command] = {len(tags): [tags]}
             await save_new_keys(irc_msg)
@@ -112,16 +112,16 @@ if __name__ == '__main__':
                 local_db_copy[irc_msg.command][len(tags)].append(tags)
                 await save_new_keys(irc_msg)
 
-    async def check_values(irc_msg: IRCMessage, saved_tags: Dict[str, List[str]]):
-        for key in irc_msg.tags:
-            if irc_msg.tags[key] not in saved_tags[key]:
+    async def check_values(irc_msg: TwitchIRCMsg, saved_tags: Dict[str, List[str]]):
+        for key in irc_msg:
+            if irc_msg[key] not in saved_tags[key]:
                 if len(saved_tags[key]) < 20:
-                    saved_tags[key].append(irc_msg.tags[key])
-                    await update_values(irc_msg, key, irc_msg.tags[key])
-                elif irc_msg.tags[key] == '':
+                    saved_tags[key].append(irc_msg[key])
+                    await update_values(irc_msg, key, irc_msg[key])
+                elif irc_msg[key] == '':
                     if '' not in saved_tags[key]:
                         saved_tags[key].insert(0, '')
-                        await update_values(irc_msg, key, irc_msg.tags[key])
+                        await update_values(irc_msg, key, irc_msg[key])
 
     def make_values_list(tags: Dict[str, Optional[str]]) -> Dict[str, List[str]]:
         new_tags: Dict[str, List[str]] = {}
@@ -130,7 +130,7 @@ if __name__ == '__main__':
         return new_tags
 
     async def save_new_keys(irc_msg):
-        keys = sorted(irc_msg.tags.keys())
+        keys = sorted(irc_msg.keys())
         async with db_pool.acquire() as conn:
             print(f'{irc_msg.command} NEW KEYS {keys}')
             await conn.execute('INSERT INTO keys (command, keys) VALUES ($1, $2)', irc_msg.command, keys)
@@ -138,7 +138,7 @@ if __name__ == '__main__':
             await set_new_values(irc_msg, keys_id, conn)
 
     async def set_new_values(irc_msg, keys_id: int, conn):
-        for key, value in irc_msg.tags.items():
+        for key, value in irc_msg.items():
             if value == '':
                 print(f'{irc_msg.command}({keys_id}):{key} can be empty')
                 await conn.execute(
@@ -153,7 +153,7 @@ if __name__ == '__main__':
                 )
 
     async def update_values(irc_msg, key: str, value: str):
-        keys = sorted(irc_msg.tags.keys())
+        keys = sorted(irc_msg.keys())
         async with db_pool.acquire() as conn:
             keys_id = await db_pool.fetchval(
                 'SELECT id FROM keys WHERE command=$1 AND keys=$2',
@@ -173,7 +173,7 @@ if __name__ == '__main__':
                 )
 
     async def increase_counter(irc_msg):
-        keys = sorted(irc_msg.tags.keys())
+        keys = sorted(irc_msg.keys())
         async with db_pool.acquire() as conn:
             await conn.execute(
                 'UPDATE keys SET count = count + 1 WHERE command=$1 AND keys=$2',
@@ -204,7 +204,7 @@ if __name__ == '__main__':
     async def start_listener(listener: IRCListener, channels: Iterable[str]):
         async for irc_msg in listener.start(channels):
             if irc_msg.command == 'USERNOTICE':
-                irc_msg.command = irc_msg.tags['msg-id'].upper()
+                irc_msg.command = irc_msg['msg-id'].upper()
             await check_irc_msg(irc_msg)
 
     async def main():
