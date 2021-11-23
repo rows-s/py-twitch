@@ -1,14 +1,13 @@
 from abc import ABC
 from functools import cached_property
+from typing import Optional, Tuple
 
-from .irc_messages import TwitchIRCMsg
 from .channel import Channel
-from .flags import Flag
 from .emotes import Emote
+from .flags import Flag
+from .irc_messages import TwitchIRCMsg
 from .users import BaseUser, ChannelUser, ParentMessageUser, GlobalUser
 from .utils import parse_raw_emotes, is_emote_only, parse_raw_flags
-
-from typing import Optional, Tuple
 
 __all__ = (
     'BaseMessage',
@@ -75,7 +74,7 @@ class ChannelMessage(BaseMessage):
         self.author: ChannelUser
         self.channel: Channel = channel
         self.bits: int = int(irc_msg.get('bits', 0))
-        self.msg_id: Optional[str] = irc_msg.get('msg-id')
+        self.msg_id: Optional[str] = irc_msg.msg_id
         self.custom_reward_id: Optional[str] = irc_msg.get('custom-reward-id')
         self._irc_msg: TwitchIRCMsg = irc_msg
 

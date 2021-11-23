@@ -1,14 +1,12 @@
 import asyncio
 from asyncio import Task
-from typing import Callable, Coroutine, Dict, Union, List, Tuple, TypeVar, Optional
+from typing import Callable, Coroutine, Dict, Union, List, Tuple, Optional
+
 from .channel import Channel
 from .irc_messages import TwitchIRCMsg
 from .user_states import LocalState
 
-
 __all__ = ('ChannelsAccumulator', 'ChannelParts')
-
-_ChannelsAccumulator = TypeVar('_ChannelsAccumulator')
 
 
 class ChannelParts:
@@ -57,8 +55,7 @@ class ChannelParts:
             assert self.vips is not None
             ready_type = self.READY
         except AssertionError:
-            pass
-        return ready_type
+            return ready_type
 
     def add_part(
             self,
@@ -118,7 +115,7 @@ class ChannelParts:
         if irc_msg.command != 'NOTICE':
             return self._HANDLERS[irc_msg.command]
         else:
-            return self._NOTICE_HANDLERS[irc_msg['msg-id']]
+            return self._NOTICE_HANDLERS[irc_msg.msg_id]
 
     def _update_channel_state(
             self,
@@ -163,7 +160,7 @@ class ChannelParts:
             self,
             irc_msg: TwitchIRCMsg
     ):
-        if irc_msg['msg-id'] == 'no_mods':
+        if irc_msg.msg_id == 'no_mods':
             mods = ()
         else:
             raw_mods = irc_msg.trailing.split(': ', 1)[1]
@@ -174,7 +171,7 @@ class ChannelParts:
             self,
             irc_msg: TwitchIRCMsg
     ):
-        if irc_msg['msg-id'] == 'no_vips':
+        if irc_msg.msg_id == 'no_vips':
             vips = ()
         else:
             raw_vips = irc_msg.trailing.split(': ', 1)[1].removesuffix('.')
@@ -187,14 +184,14 @@ class ChannelParts:
 
     _EMPTY_CLIENT_STATE = LocalState(TwitchIRCMsg.create_empty())
 
-    _HANDLERS: Dict[str, Callable[[_ChannelsAccumulator, TwitchIRCMsg], None]] = {
+    _HANDLERS: Dict[str, Callable[['ChannelsAccumulator', TwitchIRCMsg], None]] = {
         'ROOMSTATE': _update_channel_state,
         'USERSTATE': _update_client_state,
         '353': _update_names,
         '366': _end_names,
     }
 
-    _NOTICE_HANDLERS: Dict[str, Callable[[_ChannelsAccumulator, TwitchIRCMsg], None]] = {
+    _NOTICE_HANDLERS: Dict[str, Callable[['ChannelsAccumulator', TwitchIRCMsg], None]] = {
         'cmds_available': _update_commands,
         'room_mods': _update_mods,
         'no_mods': _update_mods,
@@ -329,7 +326,7 @@ class ChannelsAccumulator:
         try:
             return self._all_parts[channel_login]
         except KeyError:
-            self._all_parts[channel_login] = parts = ChannelParts(channel_login)
+            self._all_parts[channel_login] = (parts := ChannelParts(channel_login))
             return parts
 
     def _get_parts(self, channel_login: str) -> ChannelParts:

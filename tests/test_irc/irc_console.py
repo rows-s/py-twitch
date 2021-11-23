@@ -1,8 +1,9 @@
 import asyncio
 import os
 
-from ttv.irc import Client, ANON_LOGIN
 from aioconsole import ainput
+
+from ttv.irc import Client, ANON_LOGIN
 
 
 class IRCConsole(Client):
@@ -11,9 +12,9 @@ class IRCConsole(Client):
         await asyncio.gather(self._start_task, self.run_console())
 
     async def listen(self):
-        await self._log_in_irc()
+        await self.irc_connection.connect()
         try:
-            async for irc_msg in self._read_websocket():
+            async for irc_msg in self.irc_connection:
                 if irc_msg.command == 'PING':
                     self._handle_ping(irc_msg)
                 print(irc_msg)

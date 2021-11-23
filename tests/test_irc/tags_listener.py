@@ -3,10 +3,11 @@ import os
 from dataclasses import dataclass
 from itertools import combinations
 from typing import Iterable, Dict, List, Optional, AsyncIterator, Set
+
 import asyncpg
 
-from ttv.irc import Client, TwitchIRCMsg, ChannelMessage
 from ttv.api import Api
+from ttv.irc import Client, TwitchIRCMsg, ChannelMessage
 
 
 class IRCListener(Client):
@@ -16,23 +17,19 @@ class IRCListener(Client):
             login: str,
             name: str,
             *,
-            should_restart: bool = True,
-            whisper_agent: str = None
+            keep_alive: bool = True,
     ):
-        super().__init__(token, login, should_restart=should_restart, whisper_agent=whisper_agent)
+        super().__init__(token, login, keep_alive=keep_alive)
         self.name = name
 
     async def start(
             self,
             channels: Iterable[str]
     ) -> AsyncIterator[TwitchIRCMsg]:
-        await self._first_log_in_irc()
-        await self.join_channels(channels)
-        # start main listener
-        self.is_running = True
-        async for irc_msg in self._read_websocket():
+        await self.irc_connection.connect()
+        await self.irc_connection.join_channels(channels)
+        async for irc_msg in self.irc_connection:
             yield irc_msg
-        self.is_running = False
 
     async def on_reconnect(self):
         print(f'Oops {self.name}')
@@ -95,7 +92,7 @@ if __name__ == '__main__':
             tags_list.append(tags)
 
     async def check_irc_msg(irc_msg: TwitchIRCMsg):
-        tags = make_values_list(irc_msg)  # new dict
+        tags = make_values_list(irc_msg.tags)  # new dict
         if irc_msg.command not in local_db_copy:  # if new command
             local_db_copy[irc_msg.command] = {len(tags): [tags]}
             await save_new_keys(irc_msg)
@@ -130,7 +127,7 @@ if __name__ == '__main__':
         return new_tags
 
     async def save_new_keys(irc_msg):
-        keys = sorted(irc_msg.keys())
+        keys = sorted(irc_msg.tags.keys())
         async with db_pool.acquire() as conn:
             print(f'{irc_msg.command} NEW KEYS {keys}')
             await conn.execute('INSERT INTO keys (command, keys) VALUES ($1, $2)', irc_msg.command, keys)
@@ -153,27 +150,27 @@ if __name__ == '__main__':
                 )
 
     async def update_values(irc_msg, key: str, value: str):
-        keys = sorted(irc_msg.keys())
+        keys = sorted(irc_msg.tags.keys())
         async with db_pool.acquire() as conn:
-            keys_id = await db_pool.fetchval(
+            keys_id = await conn.fetchval(
                 'SELECT id FROM keys WHERE command=$1 AND keys=$2',
                 irc_msg.command, keys
             )
             if value == '':
                 print(f'{irc_msg.command}({keys_id}):{key} can be empty')
-                await db_pool.execute(
+                await conn.execute(
                     'UPDATE values SET can_be_empty = TRUE WHERE keys_id=$1 AND key=$2',
                     keys_id, key
                 )
             else:
                 print(f'{irc_msg.command}({keys_id}):{key} = {value}')
-                await db_pool.execute(
+                await conn.execute(
                     'UPDATE values SET values = array_append(values, $1) WHERE keys_id=$2 AND key=$3',
                     value, keys_id, key
                 )
 
     async def increase_counter(irc_msg):
-        keys = sorted(irc_msg.keys())
+        keys = sorted(irc_msg.tags.keys())
         async with db_pool.acquire() as conn:
             await conn.execute(
                 'UPDATE keys SET count = count + 1 WHERE command=$1 AND keys=$2',
@@ -195,16 +192,16 @@ if __name__ == '__main__':
             await asyncio.sleep(30*60)
             top_channels = [json['user_login'] async for json in api.get_streams(chnls_count)]
             for i in range(count):
-                await listeners[i].part_channels(listeners[i].joined_channel_logins)
+                await listeners[i].irc_connection.part_channels(listeners[i].irc_connection.joined_channel_logins)
                 start = i * channels_for_each
                 end = start + channels_for_each
-                await listeners[i].join_channels(top_channels[start:end])
+                await listeners[i].irc_connection.join_channels(top_channels[start:end])
             print('CHANNEL UPDATED')
 
     async def start_listener(listener: IRCListener, channels: Iterable[str]):
         async for irc_msg in listener.start(channels):
             if irc_msg.command == 'USERNOTICE':
-                irc_msg.command = irc_msg['msg-id'].upper()
+                irc_msg.command = irc_msg.msg_id.upper()
             await check_irc_msg(irc_msg)
 
     async def main():
@@ -354,7 +351,6 @@ if __name__ == '__main__':
             )]
             all_command_keys: List[CommandTags] = []
             for command in commands:
-                not_base_tags: set = set()
                 tags_types = await conn.fetch(
                     'SELECT keys FROM keys WHERE command=$1',
                     command
@@ -386,9 +382,6 @@ if __name__ == '__main__':
 
         def write(text: str):
             file.write(text + '\n')
-
-        def write_end(lvl: int):
-            file.write('|--'*lvl + '\\' + '_'*10 + '\n')
 
         async with db_pool.acquire() as conn:
             types = await conn.fetch("SELECT keys FROM keys WHERE command='PRIVMSG'")

@@ -3,10 +3,10 @@ from typing import Tuple, Optional, Dict, Union
 
 from .utils import escape_tag_value, unescape_tag_value
 
-__all__ = ('TwitchIRCMsg',)
+__all__ = ('IRCMsg', 'TwitchIRCMsg')
 
 
-class IRCMessage:  # TODO: add `__getitem__`, `get`. think about `__getattr__`
+class IRCMsg:
     def __init__(
             self,
             raw_irc_msg: str
@@ -36,8 +36,8 @@ class IRCMessage:  # TODO: add `__getitem__`, `get`. think about `__getattr__`
         for item in self.tags.items():
             yield item
 
-    def update(self, item: Union['IRCMessage', Dict]):
-        if isinstance(item, IRCMessage):
+    def update(self, item: Union['IRCMsg', Dict]):
+        if isinstance(item, IRCMsg):
             self.tags.update(item.tags)
         elif isinstance(item, dict):
             self.tags.update(item)
@@ -199,19 +199,6 @@ class IRCMessage:  # TODO: add `__getitem__`, `get`. think about `__getattr__`
             else:
                 return True
 
-    def __repr__(self):
-        raw_tags = f'@{raw_tags} ' if (raw_tags := self._join_tags()) is not None else ''
-        prefix = f':{prefix} ' if (prefix := self._join_prefix_parts()) is not None else ''
-        raw_params = f' {raw_params}' if (raw_params := self._join_params()) is not None else ''
-        return f'{raw_tags}{prefix}{self.command}{raw_params}'
-
-    def __str__(self):
-        return self.__repr__()
-
-    def __iter__(self):
-        for key in self.tags:
-            yield key
-
     def __getitem__(self, item) -> Optional[str]:
         return self.tags[item]
 
@@ -221,13 +208,27 @@ class IRCMessage:  # TODO: add `__getitem__`, `get`. think about `__getattr__`
     def __contains__(self, item) -> bool:
         return item in self.tags
 
+    def __iter__(self):
+        for key in self.tags:
+            yield key
 
-class TwitchIRCMsg(IRCMessage):
+    def __repr__(self):
+        raw_tags = f'@{raw_tags} ' if (raw_tags := self._join_tags()) is not None else ''
+        prefix = f':{prefix} ' if (prefix := self._join_prefix_parts()) is not None else ''
+        raw_params = f' {raw_params}' if (raw_params := self._join_params()) is not None else ''
+        return f'{raw_tags}{prefix}{self.command}{raw_params}'
+
+    def __str__(self):
+        return self.__repr__()
+
+
+class TwitchIRCMsg(IRCMsg):
     def __init__(self, raw_irc_msg: str):
         super().__init__(raw_irc_msg)
         self.channel: Optional[str] = self._get_channel()
+        self.msg_id: Optional[str] = self.tags.get('msg-id')
 
-    def _get_channel(self):
+    def _get_channel(self) -> Optional[str]:
         for middle in self.middles:
             if middle.startswith('#'):
                 return middle[1:]

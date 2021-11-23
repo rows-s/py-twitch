@@ -3,7 +3,13 @@ from dataclasses import dataclass
 from .channel import Channel
 
 __all__ = (
-    'OnUserTimeout', 'OnUserBan', 'OnChannelJoinError', 'OnNotice', 'OnMessageDelete', 'OnSendMessageError'
+    'OnUserTimeout',
+    'OnUserBan',
+    'OnClearChat',
+    'OnChannelJoinError',
+    'OnNotice',
+    'OnMessageDelete',
+    'OnSendMessageError'
 )
 
 

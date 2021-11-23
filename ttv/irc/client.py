@@ -1,30 +1,20 @@
 import asyncio
-from asyncio import iscoroutinefunction, AbstractEventLoop
-import websockets
-from websockets import WebSocketClientProtocol, ConnectionClosedError, ConnectionClosedOK
-from time import time
+from asyncio import iscoroutinefunction
+from typing import Coroutine, Iterable, Tuple, Any, Awaitable, Callable, List, Optional, Dict
 
-from .irc_messages import TwitchIRCMsg
-from .messages import ChannelMessage, Whisper
 from .channel import Channel
 from .channels_accumulators import ChannelsAccumulator
-from .users import ChannelUser, GlobalUser
-from .user_states import GlobalState, LocalState
 from .events import OnUserTimeout, OnChannelJoinError, OnNotice, OnMessageDelete, OnSendMessageError, OnUserBan, \
     OnClearChat
-from .user_events import *
 from .exceptions import *
+from .irc_connections import TwitchIRCClient
+from .irc_messages import TwitchIRCMsg
+from .messages import ChannelMessage, Whisper
+from .user_events import *
+from .user_states import GlobalState, LocalState
+from .users import ChannelUser, GlobalUser
 
-from typing import Coroutine, Iterable, Tuple, Any, Awaitable, Callable, List, Optional, Dict, AsyncGenerator, \
-    Set, Generator, TypeVar
-
-__all__ = ('Client', 'ANON_LOGIN')
-
-
-ANON_LOGIN = 'justinfan0'
-
-
-_Client = TypeVar('_Client')
+__all__ = ('Client', )
 
 
 class Client:
@@ -34,19 +24,12 @@ class Client:
             token: str,
             login: str,
             *,
-            whisper_agent: str = 'ananonymousgifter',
-            should_restart: bool = True,
-            loop: AbstractEventLoop = None
+            keep_alive: bool = True
     ) -> None:
-        self.token: str = token
-        self.login: str = login
+        self.irc_connection = TwitchIRCClient(login, token, keep_alive=keep_alive)
         # state
-        self.is_running = False
-        self.whisper_agent: str = whisper_agent
-        self.should_restart: bool = should_restart
         self.global_state: Optional[GlobalState] = None
         # channels
-        self.joined_channel_logins: Set[str] = set()
         self._channels_by_id: Dict[str, Channel] = {}
         self._channels_by_login: Dict[str, Channel] = {}
         self._delayed_irc_msgs: Dict[str, List[TwitchIRCMsg]] = {}  # channel_login: [irc_msg, ...]
@@ -56,30 +39,18 @@ class Client:
             send_callback=self._send,
             is_anon=self.is_anon
         )
-        self._websocket: WebSocketClientProtocol = WebSocketClientProtocol()
-        self._delay_gen: Generator[int, None] = Client._delay_gen()
-        self._running_restart_task: Optional[asyncio.tasks.Task] = None
-        self.loop: AbstractEventLoop = asyncio.get_event_loop() if loop is None else loop
-
-    @property
-    def token(self) -> str:
-        return self._token
-
-    @token.setter
-    def token(self, value: str):
-        if not value:
-            pass
-        elif not value.startswith('oauth:'):
-            value = 'oauth:' + value
-        self._token = value
 
     @property
     def is_restarting(self) -> bool:
-        return self._running_restart_task is not None
+        return self.irc_connection.is_restarting
+
+    @property
+    def is_running(self) -> bool:
+        return self.irc_connection.is_running
 
     @property
     def is_anon(self) -> bool:
-        return self.login.startswith('justinfan') and not self.login == 'justinfan'
+        return self.irc_connection.is_anon
 
     def get_channel(
             self,
@@ -128,18 +99,6 @@ class Client:
         except KeyError:
             raise ChannelNotAccumulated(login)
 
-    @classmethod
-    def _delay_gen(cls) -> Generator[int, None, None]:
-        delay = 0
-        while True:
-            last_delayed = time()
-            yield delay
-            # increase
-            delay = min(16, max(1, delay * 2))  # if 0 - then 1, no greater then 16
-            # reset
-            if time() - last_delayed > 60:
-                delay = 0  # resetting overwrites increasing
-
     def run(
             self,
             channels: Iterable[str]
@@ -153,7 +112,7 @@ class Client:
         Notes:
             Async version of the method is :meth:`start`
         """
-        self.loop.run_until_complete(
+        asyncio.get_event_loop().run_until_complete(
             self.start(channels)
         )
 
@@ -172,109 +131,16 @@ class Client:
             channels: (Iterable[str])
                 Iterable object with logins of channel to join
         """
-        if not self.is_anon:
-            await self._first_log_in_irc()
-        else:
-            await self._log_in_irc()  # there is not GLOBALUSERSTATE for a anon user
-        await self.join_channels(channels)
-        self.is_running = True
-        async for irc_msg in self._read_websocket():
+        global_state_msg = await self.irc_connection.connect()
+        self.global_state = GlobalState(global_state_msg)
+        await self.irc_connection.join_channels(*channels)
+        async for irc_msg in self.irc_connection:
             self._do_later(
                 self._handle_command(irc_msg)  # protection from a shutdown caused by an exception
             )
-        self.is_running = False
-
-    async def restart(self):
-        # TODO: insert all the restart logic in one function but provide two interfaces (public, private)
-        #  those will provide "raise from" way and a exceptions free way.
-        """
-        1. Reopens websocket connection if not open.
-        2. Relogin into twitch IRC
-        3. Rejoins(joins) early joined channel
-        4. Calls `self.on_reconnect` event if registered.
-        """
-        self._running_restart_task = asyncio.create_task(self._restart())
-        await self._running_restart_task
-
-    async def _restart(self):
-        delay = next(self._delay_gen)
-        await asyncio.sleep(delay)
-        await self._log_in_irc()
-        await self.join_channels(self.joined_channel_logins)
-        self._call_event('on_reconnect')
-        self._running_restart_task = None
 
     async def stop(self):  # TODO: script for case: self.is_running == False
-        self.is_running = False
-        await self._websocket.close()
-
-    async def _first_log_in_irc(
-            self,
-            *,
-            expected_commands: Iterable[str] = ('001', '002', '003', '004', '372', '375', '376', 'CAP')
-            ):
-        await self._log_in_irc()
-        async for irc_msg in self._read_websocket():
-            # if successfully logged in
-            if irc_msg.command == 'GLOBALUSERSTATE':
-                if 'user-login' not in irc_msg:
-                    irc_msg['user-login'] = self.login
-                self.global_state = GlobalState(irc_msg)
-                # if has handler
-                self._call_event('on_ready')
-                return
-            elif irc_msg.command == 'NOTICE' and irc_msg.middles[0] == '*':
-                raise LoginFailed(irc_msg.trailing)
-            elif irc_msg.command == 'CAP' and irc_msg.middles[1] == 'NAK':
-                raise CapReqError(irc_msg)
-            elif irc_msg.command not in expected_commands:
-                return
-
-    async def _log_in_irc(
-            self,
-            *,
-            uri: str = 'wss://irc-ws.chat.twitch.tv:443'
-    ):
-        """Creates new websocket connection if not open, requires capabilities and login into twitch IRC"""
-        if not self._websocket.open:  # TODO: :meth:`_restart` must have way to reopen the websocket
-            self._websocket = await websockets.connect(uri)
-            # capabilities
-            await self._send('CAP REQ :twitch.tv/membership twitch.tv/commands twitch.tv/tags')
-            # logging in
-            if not self.is_anon:
-                await self._send(f'PASS {self.token}')
-                await self._send(f'NICK {self.login}')
-            else:
-                await self._send(f'NICK {self.login}')
-
-    async def _read_websocket(
-            self
-    ) -> AsyncGenerator[TwitchIRCMsg, None]:
-        """
-        tries to read websocket:
-            1. yields TwitchIRCMsg if successfully read;
-            2. if :exc:`ConnectionClosedError`: reconnects to irc if `self.should_restart`.
-            3 if :exc:`ConnectionClosedOK`: returns (rises :exc:`StopAsyncIteration`);
-        """
-        while True:
-            try:
-                raw_irc_messages = await self._websocket.recv()
-            # if closed normally (must be caused by :meth:`stop()`)
-            except ConnectionClosedOK:
-                return
-            # if closed not normally
-            except ConnectionClosedError:
-                if self.is_restarting:
-                    await self._running_restart_task
-                elif self.should_restart:
-                    await self.restart()
-                else:
-                    raise
-            # if successfully read
-            else:
-                for raw_irc_message in raw_irc_messages.split('\r\n'):
-                    if raw_irc_message:  # might be empty
-                        yield TwitchIRCMsg(raw_irc_message)
+        await self.irc_connection.stop()
 
     async def _handle_command(
             self,
@@ -342,7 +208,7 @@ class Client:
     ) -> None:
         # prepare tags
         if 'user-login' not in irc_msg:
-            irc_msg['user-login'] = self.login
+            irc_msg['user-login'] = self.irc_connection.login
         if 'user-id' not in irc_msg:
             irc_msg['user-id'] = self.global_state.id
         # if accumulated
@@ -401,7 +267,7 @@ class Client:
             self,
             irc_msg: TwitchIRCMsg
     ) -> None:
-        notice_id = irc_msg.get('msg-id')
+        notice_id = irc_msg.msg_id
         if notice_id in ('msg_room_not_found', 'msg_channel_suspended'):
             self._handle_channel_join_error(irc_msg)
         elif notice_id.startswith('msg'):
@@ -421,9 +287,9 @@ class Client:
             self,
             irc_msg: TwitchIRCMsg
     ) -> None:
-        self.joined_channel_logins.discard(irc_msg.channel)
+        self.irc_connection.part_channels(irc_msg.channel)
         self._channels_accumulator.abort_accumulation(irc_msg.channel, msg=irc_msg.trailing)
-        reason = irc_msg['msg-id'].removeprefix('msg_')
+        reason = irc_msg.msg_id.removeprefix('msg_')
         self._call_event('on_channel_join_error', OnChannelJoinError(irc_msg.channel, reason, irc_msg.trailing))
             
     def _handle_send_message_error(
@@ -431,7 +297,7 @@ class Client:
             irc_msg: TwitchIRCMsg
     ) -> None:
         channel = self._get_prepared_channel(irc_msg.channel)
-        reason = irc_msg['msg-id'].removeprefix('msg_')
+        reason = irc_msg.msg_id.removeprefix('msg_')
         self._call_event('on_send_message_error', OnSendMessageError(channel, reason, irc_msg.trailing))
 
     def _handle_cmds_available(
@@ -456,7 +322,7 @@ class Client:
             self._channels_accumulator.accumulate_part(irc_msg)
         else:
             before = channel.mods
-            if irc_msg['msg-id'] == 'no_mods':
+            if irc_msg.msg_id == 'no_mods':
                 mods = ()
             else:
                 raw_mods = irc_msg.trailing.split(': ', 1)[1]  # remove 'The moderators of this channel are: '
@@ -472,7 +338,7 @@ class Client:
             self._channels_accumulator.accumulate_part(irc_msg)
         else:
             before = channel.vips
-            if irc_msg['msg-id'] == 'no_vips':
+            if irc_msg.msg_id == 'no_vips':
                 vips = ()
             else:
                 raw_vips = irc_msg.trailing.split(': ', 1)[1]  # remove 'The VIPs of this channel are: '
@@ -552,7 +418,7 @@ class Client:
     ) -> None:
         channel = self._get_prepared_channel(irc_msg.channel)
         try:
-            event_type = irc_msg.get('msg-id')
+            event_type = irc_msg.msg_id
             event_name, event_class = self._USER_EVENT_TYPES[event_type]
         # if unknown event
         except KeyError:
@@ -604,20 +470,14 @@ class Client:
             irc_msg: TwitchIRCMsg
     ):
         if 'user-login' not in irc_msg:
-            irc_msg['user-login'] = self.login
+            irc_msg['user-login'] = self.irc_connection.login
         self.global_state = GlobalState(irc_msg)
 
     def _handle_reconnect(
             self,
             _: TwitchIRCMsg
     ):
-        self._do_later(self.restart())  # does not close connection if open
-
-    def _handle_ping(
-            self,
-            _: TwitchIRCMsg
-    ):
-        self._do_later(self._send('PONG :tmi.twitch.tv'))
+        self._do_later(self.irc_connection.restart())  # does not close connection if open
 
     def _save_channel(
             self,
@@ -660,20 +520,7 @@ class Client:
         Returns:
             `None`
         """
-        while True:
-            try:
-                await self._websocket.send(irc_message + '\r\n')
-            except ConnectionClosedError:  # if :meth:`stop` is called there is :exc:`ConnectionClosedOK`
-                if self.is_restarting:
-                    await self._running_restart_task  # if :meth:`restart` is running don't call it once more
-                elif self.should_restart:
-                    await self.restart()
-                else:
-                    raise
-            except ConnectionClosedOK as e:
-                raise ConnectionClosedOK('Connection was closed by :meth:`stop()`') from e
-            else:
-                break
+        await self.irc_connection.send(irc_message)
 
     async def send_message(
             self,
@@ -685,14 +532,14 @@ class Client:
 
         Args:
             channel_login: `str`
-                login of channel into which the `content` should be sent.
+                login of channel into which `content` should be sent.
             content: `str`
                 content to send into the channel
 
         Returns:
             `None`
         """
-        await self._send(f'PRIVMSG #{channel_login} :{content}')
+        await self.irc_connection.send_channel_message(channel_login, content)
 
     async def send_whisper(
             self,
@@ -712,40 +559,7 @@ class Client:
             `None`
         """
         # send
-        content = f'/w {target} {content}'
-        await self.send_message(self.whisper_agent, content)
-
-    async def join_channel(
-            self,
-            login: str
-    ) -> None:
-        """Sends command to join the channel and adds its login to `self.joined_channels_logins`"""
-        self.joined_channel_logins.add(login)
-        await self._send(f'JOIN #{login}')
-        await self._request_channel_parts(login)
-        self._channels_accumulator._add_timeout(login)
-
-    async def join_channels(
-            self,
-            logins: Iterable[str]
-    ) -> None:
-        """
-        Sends commands to join the channels and adds their logins to `self.joined_channels_logins`
-
-        Args:
-            logins: Iterable[`str`]
-                Iterable object with channels' logins
-
-        Returns:
-            `None`
-        """
-        if logins:  # don't join to no channel
-            self.joined_channel_logins.update(logins)
-            logins_str = ',#'.join(logins)
-            await self._send(f'JOIN #{logins_str}')
-        for login in logins:
-            await self._request_channel_parts(login)
-            self._channels_accumulator._add_timeout(login)
+        await self.irc_connection.send_whisper(target, content)
 
     async def _request_channel_parts(self, login: str):
         """ Requests commands list, mods list, vips list for the :class:`Channel` with given `login` """
@@ -753,26 +567,6 @@ class Client:
             await self.send_message(login, '/help')
             await self.send_message(login, '/mods')
             await self.send_message(login, '/vips')
-
-    async def part_channel(
-            self,
-            login: str
-    ) -> None:
-        """Sends command to part the channel and discards its login from `self.joined_channels_logins`"""
-        self.joined_channel_logins.discard(login)
-        await self._send(f'PART #{login}')
-
-    async def part_channels(
-            self,
-            logins: Iterable[str]
-    ) -> None:
-        """
-        Sends commands to part the channels and discards their logins from `self.joined_channels_logins`
-        """
-        if logins:
-            self.joined_channel_logins.difference_update(logins)
-            logins_str = ',#'.join(logins)
-            await self._send(f'PART #{logins_str}')
 
     async def _delay_irc_message(self, irc_msg: TwitchIRCMsg) -> None:
         """
@@ -789,7 +583,7 @@ class Client:
         delayed_irc_messages = self._delayed_irc_msgs.setdefault(irc_msg.channel, [])
         if len(delayed_irc_messages) == 10:
             # something's wrong if there are 10 delayed messages, better try to reconnect
-            await self.join_channel(irc_msg.channel)
+            await self.irc_connection.join_channels(irc_msg.channel)
             print(f'Try to rejoin #{irc_msg.channel}')  # TODO: modify the print into logging
             delayed_irc_messages.append(irc_msg)
         # protection from memory overflow
@@ -868,9 +662,9 @@ class Client:
             coro: Awaitable
     ) -> None:
         """Creates async task in `self.loop`"""
-        self.loop.create_task(coro)
+        asyncio.get_event_loop().create_task(coro)
 
-    _COMMAND_HANDLERS: Dict[str, Callable[[_Client, TwitchIRCMsg], Any]] = {
+    _COMMAND_HANDLERS: Dict[str, Callable[['Client', TwitchIRCMsg], Any]] = {
         'PRIVMSG': _handle_privmsg,
         'WHISPER': _handle_whisper,
         'JOIN': _handle_join,
@@ -884,7 +678,6 @@ class Client:
         'USERSTATE': _handle_userstate,
         'GLOBALUSERSTATE': _handle_globaluserstate,
         'RECONNECT': _handle_reconnect,
-        'PING': _handle_ping,
         '353': _handle_names_part,
         '366': _handle_names_end
     }
