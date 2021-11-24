@@ -8,24 +8,18 @@ from ttv.irc import Client, ANON_LOGIN
 
 class IRCConsole(Client):
     async def start_(self):
-        self._start_task = asyncio.create_task(self.listen())
-        await asyncio.gather(self._start_task, self.run_console())
+        await asyncio.gather(self.listen(), self.run_console())
 
     async def listen(self):
-        await self.irc_connection.connect()
-        try:
-            async for irc_msg in self.irc_connection:
-                if irc_msg.command == 'PING':
-                    self._handle_ping(irc_msg)
-                print(irc_msg)
-        except asyncio.exceptions.CancelledError:
-            pass
+        await self._irc_conn.connect()
+        async for irc_msg in self._irc_conn:
+            print(irc_msg)
 
     async def run_console(self):
         while True:
             raw_irc_msg = await ainput()
             if raw_irc_msg == 'stop':
-                self._start_task.cancel()
+                await self.stop()
                 return
             else:
                 await self._send(raw_irc_msg)

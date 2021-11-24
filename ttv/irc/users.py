@@ -1,9 +1,10 @@
-from .channel import Channel
-from .irc_messages import TwitchIRCMsg
-from .user_states import BaseState, LocalState, GlobalState
-
 from abc import ABC
 from typing import Callable, Coroutine
+
+from .channel import Channel
+from .irc_connections import TwitchIRCClient
+from .irc_messages import TwitchIRCMsg
+from .user_states import BaseState, LocalState, GlobalState
 
 __all__ = ('BaseUser', 'ChannelUser', 'GlobalUser', 'ParentMessageUser')
 
@@ -15,16 +16,16 @@ class BaseUser(BaseState, ABC):
     def __init__(
             self,
             irc_msg: TwitchIRCMsg,
-            send_whisper_callback: SendWhisperCallable
+            irc_conn: TwitchIRCClient,
     ):
         super().__init__(irc_msg)
-        self._send_whisper_callback: SendWhisperCallable = send_whisper_callback
+        self._irc_conn: TwitchIRCClient = irc_conn
 
     async def send_whisper(
             self,
             content: str
     ) -> None:
-        await self._send_whisper_callback(self.login, content)
+        await self._irc_conn.send_whisper(self.login, content)
 
 
 class ChannelUser(BaseUser, LocalState):
@@ -32,10 +33,10 @@ class ChannelUser(BaseUser, LocalState):
     def __init__(
             self, 
             irc_msg: TwitchIRCMsg,
-            channel: Channel, 
-            send_wishper_callback: SendWhisperCallable
+            channel: Channel,
+            irc_conn: TwitchIRCClient,
     ) -> None:
-        super().__init__(irc_msg, send_wishper_callback)
+        super().__init__(irc_msg, irc_conn)
         self.channel: Channel = channel
 
     async def ban(self, reason: str = ''):
@@ -72,15 +73,15 @@ class ParentMessageUser:
     def __init__(
             self,
             irc_msg: TwitchIRCMsg,
-            send_whisper_callback: SendWhisperCallable
+            irc_conn: TwitchIRCClient,
     ):
-        self.id = irc_msg.pop('reply-parent-user-id')
-        self.login = irc_msg.pop('reply-parent-user-login')
-        self.display_name = irc_msg.pop('reply-parent-display-name')
-        self._send_whisper_callback: SendWhisperCallable = send_whisper_callback
+        self.id = irc_msg.tags.pop('reply-parent-user-id')
+        self.login = irc_msg.tags.pop('reply-parent-user-login')
+        self.display_name = irc_msg.tags.pop('reply-parent-display-name')
+        self._irc_conn: TwitchIRCClient = irc_conn
 
     async def send_whisper(
             self,
             content: str
     ) -> None:
-        await self._send_whisper_callback(self.login, content)
+        await self._irc_conn.send_whisper(self.login, content)

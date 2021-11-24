@@ -1,7 +1,8 @@
+from typing import Tuple
+
+from .irc_connections import TwitchIRCClient
 from .irc_messages import TwitchIRCMsg
 from .user_states import LocalState
-
-from typing import Callable, Tuple, Coroutine
 
 __all__ = ('Channel',)
 
@@ -15,7 +16,7 @@ class Channel:
             commands: Tuple[str, ...],
             mods: Tuple[str, ...],
             vips: Tuple[str, ...],
-            send_callback: Callable[[str], Coroutine]
+            irc_conn: TwitchIRCClient
     ) -> None:
         self.id: str = raw_state.get('room-id')
         self.login: str = raw_state.channel
@@ -28,7 +29,7 @@ class Channel:
         self.mods: Tuple[str, ...] = mods
         self.vips: Tuple[str, ...] = vips
         self._raw_state: TwitchIRCMsg = raw_state
-        self._send: Callable[[str], Coroutine] = send_callback
+        self._irc_conn: TwitchIRCClient = irc_conn
 
     @property
     def is_unique_only(self) -> bool:
@@ -79,31 +80,29 @@ class Channel:
 
     def copy(self):
         return self.__class__(
-            self._raw_state.copy(), self.client_state, self.names, self.commands, self.mods, self.vips, self._send
+            self._raw_state.copy(), self.client_state, self.names, self.commands, self.mods, self.vips, self._irc_conn
         )
 
     async def send_message(
             self,
             content: str
     ) -> None:
-        await self._send(f'PRIVMSG #{self.login} :{content}')
+        await self._irc_conn.send_chnl_msg(self.login, content)
 
     async def request_state_update(self):
-        await self._send(f'JOIN #{self.login}')
+        await self._irc_conn.join_channels(self.login)
 
     async def request_commands(self):
-        await self.send_message('/help')
+        await self._irc_conn.send_chnl_msg(self.login, '/help')
 
     async def request_mods(self):
-        await self.send_message('/mods')
+        await self._irc_conn.send_chnl_msg(self.login, '/mods')
 
     async def request_vips(self):
-        await self.send_message('/vips')
+        await self._irc_conn.send_chnl_msg(self.login, '/vips')
 
     async def clear(self):
-        await self.send_message('/clear')
+        await self._irc_conn.send_chnl_msg(self.login, '/clear')
 
     def __eq__(self, other):
         return isinstance(other, Channel) and self.login == other.login
-
-

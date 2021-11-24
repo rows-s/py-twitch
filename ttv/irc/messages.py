@@ -95,7 +95,7 @@ class ChannelMessage(BaseMessage):
     ) -> Optional[ParentMessage]:
         if 'reply-parent-msg-id' in irc_msg:
             # TODO: Could be better than take private field... but how?
-            author = ParentMessageUser(irc_msg.copy(), self.author._send_whisper_callback)
+            author = ParentMessageUser(irc_msg.copy(), self.author._irc_conn)
             return ParentMessage(irc_msg.copy(), self.channel, author)
         else:
             return None

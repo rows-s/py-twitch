@@ -26,7 +26,7 @@ class Client:
             *,
             keep_alive: bool = True
     ) -> None:
-        self.irc_connection = TwitchIRCClient(login, token, keep_alive=keep_alive)
+        self._irc_conn = TwitchIRCClient(login, token, keep_alive=keep_alive)
         # state
         self.global_state: Optional[GlobalState] = None
         # channels
@@ -34,23 +34,23 @@ class Client:
         self._channels_by_login: Dict[str, Channel] = {}
         self._delayed_irc_msgs: Dict[str, List[TwitchIRCMsg]] = {}  # channel_login: [irc_msg, ...]
         # accumulation
-        self._channels_accumulator: ChannelsAccumulator = ChannelsAccumulator(
+        self._chnls_accum: ChannelsAccumulator = ChannelsAccumulator(
             channel_ready_callback=self._save_channel,
-            send_callback=self._send,
+            irc_conn=self._irc_conn,
             is_anon=self.is_anon
         )
 
     @property
     def is_restarting(self) -> bool:
-        return self.irc_connection.is_restarting
+        return self._irc_conn.is_restarting
 
     @property
     def is_running(self) -> bool:
-        return self.irc_connection.is_running
+        return self._irc_conn.is_running
 
     @property
     def is_anon(self) -> bool:
-        return self.irc_connection.is_anon
+        return self._irc_conn.is_anon
 
     def get_channel(
             self,
@@ -131,16 +131,17 @@ class Client:
             channels: (Iterable[str])
                 Iterable object with logins of channel to join
         """
-        global_state_msg = await self.irc_connection.connect()
+        global_state_msg = await self._irc_conn.connect()
         self.global_state = GlobalState(global_state_msg)
-        await self.irc_connection.join_channels(*channels)
-        async for irc_msg in self.irc_connection:
+        self._call_event('on_ready')
+        await self.join_channels(*channels)
+        async for irc_msg in self._irc_conn:
             self._do_later(
                 self._handle_command(irc_msg)  # protection from a shutdown caused by an exception
             )
 
     async def stop(self):  # TODO: script for case: self.is_running == False
-        await self.irc_connection.stop()
+        await self._irc_conn.stop()
 
     async def _handle_command(
             self,
@@ -152,44 +153,44 @@ class Client:
             self._call_event('on_unknown_command', irc_msg)
         else:
             try:
-                handler(self, irc_msg)
+                await handler(self, irc_msg)
             except ChannelNotAccumulated:
                 await self._delay_irc_message(irc_msg)
 
-    def _handle_names_part(
+    async def _handle_names_part(
             self,
             irc_msg: TwitchIRCMsg
     ) -> None:
-        self._channels_accumulator.accumulate_part(irc_msg)
+        await self._chnls_accum.accumulate_part(irc_msg)
 
-    def _handle_names_end(
+    async def _handle_names_end(
             self,
             irc_msg: TwitchIRCMsg
     ) -> None:
         if irc_msg.channel in self._channels_by_login:
-            self._handle_names_update(irc_msg)
+            await self._handle_names_update(irc_msg)
         else:
-            self._channels_accumulator.accumulate_part(irc_msg)
+            await self._chnls_accum.accumulate_part(irc_msg)
 
-    def _handle_names_update(
+    async def _handle_names_update(
             self,
             irc_msg: TwitchIRCMsg
     ):
         channel = self._channels_by_login[irc_msg.channel]
         before = channel.names
-        after = channel.names = self._channels_accumulator.abort_accumulation(irc_msg.channel).names  # abort -> Parts
+        after = channel.names = (await self._chnls_accum.abort_accumulations(irc_msg.channel)).names  # abort -> Parts
         self._call_event('on_names_update', channel, before, after)
 
-    def _handle_roomstate(
+    async def _handle_roomstate(
             self,
             irc_msg: TwitchIRCMsg
     ) -> None:
         if irc_msg.channel in self._channels_by_login:
-            self._handle_channel_update(irc_msg)
+            await self._handle_channel_update(irc_msg)
         else:
-            self._channels_accumulator.accumulate_part(irc_msg)
+            await self._chnls_accum.accumulate_part(irc_msg)
 
-    def _handle_channel_update(
+    async def _handle_channel_update(
             self,
             irc_msg: TwitchIRCMsg
     ) -> None:
@@ -202,22 +203,22 @@ class Client:
         else:
             channel.update_state(irc_msg)
 
-    def _handle_userstate(
+    async def _handle_userstate(
             self,
             irc_msg: TwitchIRCMsg
     ) -> None:
         # prepare tags
         if 'user-login' not in irc_msg:
-            irc_msg['user-login'] = self.irc_connection.login
+            irc_msg['user-login'] = self._irc_conn.login
         if 'user-id' not in irc_msg:
             irc_msg['user-id'] = self.global_state.id
         # if accumulated
         if irc_msg.channel in self._channels_by_login:
-            self._handle_userstate_update(irc_msg)
+            await self._handle_userstate_update(irc_msg)
         else:
-            self._channels_accumulator.accumulate_part(irc_msg)
+            await self._chnls_accum.accumulate_part(irc_msg)
 
-    def _handle_userstate_update(
+    async def _handle_userstate_update(
             self,
             irc_msg: TwitchIRCMsg
     ):
@@ -226,7 +227,7 @@ class Client:
         after = channel.client_state = LocalState(irc_msg)
         self._call_event('on_client_state_update', channel, before, after)
 
-    def _handle_privmsg(
+    async def _handle_privmsg(
             self,
             irc_msg: TwitchIRCMsg
     ) -> None:
@@ -234,65 +235,64 @@ class Client:
             channel = self._get_prepared_channel(irc_msg.channel)
             if 'user-login' not in irc_msg:
                 irc_msg['user-login'] = irc_msg.nickname
-            author = ChannelUser(irc_msg, channel, self.send_whisper)
+            author = ChannelUser(irc_msg, channel, self._irc_conn)
             message = ChannelMessage(irc_msg, channel, author)
             self._call_event('on_message', message)
 
-    def _handle_whisper(
+    async def _handle_whisper(
             self,
             irc_msg: TwitchIRCMsg
     ) -> None:
         if hasattr(self, 'on_whisper'):
             if 'user-login' not in irc_msg:
                 irc_msg['user-login'] = irc_msg.nickname
-            author = GlobalUser(irc_msg, self.send_whisper)
+            author = GlobalUser(irc_msg, self._irc_conn)
             whisper = Whisper(irc_msg, author)
             self._call_event('on_whisper', whisper)
 
-    def _handle_join(
+    async def _handle_join(
             self,
             irc_msg: TwitchIRCMsg
     ) -> None:
         channel = self._get_prepared_channel(irc_msg.channel)
         self._call_event('on_user_join', channel, irc_msg.nickname)
 
-    def _handle_part(
+    async def _handle_part(
             self,
             irc_msg: TwitchIRCMsg
     ) -> None:
         channel = self._get_prepared_channel(irc_msg.channel)
         self._call_event('on_user_part', channel, irc_msg.nickname)
 
-    def _handle_notice(
+    async def _handle_notice(
             self,
             irc_msg: TwitchIRCMsg
     ) -> None:
         notice_id = irc_msg.msg_id
         if notice_id in ('msg_room_not_found', 'msg_channel_suspended'):
-            self._handle_channel_join_error(irc_msg)
+            await self._handle_channel_join_error(irc_msg)
         elif notice_id.startswith('msg'):
             # NOTE: 'msg_room_not_found' & 'msg_channel_suspended' are handled in the previous condition
-            self._handle_send_message_error(irc_msg)
+            await self._handle_send_message_error(irc_msg)
         elif notice_id == 'cmds_available':
-            self._handle_cmds_available(irc_msg)
+            await self._handle_cmds_available(irc_msg)
         elif notice_id in ('room_mods', 'no_mods'):
-            self._handle_mods(irc_msg)
+            await self._handle_mods(irc_msg)
         elif notice_id in ('vips_success', 'no_vips'):
-            self._handle_vips(irc_msg)
+            await self._handle_vips(irc_msg)
         else:
             channel = self._get_prepared_channel(irc_msg.channel)
             self._call_event('on_notice', OnNotice(channel, notice_id, irc_msg.trailing))
             
-    def _handle_channel_join_error(
+    async def _handle_channel_join_error(
             self,
             irc_msg: TwitchIRCMsg
     ) -> None:
-        self.irc_connection.part_channels(irc_msg.channel)
-        self._channels_accumulator.abort_accumulation(irc_msg.channel, msg=irc_msg.trailing)
+        await self.part_channels(irc_msg.channel)
         reason = irc_msg.msg_id.removeprefix('msg_')
         self._call_event('on_channel_join_error', OnChannelJoinError(irc_msg.channel, reason, irc_msg.trailing))
             
-    def _handle_send_message_error(
+    async def _handle_send_message_error(
             self,
             irc_msg: TwitchIRCMsg
     ) -> None:
@@ -300,12 +300,12 @@ class Client:
         reason = irc_msg.msg_id.removeprefix('msg_')
         self._call_event('on_send_message_error', OnSendMessageError(channel, reason, irc_msg.trailing))
 
-    def _handle_cmds_available(
+    async def _handle_cmds_available(
             self,
             irc_msg: TwitchIRCMsg
     ) -> None:
         if (channel := self.get_channel(irc_msg.channel)) is None:
-            self._channels_accumulator.accumulate_part(irc_msg)
+            await self._chnls_accum.accumulate_part(irc_msg)
         else:  # TODO: check msg-id = 'no_help'
             before = channel.commands
             raw_cmds = irc_msg.trailing.split(' More')[0]  # 'More help: https://help.twitch.tv/...'
@@ -314,12 +314,12 @@ class Client:
             after = channel.commands = commands
             self._call_event('on_commands_update', channel, before, after)
 
-    def _handle_mods(
+    async def _handle_mods(
             self,
             irc_msg: TwitchIRCMsg
     ) -> None:
         if (channel := self.get_channel(irc_msg.channel)) is None:
-            self._channels_accumulator.accumulate_part(irc_msg)
+            await self._chnls_accum.accumulate_part(irc_msg)
         else:
             before = channel.mods
             if irc_msg.msg_id == 'no_mods':
@@ -330,12 +330,12 @@ class Client:
             after = channel.mods = mods
             self._call_event('on_mods_update', channel, before, after)
 
-    def _handle_vips(
+    async def _handle_vips(
             self,
             irc_msg: TwitchIRCMsg
     ) -> None:
         if (channel := self.get_channel(irc_msg.channel)) is None:
-            self._channels_accumulator.accumulate_part(irc_msg)
+            await self._chnls_accum.accumulate_part(irc_msg)
         else:
             before = channel.vips
             if irc_msg.msg_id == 'no_vips':
@@ -347,21 +347,21 @@ class Client:
             after = channel.vips = vips
             self._call_event('on_vips_update', channel, before, after)
 
-    def _handle_clearchat(
+    async def _handle_clearchat(
             self,
             irc_msg: TwitchIRCMsg
     ) -> None:
         if irc_msg.trailing:  # trailing contains login of the user
             if 'ban-duration' in irc_msg:
                 if hasattr(self, 'on_user_timeout'):
-                    self._handle_timeout(irc_msg)
+                    await self._handle_timeout(irc_msg)
             else:
                 if hasattr(self, 'on_user_ban'):
-                    self._handle_ban(irc_msg)
+                    await self._handle_ban(irc_msg)
         else:
-            self._handle_clear_chat(irc_msg)
+            await self._handle_clear_chat(irc_msg)
 
-    def _handle_timeout(
+    async def _handle_timeout(
             self,
             irc_msg: TwitchIRCMsg
     ) -> None:
@@ -376,7 +376,7 @@ class Client:
             'on_user_timeout', OnUserTimeout(channel,  user_login, user_id, message_id, duration, timestamp)
         )
 
-    def _handle_ban(
+    async def _handle_ban(
             self,
             irc_msg: TwitchIRCMsg
     ) -> None:
@@ -388,7 +388,7 @@ class Client:
 
         self._call_event('on_user_ban', OnUserBan(channel,  user_login, user_id, message_id, timestamp))
 
-    def _handle_clear_chat(
+    async def _handle_clear_chat(
             self,
             irc_msg: TwitchIRCMsg
     ) -> None:
@@ -396,7 +396,7 @@ class Client:
         timestamp = int(irc_msg.get('tmi-sent-ts', 0))
         self._call_event('on_clear_chat', OnClearChat(channel, timestamp))
 
-    def _handle_clearmsg(
+    async def _handle_clearmsg(
             self,
             irc_msg: TwitchIRCMsg
     ) -> None:
@@ -412,7 +412,7 @@ class Client:
                 OnMessageDelete(channel, user_login, content, message_id, timestamp)
             )
 
-    def _handle_usernotice(
+    async def _handle_usernotice(
             self,
             irc_msg: TwitchIRCMsg
     ) -> None:
@@ -427,27 +427,27 @@ class Client:
         else:
             # if has specified handler
             if hasattr(self, event_name):
-                author = ChannelUser(irc_msg, channel, self.send_whisper)
+                author = ChannelUser(irc_msg, channel, self._irc_conn)
                 event = event_class(irc_msg, author, channel)
                 self._call_event(event_name, event)
             # if has not specified handler
             elif hasattr(self, 'on_user_event'):
-                author = ChannelUser(irc_msg, channel, self.send_whisper)
+                author = ChannelUser(irc_msg, channel, self._irc_conn)
                 event = event_class(irc_msg, author, channel)
                 self._call_event('on_user_event', event)
 
-    def _handle_hosttarget(
+    async def _handle_hosttarget(
             self,
             irc_msg: TwitchIRCMsg
     ) -> None:
         if hasattr(self, 'on_host_start') or hasattr(self, 'on_host_stop'):
             host_login, viewers_count = irc_msg.trailing.split(' ', 1)
             if host_login == '-':
-                self._handle_host_start(irc_msg)
+                await self._handle_host_start(irc_msg)
             else:
-                self._handle_host_stop(irc_msg)
+                await self._handle_host_stop(irc_msg)
 
-    def _handle_host_start(
+    async def _handle_host_start(
             self,
             irc_msg: TwitchIRCMsg
     ) -> None:
@@ -456,7 +456,7 @@ class Client:
             viewers_count = int(viewers_count) if (viewers_count != '-') else 0
             self._call_event('on_host_start', host_login, viewers_count)
 
-    def _handle_host_stop(
+    async def _handle_host_stop(
             self,
             irc_msg: TwitchIRCMsg
     ) -> None:
@@ -465,19 +465,19 @@ class Client:
             viewers_count = int(viewers_count) if (viewers_count != '-') else None
             self._call_event('on_host_stop', viewers_count)
 
-    def _handle_globaluserstate(
+    async def _handle_globaluserstate(
             self,
             irc_msg: TwitchIRCMsg
     ):
         if 'user-login' not in irc_msg:
-            irc_msg['user-login'] = self.irc_connection.login
+            irc_msg['user-login'] = self._irc_conn.login
         self.global_state = GlobalState(irc_msg)
 
-    def _handle_reconnect(
+    async def _handle_reconnect(
             self,
             _: TwitchIRCMsg
     ):
-        self._do_later(self.irc_connection.restart())  # does not close connection if open
+        self._do_later(self._irc_conn.restart())  # does not close connection if open
 
     def _save_channel(
             self,
@@ -520,9 +520,9 @@ class Client:
         Returns:
             `None`
         """
-        await self.irc_connection.send(irc_message)
+        await self._irc_conn.send(irc_message)
 
-    async def send_message(
+    async def send_msg(
             self,
             channel_login: str,
             content: str
@@ -539,7 +539,7 @@ class Client:
         Returns:
             `None`
         """
-        await self.irc_connection.send_channel_message(channel_login, content)
+        await self._irc_conn.send_chnl_msg(channel_login, content)
 
     async def send_whisper(
             self,
@@ -558,15 +558,17 @@ class Client:
         Returns:
             `None`
         """
-        # send
-        await self.irc_connection.send_whisper(target, content)
+        await self._irc_conn.send_whisper(target, content)
 
-    async def _request_channel_parts(self, login: str):
-        """ Requests commands list, mods list, vips list for the :class:`Channel` with given `login` """
-        if not self.is_anon:
-            await self.send_message(login, '/help')
-            await self.send_message(login, '/mods')
-            await self.send_message(login, '/vips')
+    async def join_channels(self, *channels):
+        await self._chnls_accum.start_accumulations(*channels)
+        await self._irc_conn.join_channels(*channels)
+
+    async def part_channels(self, *channels):
+        await self._chnls_accum.abort_accumulations(*channels)
+        await self._irc_conn.part_channels(*channels)
+        for channel in channels:
+            self._delayed_irc_msgs.pop(channel, None)
 
     async def _delay_irc_message(self, irc_msg: TwitchIRCMsg) -> None:
         """
@@ -583,7 +585,7 @@ class Client:
         delayed_irc_messages = self._delayed_irc_msgs.setdefault(irc_msg.channel, [])
         if len(delayed_irc_messages) == 10:
             # something's wrong if there are 10 delayed messages, better try to reconnect
-            await self.irc_connection.join_channels(irc_msg.channel)
+            await self.join_channels(irc_msg.channel)
             print(f'Try to rejoin #{irc_msg.channel}')  # TODO: modify the print into logging
             delayed_irc_messages.append(irc_msg)
         # protection from memory overflow
@@ -657,8 +659,8 @@ class Client:
         else:  # what for a developer will register unknown event? better tell that person about
             raise NameError(f'"{handler_name}" is unknown name of event')
 
+    @staticmethod
     def _do_later(
-            self,
             coro: Awaitable
     ) -> None:
         """Creates async task in `self.loop`"""
@@ -724,5 +726,5 @@ class Client:
         'on_bits_badge_tier',  # bits badges tier
         'on_reward_gift',  # rewards
         'on_raid', 'on_unraid',  # raids
-        'on_ritual', # rituals
+        'on_ritual',  # rituals
     )

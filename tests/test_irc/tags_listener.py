@@ -26,9 +26,9 @@ class IRCListener(Client):
             self,
             channels: Iterable[str]
     ) -> AsyncIterator[TwitchIRCMsg]:
-        await self.irc_connection.connect()
-        await self.irc_connection.join_channels(channels)
-        async for irc_msg in self.irc_connection:
+        await self._irc_conn.connect()
+        await self._irc_conn.join_channels(channels)
+        async for irc_msg in self._irc_conn:
             yield irc_msg
 
     async def on_reconnect(self):
@@ -192,10 +192,10 @@ if __name__ == '__main__':
             await asyncio.sleep(30*60)
             top_channels = [json['user_login'] async for json in api.get_streams(chnls_count)]
             for i in range(count):
-                await listeners[i].irc_connection.part_channels(listeners[i].irc_connection.joined_channel_logins)
+                await listeners[i].part_channels(listeners[i]._irc_conn.joined_channel_logins)
                 start = i * channels_for_each
                 end = start + channels_for_each
-                await listeners[i].irc_connection.join_channels(top_channels[start:end])
+                await listeners[i].join_channels(top_channels[start:end])
             print('CHANNEL UPDATED')
 
     async def start_listener(listener: IRCListener, channels: Iterable[str]):

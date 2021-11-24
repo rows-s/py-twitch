@@ -37,7 +37,7 @@ class IRCClient:
         """ Sends <irc_msg> """
         return await self._ws.send(str(irc_msg) + '\r\n')
 
-    async def send_channel_message(self, channel: str, msg: str):
+    async def send_chnl_msg(self, channel: str, msg: str):
         await self.send(f'PRIVMSG #{channel} :{msg}')
 
     async def join_channels(self, *channels: str):
@@ -125,7 +125,7 @@ class TwitchIRCClient(IRCClient):
                 if irc_msg.command == 'GLOBALUSERSTATE':
                     if 'user-login' not in irc_msg:
                         irc_msg['user-login'] = self.login
-                        return irc_msg
+                    return irc_msg
                 elif irc_msg.command == 'NOTICE' and irc_msg.middles[0] == '*':
                     raise LoginFailed(irc_msg.trailing)
                 elif irc_msg.command == 'CAP' and irc_msg.middles[1] == 'NAK':
@@ -152,7 +152,7 @@ class TwitchIRCClient(IRCClient):
 
     async def send_whisper(self, target: str, msg: str, *, through: str = None):
         through = through or self.whisper_agent
-        await self.send_channel_message(through, f'/w {target} {msg}')
+        await self.send_chnl_msg(through, f'/w {target} {msg}')
 
     async def req_caps(self, *caps: str):
         if caps:
@@ -187,6 +187,8 @@ class TwitchIRCClient(IRCClient):
                     await self.restart()
                 else:
                     raise
+            except StopAsyncIteration:
+                return
 
 
 async def ttv_connect(login, token, *args, **kwards):

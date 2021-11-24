@@ -1,8 +1,9 @@
 import asyncio
 from asyncio import Task
-from typing import Callable, Coroutine, Dict, Union, List, Tuple, Optional
+from typing import Callable, Dict, Union, List, Tuple, Optional
 
 from .channel import Channel
+from .irc_connections import TwitchIRCClient
 from .irc_messages import TwitchIRCMsg
 from .user_states import LocalState
 
@@ -43,9 +44,8 @@ class ChannelParts:
             >>> if parts.is_ready == parts.READY:
             >>>     print('Wow!')
         """
-        ready_type: str = self.NOT_READY
-
         try:
+            ready_type: str = self.NOT_READY
             assert self.raw_channel_state is not None
             assert isinstance(self.names, tuple)  # migth be a list (unended names)
             ready_type = self.READY_ANON
@@ -55,7 +55,8 @@ class ChannelParts:
             assert self.vips is not None
             ready_type = self.READY
         except AssertionError:
-            return ready_type
+            pass
+        return ready_type
 
     def add_part(
             self,
@@ -80,11 +81,11 @@ class ChannelParts:
 
     def create_channel(
             self,
-            send_callback: Callable[[str], Coroutine]
+            irc_conn: TwitchIRCClient
     ) -> Channel:
         """
         Args:
-            send_callback:
+            irc_conn:
                 will be passed as the :class:`Channel`'s argument
 
         Returns:
@@ -97,7 +98,7 @@ class ChannelParts:
             self.commands or (),
             self.mods or (),
             self.vips or (),
-            send_callback
+            irc_conn,
         )
 
     def _get_raw_channel_state(self) -> TwitchIRCMsg:
@@ -111,7 +112,7 @@ class ChannelParts:
     def _get_handler_for_irc_msg(
             self,
             irc_msg: TwitchIRCMsg
-    ):
+    ) -> Callable[['ChannelParts', TwitchIRCMsg], None]:
         if irc_msg.command != 'NOTICE':
             return self._HANDLERS[irc_msg.command]
         else:
@@ -184,14 +185,14 @@ class ChannelParts:
 
     _EMPTY_CLIENT_STATE = LocalState(TwitchIRCMsg.create_empty())
 
-    _HANDLERS: Dict[str, Callable[['ChannelsAccumulator', TwitchIRCMsg], None]] = {
+    _HANDLERS: Dict[str, Callable[['ChannelParts', TwitchIRCMsg], None]] = {
         'ROOMSTATE': _update_channel_state,
         'USERSTATE': _update_client_state,
         '353': _update_names,
         '366': _end_names,
     }
 
-    _NOTICE_HANDLERS: Dict[str, Callable[['ChannelsAccumulator', TwitchIRCMsg], None]] = {
+    _NOTICE_HANDLERS: Dict[str, Callable[['ChannelParts', TwitchIRCMsg], None]] = {
         'cmds_available': _update_commands,
         'room_mods': _update_mods,
         'no_mods': _update_mods,
@@ -214,8 +215,8 @@ class ChannelsAccumulator:
     Args:
         channel_ready_callback:
             A function that gets 1 positional argument :class:`Channel`
-        send_callback:
-            A function that would be passed to the :class:`Channel`'s constructor
+        irc_conn:
+            IRCClient uses to send messages
         accumulation_timeout:
             The value of time limit for channel's accumulation. Default: 5.
         is_anon:
@@ -225,35 +226,37 @@ class ChannelsAccumulator:
             self,
             *,
             channel_ready_callback: Callable[[Channel], None],
-            send_callback: Callable[[str], Coroutine],
-            accumulation_timeout: float = 5,
+            irc_conn: TwitchIRCClient,
+            accumulation_timeout: float = 50,
             is_anon: bool = False
     ) -> None:
         self._channel_ready_callback: Callable[[Channel], None] = channel_ready_callback
-        self._send_callback: Callable[[str], Coroutine] = send_callback
+        self._irc_conn: TwitchIRCClient = irc_conn
         self._all_parts: Dict[str, ChannelParts] = {}
         self._timeout: float = accumulation_timeout
         self._timeout_tasks: Dict[str, Task] = {}
         self.is_anon: bool = is_anon
 
-    def start_accumulation(
+    async def start_accumulations(
             self,
-            channel_login: str
+            *channels: str
     ):
         """
         Adds timeout task for the given channel login. Creates :class:'ChannelParts' in advance.
 
         Args:
-            channel_login:
+            channels:
                 login of the channel to be accumulated
         """
-        self._add_timeout(channel_login, should_replace=True)
-        self._all_parts[channel_login] = ChannelParts(channel_login)
+        await self.abort_accumulations(*channels, msg='Restarting accumulation')
+        for channel in channels:
+            await self._add_timeout(channel)
+            self._all_parts[channel] = ChannelParts(channel)
+            await self._request_channel_parts(channel)
 
-    def abort_accumulation(
+    async def abort_accumulations(
             self,
-            channel_login: str,
-            *,
+            *channels: str,
             msg: str = None
     ) -> ChannelParts:
         """
@@ -261,16 +264,17 @@ class ChannelsAccumulator:
         else returns new empty :class:`ChannelParts`
 
         Args:
-            channel_login:
+            channels:
                 login of the channel whose accumulation must be aborted
             msg:
                 msg for the canceled task
         """
         msg = msg or 'Accumulation abort'
-        self._remove_timeout(channel_login, msg=msg)
-        return self._all_parts.pop(channel_login, None) or ChannelParts(channel_login)  # new one if None
+        for channel in channels:
+            await self._remove_timeout(channel, msg=msg)
+            return self._all_parts.pop(channel, None) or ChannelParts(channel)  # new one if None
 
-    def accumulate_part(
+    async def accumulate_part(
             self,
             irc_msg: TwitchIRCMsg
     ):
@@ -282,26 +286,19 @@ class ChannelsAccumulator:
             irc_msg:
                 raw part
         """
-        parts = self._setdefault_parts(irc_msg.channel)
+        parts = await self._setdefault_parts(irc_msg.channel)
         parts.add_part(irc_msg)
-        if self.is_channel_ready(irc_msg.channel):
-            self._call_channel_ready_callback(irc_msg.channel)
+        if await self.is_channel_ready(irc_msg.channel):
+            await self._call_channel_ready_callback(irc_msg.channel)
 
-    def get_names(
-            self,
-            channel_login: str
-    ) -> Tuple[str]:
-        """
-        Args:
-            channel_login:
-                login of the channel whose parts must be returned
+    async def _request_channel_parts(self, login: str):
+        """ Requests commands list, mods list, vips list for the channel with given `login` """
+        if not self.is_anon:
+            await self._irc_conn.send_chnl_msg(login, '/help')
+            await self._irc_conn.send_chnl_msg(login, '/mods')
+            await self._irc_conn.send_chnl_msg(login, '/vips')
 
-        Returns:
-            the names
-        """
-        return tuple(self._get_parts(channel_login).names or ())
-
-    def is_channel_ready(
+    async def is_channel_ready(
             self,
             channel_login: str
     ) -> bool:
@@ -314,34 +311,27 @@ class ChannelsAccumulator:
 
         Returns: :class:`bool`
         """
-        if channel_login not in self._all_parts:
+        if (parts := self._all_parts.get(channel_login)) is None:
             return False
-        parts = self._all_parts[channel_login]
-        if not self.is_anon:
+        elif not self.is_anon:
             return parts.is_ready == parts.READY
         else:
             return parts.is_ready in (parts.READY_ANON, parts.READY)
 
-    def _setdefault_parts(self, channel_login: str) -> ChannelParts:
+    async def _setdefault_parts(self, channel_login: str) -> ChannelParts:
         try:
             return self._all_parts[channel_login]
         except KeyError:
             self._all_parts[channel_login] = (parts := ChannelParts(channel_login))
             return parts
 
-    def _get_parts(self, channel_login: str) -> ChannelParts:
-        return self._all_parts.get(channel_login) or ChannelParts(channel_login)  # new one if None
-
-    def _add_timeout(
+    async def _add_timeout(
             self,
-            channel_login: str,
-            should_replace: bool = False
+            channel_login: str
     ):
-        if should_replace:
-            self.abort_accumulation(channel_login, msg='replacing timeout')
         self._timeout_tasks[channel_login] = asyncio.create_task(self._channel_ready_timeout(channel_login))
 
-    def _remove_timeout(
+    async def _remove_timeout(
             self,
             channel_login: str,
             msg: Optional[str] = None
@@ -351,14 +341,14 @@ class ChannelsAccumulator:
 
     async def _channel_ready_timeout(self, channel_login: str):
         await asyncio.sleep(self._timeout)
-        self._call_channel_ready_callback(channel_login, by_timeout=True)
+        await self._call_channel_ready_callback(channel_login, by_timeout=True)
 
-    def _call_channel_ready_callback(
+    async def _call_channel_ready_callback(
             self,
             channel_login: str,
             *,
             by_timeout: bool = False
     ):
         msg = 'Channel ready' + (' timeout' if by_timeout else '')
-        parts = self.abort_accumulation(channel_login, msg=msg)
-        self._channel_ready_callback(parts.create_channel(send_callback=self._send_callback))
+        parts = await self.abort_accumulations(channel_login, msg=msg)
+        self._channel_ready_callback(parts.create_channel(irc_conn=self._irc_conn))
