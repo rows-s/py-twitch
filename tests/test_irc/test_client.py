@@ -166,7 +166,7 @@ async def test_handle_names_update():
 async def test_handle_roomstate():
     bot = Client('token', 'login')
     await bot._handle_command(RS)
-    assert bot._chnls_accum.abort_accumulation('target').raw_channel_state == RS
+    assert (await bot._chnls_accum.get_parts('target')).raw_channel_state == RS
     # also is being tested in `test_handle_channel_update()`
 
 
@@ -195,7 +195,7 @@ async def test_handle_channel_update():
 async def test_handle_userstate():
     bot = Client('token', 'login')
     await handle_commands(bot, GS, US)
-    assert bot._chnls_accum.abort_accumulation('target').client_state == LocalState(US)
+    assert (await bot._chnls_accum.get_parts('target')).client_state == LocalState(US)
 
 
 @pytest.mark.asyncio
