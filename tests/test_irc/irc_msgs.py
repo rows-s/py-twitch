@@ -42,6 +42,7 @@ CMDS = ('/cmd1', '/cmd2', '/cmd3')
 CMDS2 = ('/cmd1', '/cmd2', '/new_cmd')
 # all channel_parts
 CHANNEL_PARTS = (GS, RS, US, NP, NP2, NE, RM, VS, CA)
+
 MSG = TwitchIRCMsg('@display-name=UserName;emotes=555555558:23-24 :username!username@username.tmi.twitch.tv '
                  'PRIVMSG #target :content with a @mention :(')
 WP = TwitchIRCMsg('@display-name=UserName;emotes=555555558:23-24 :username!username@username.tmi.twitch.tv '
