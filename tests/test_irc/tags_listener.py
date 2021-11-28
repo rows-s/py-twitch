@@ -215,7 +215,7 @@ if __name__ == '__main__':
             if message.author.login == IRC_NICK:
                 if message.content == '!write':
                     count = await save_tags_in_file()
-                    await message.channel.send_message(str(count))
+                    await message.channel.send(str(count))
                 elif message.content.startswith('!smart'):
                     if 'privmsg' in message.content:
                         await save_privmsg_smart_log()

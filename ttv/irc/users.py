@@ -40,28 +40,28 @@ class ChannelUser(BaseUser, LocalState):
         self.channel: Channel = channel
 
     async def ban(self, reason: str = ''):
-        await self.channel.send_message(f'/ban {self.login} {reason}')
+        await self.channel.send(f'/ban {self.login} {reason}')
 
     async def unban(self):
-        await self.channel.send_message(f'/unban {self.login}')
+        await self.channel.send(f'/unban {self.login}')
 
     async def timeout(self, seconds: int):
-        await self.channel.send_message(f'/timeout {self.login} {seconds}')
+        await self.channel.send(f'/timeout {self.login} {seconds}')
 
     async def untimeout(self):
-        await self.channel.send_message(f'/untimeout  {self.login}')
+        await self.channel.send(f'/untimeout  {self.login}')
 
     async def vip(self):
-        await self.channel.send_message(f'/vip {self.login}')
+        await self.channel.send(f'/vip {self.login}')
 
     async def unvip(self):
-        await self.channel.send_message(f'/unvip {self.login}')
+        await self.channel.send(f'/unvip {self.login}')
 
     async def mod(self):
-        await self.channel.send_message(f'/mod {self.login}')
+        await self.channel.send(f'/mod {self.login}')
 
     async def unmod(self):
-        await self.channel.send_message(f'/unmod {self.login}')
+        await self.channel.send(f'/unmod {self.login}')
 
 
 class GlobalUser(BaseUser, GlobalState):

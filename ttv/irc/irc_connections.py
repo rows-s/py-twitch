@@ -37,7 +37,7 @@ class IRCClient:
         """ Sends <irc_msg> """
         return await self._ws.send(str(irc_msg) + '\r\n')
 
-    async def send_chnl_msg(self, channel: str, msg: str):
+    async def send_msg(self, channel: str, msg: str):
         await self.send(f'PRIVMSG #{channel} :{msg}')
 
     async def join_channels(self, *channels: str):
@@ -152,7 +152,7 @@ class TwitchIRCClient(IRCClient):
 
     async def send_whisper(self, target: str, msg: str, *, through: str = None):
         through = through or self.whisper_agent
-        await self.send_chnl_msg(through, f'/w {target} {msg}')
+        await self.send_msg(through, f'/w {target} {msg}')
 
     async def req_caps(self, *caps: str):
         if caps:

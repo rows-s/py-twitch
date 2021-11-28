@@ -56,7 +56,7 @@ class ParentMessage:
         self.id: str = irc_msg.get('reply-parent-msg-id')
 
     async def delete(self):
-        await self.channel.send_message(f'/delete {self.id}')
+        await self.channel.send(f'/delete {self.id}')
 
     def __str__(self):
         return f'@{self.author.login} to #{self.channel.login} :{self.content}'
@@ -79,7 +79,7 @@ class ChannelMessage(BaseMessage):
         self._irc_msg: TwitchIRCMsg = irc_msg
 
     async def delete(self):
-        await self.channel.send_message(f'/delete {self.id}')
+        await self.channel.send(f'/delete {self.id}')
 
     @cached_property
     def parent_message(self) -> Optional[ParentMessage]:

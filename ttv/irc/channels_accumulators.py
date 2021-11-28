@@ -294,9 +294,9 @@ class ChannelsAccumulator:
     async def _request_channel_parts(self, login: str):
         """ Requests commands list, mods list, vips list for the channel with given `login` """
         if not self.is_anon:
-            await self._irc_conn.send_chnl_msg(login, '/help')
-            await self._irc_conn.send_chnl_msg(login, '/mods')
-            await self._irc_conn.send_chnl_msg(login, '/vips')
+            await self._irc_conn.send_msg(login, '/help')
+            await self._irc_conn.send_msg(login, '/mods')
+            await self._irc_conn.send_msg(login, '/vips')
 
     async def is_channel_ready(
             self,

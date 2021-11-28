@@ -539,7 +539,7 @@ class Client:
         Returns:
             `None`
         """
-        await self._irc_conn.send_chnl_msg(channel_login, content)
+        await self._irc_conn.send_msg(channel_login, content)
 
     async def send_whisper(
             self,

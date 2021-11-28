@@ -83,26 +83,26 @@ class Channel:
             self._raw_state.copy(), self.client_state, self.names, self.commands, self.mods, self.vips, self._irc_conn
         )
 
-    async def send_message(
+    async def send(
             self,
             content: str
     ) -> None:
-        await self._irc_conn.send_chnl_msg(self.login, content)
+        await self._irc_conn.send_msg(self.login, content)
 
     async def request_state_update(self):
         await self._irc_conn.join_channels(self.login)
 
     async def request_commands(self):
-        await self._irc_conn.send_chnl_msg(self.login, '/help')
+        await self.send('/help')
 
     async def request_mods(self):
-        await self._irc_conn.send_chnl_msg(self.login, '/mods')
+        await self.send('/mods')
 
     async def request_vips(self):
-        await self._irc_conn.send_chnl_msg(self.login, '/vips')
+        await self.send('/vips')
 
     async def clear(self):
-        await self._irc_conn.send_chnl_msg(self.login, '/clear')
+        await self.send('/clear')
 
     def __eq__(self, other):
         return isinstance(other, Channel) and self.login == other.login
