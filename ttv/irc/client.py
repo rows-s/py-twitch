@@ -19,7 +19,7 @@ __all__ = ('Client', )
 
 class Client:
 
-    def __init__(  # TODO: set all the accum bool variables True and review the anon script for them.
+    def __init__(
             self,
             token: str,
             login: str,
@@ -178,7 +178,8 @@ class Client:
     ):
         channel = self._channels_by_login[irc_msg.channel]
         before = channel.names
-        after = channel.names = (await self._chnls_accum.abort_accumulations(irc_msg.channel)).names  # abort -> Parts
+        after = channel.names = (await self._chnls_accum.get_parts(irc_msg.channel)).names
+        await self._chnls_accum.abort_accumulations(irc_msg.channel)  # Remove the ChannelParts from the Accum
         self._call_event('on_names_update', channel, before, after)
 
     async def _handle_roomstate(

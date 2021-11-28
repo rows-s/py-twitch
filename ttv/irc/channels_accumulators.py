@@ -210,7 +210,7 @@ class ChannelsAccumulator:
         2. Calls when the timeout is expired. Timeout is canceled if the channel is ready
         3. Timeouts are being handled only after calling :meth:`start_accumulation()`
         4. To don't use timeout feature don't call :meth:`start_accumulation()`
-        5. There is :meth:`abort_accumulation()` that removes the timeout task and parts (returns the parts).
+        5. There is :meth:`abort_accumulation()` that removes the timeout task and accumulated parts.
 
     Args:
         channel_ready_callback:
@@ -258,10 +258,9 @@ class ChannelsAccumulator:
             self,
             *channels: str,
             msg: str = None
-    ) -> ChannelParts:
+    ) -> None:
         """
-        Cancels the timeout task if exists. Removes the :class:`ChannelParts` and return it if exists
-        else returns new empty :class:`ChannelParts`
+        Cancels the timeout task if exists.
 
         Args:
             channels:
@@ -272,7 +271,7 @@ class ChannelsAccumulator:
         msg = msg or 'Accumulation abort'
         for channel in channels:
             await self._remove_timeout(channel, msg=msg)
-            return self._all_parts.pop(channel, None) or ChannelParts(channel)  # new one if None
+            self._all_parts.pop(channel, None)
 
     async def accumulate_part(
             self,
@@ -290,6 +289,9 @@ class ChannelsAccumulator:
         parts.add_part(irc_msg)
         if await self.is_channel_ready(irc_msg.channel):
             await self._call_channel_ready_callback(irc_msg.channel)
+
+    async def get_parts(self, channel_login: str) -> ChannelParts:
+        return self._all_parts.get(channel_login) or ChannelParts(channel_login)
 
     async def _request_channel_parts(self, login: str):
         """ Requests commands list, mods list, vips list for the channel with given `login` """
@@ -350,5 +352,6 @@ class ChannelsAccumulator:
             by_timeout: bool = False
     ):
         msg = 'Channel ready' + (' timeout' if by_timeout else '')
-        parts = await self.abort_accumulations(channel_login, msg=msg)
+        parts = await self.get_parts(channel_login)
+        await self.abort_accumulations(channel_login, msg=msg)
         self._channel_ready_callback(parts.create_channel(irc_conn=self._irc_conn))

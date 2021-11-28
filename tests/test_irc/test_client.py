@@ -128,10 +128,10 @@ async def test_handle_names_part():
     bot = Client('token', 'login')
     # set(update)
     await handle_commands(bot, NP, NE)
-    assert bot._chnls_accum.abort_accumulation('target').names == NAMES[:3]
+    assert (await bot._chnls_accum.get_parts('target')).names == NAMES[:3]
     # update
     await handle_commands(bot, NP, NP2, NE)
-    assert bot._chnls_accum.abort_accumulation('target').names == NAMES
+    assert (await bot._chnls_accum.get_parts('target')).names == NAMES
 
 
 @pytest.mark.asyncio
