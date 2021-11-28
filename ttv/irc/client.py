@@ -178,7 +178,7 @@ class Client:
     ):
         channel = self._channels_by_login[irc_msg.channel]
         before = channel.names
-        after = channel.names = (await self._chnls_accum.get_parts(irc_msg.channel)).names
+        after = channel.names = tuple((await self._chnls_accum.get_parts(irc_msg.channel)).names)
         await self._chnls_accum.abort_accumulations(irc_msg.channel)  # Remove the ChannelParts from the Accum
         self._call_event('on_names_update', channel, before, after)
 
@@ -289,7 +289,6 @@ class Client:
             self,
             irc_msg: TwitchIRCMsg
     ) -> None:
-        await self.part_channels(irc_msg.channel)
         reason = irc_msg.msg_id.removeprefix('msg_')
         self._call_event('on_channel_join_error', OnChannelJoinError(irc_msg.channel, reason, irc_msg.trailing))
             

@@ -157,7 +157,7 @@ async def test_handle_names_update():
 
     bot = LClient('token', 'login')
     await handle_commands(bot, *CHANNEL_PARTS, NP2, NE)
-    assert bot.get_channel('target').names == list(NAMES[3:])
+    assert bot.get_channel('target').names == NAMES[3:]
     await asyncio.sleep(0.001)
     assert bot.is_names_updated
 
