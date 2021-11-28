@@ -149,8 +149,6 @@ class Client:
     ) -> None:
         try:
             handler = self._COMMAND_HANDLERS[irc_msg.command]
-            if irc_msg.command != 'PRIVMSG':
-                print(f'{irc_msg.channel}\n    {irc_msg}')
         except KeyError:
             self._call_event('on_unknown_command', irc_msg)
         else:
