@@ -351,22 +351,25 @@ async def test_handle_send_message_error():
 
 
 @pytest.mark.asyncio
-async def test_handle_mods():  # TODO: test no_mods
+async def test_handle_mods():
     class LClient(Client):
         def __init__(self, token: str, login: str):
             super().__init__(token, login)
             self.got_on_mods_update = False
+            self.got_no_mods = False
 
         async def on_mods_update(self, channel, before, after):
             assert channel.login == 'target'
-            assert before == MODS
-            assert after == MODS2
-            self.got_on_mods_update = True
+            if before == MODS and after == MODS2:
+                self.got_on_mods_update = True
+            elif before == MODS2 and after == ():
+                self.got_no_mods = True
 
     bot = LClient('token', 'login')
-    await handle_commands(bot, *CHANNEL_PARTS, ROOM_MODS2)
+    await handle_commands(bot, *CHANNEL_PARTS, ROOM_MODS2, NO_MODS)
     await asyncio.sleep(0.001)
     assert bot.got_on_mods_update
+    assert bot.got_no_mods
 
 
 @pytest.mark.asyncio

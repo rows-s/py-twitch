@@ -16,7 +16,7 @@ ROOM_MODS = TwitchIRCMsg(
 ROOM_MODS2 = TwitchIRCMsg(
     '@msg-id=room_mods NOTICE #target :The moderators of this channel are: mod_login1, mod_login2, new_mod_login'
 )
-NO_MODS = TwitchIRCMsg('@msg-id=no_mods :tmi.twitch.tv NOTICE #rows_ss :There are no moderators of this channel.')
+NO_MODS = TwitchIRCMsg('@msg-id=no_mods :tmi.twitch.tv NOTICE #target :There are no moderators of this channel.')
 MODS = ('mod_login1', 'mod_login2', 'mod_login3')
 MODS2 = ('mod_login1', 'mod_login2', 'new_mod_login')
 # vips
