@@ -275,7 +275,7 @@ class Client:
         elif notice_id.startswith('msg'):
             # NOTE: 'msg_room_not_found' & 'msg_channel_suspended' are handled in the previous condition
             await self._handle_send_message_error(irc_msg)
-        elif notice_id == 'cmds_available':
+        elif notice_id in ('cmds_available', 'no_help'):
             await self._handle_cmds_available(irc_msg)
         elif notice_id in ('room_mods', 'no_mods'):
             await self._handle_mods(irc_msg)
@@ -306,11 +306,14 @@ class Client:
     ) -> None:
         if (channel := self.get_channel(irc_msg.channel)) is None:
             await self._chnls_accum.accumulate_part(irc_msg)
-        else:  # TODO: check msg-id = 'no_help'
+        else:
             before = channel.commands
-            raw_cmds = irc_msg.trailing.split(' More')[0]  # 'More help: https://help.twitch.tv/...'
-            raw_cmds = raw_cmds.split(': ', 1)[1]  # 'Commands available to you in this room (...): '
-            commands = tuple(raw_cmds.split(' '))
+            if irc_msg.msg_id == 'no_help':
+                commands = ()
+            else:
+                raw_cmds = irc_msg.trailing.split(' More')[0]  # 'More help: https://help.twitch.tv/...'
+                raw_cmds = raw_cmds.split(': ', 1)[1]  # 'Commands available to you in this room (...): '
+                commands = tuple(raw_cmds.split(' '))
             after = channel.commands = commands
             self._call_event('on_commands_update', channel, before, after)
 

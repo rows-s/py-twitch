@@ -400,17 +400,20 @@ async def test_handle_cmds_available():
         def __init__(self, token: str, login: str):
             super().__init__(token, login)
             self.got_on_commands_update = False
+            self.got_no_help = False
 
         async def on_commands_update(self, channel, before, after):
             assert channel.login == 'target'
-            assert before == CMDS
-            assert after == CMDS2
-            self.got_on_commands_update = True
+            if before == CMDS and after == CMDS2:
+                self.got_on_commands_update = True
+            elif before == CMDS2 and after == ():
+                self.got_no_help = True
 
     bot = LClient('token', 'login')
-    await handle_commands(bot, *CHANNEL_PARTS, ROOM_CMDS2)
+    await handle_commands(bot, *CHANNEL_PARTS, ROOM_CMDS2, NO_CMDS)
     await asyncio.sleep(0.001)
     assert bot.got_on_commands_update
+    assert bot.got_no_help
 
 
 @pytest.mark.asyncio

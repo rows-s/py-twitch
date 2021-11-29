@@ -38,6 +38,7 @@ ROOM_CMDS2 = TwitchIRCMsg(
     '@msg-id=cmds_available NOTICE #target :Commands available to you in this room (use /help <command> for details): '
     '/cmd1 /cmd2 /new_cmd More help: https://help.twitch.tv/s/article/chat-commands'
 )
+NO_CMDS = TwitchIRCMsg('@msg-id=no_help NOTICE #target :No comands aviliable to you in this room')
 CMDS = ('/cmd1', '/cmd2', '/cmd3')
 CMDS2 = ('/cmd1', '/cmd2', '/new_cmd')
 # all channel_parts
