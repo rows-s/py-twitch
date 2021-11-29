@@ -109,30 +109,34 @@ class TwitchIRCClient(IRCClient):
         return self._restarting_task is not None
 
     @property
-    def is_anon(self) -> bool:  #
+    def is_anon(self) -> bool:
         return self.login.startswith('justinfan') and not self.login == 'justinfan'
 
-    async def connect(
-            self,
-            *,
-            expected_commands: Iterable[str] = ('001', '002', '003', '004', '372', '375', '376', 'CAP')
-            ) -> TwitchIRCMsg:
+    async def connect(self) -> TwitchIRCMsg:
         self._ws = await websockets.connect(self._uri)
         await self.req_caps('twitch.tv/membership', 'twitch.tv/commands', 'twitch.tv/tags')
         await self.log_in()
-        if not self.is_anon:  # must not have problems with an anon log in
-            async for irc_msg in self:
-                if irc_msg.command == 'GLOBALUSERSTATE':
-                    if 'user-login' not in irc_msg:
-                        irc_msg['user-login'] = self.login
-                    return irc_msg
-                elif irc_msg.command == 'NOTICE' and irc_msg.middles[0] == '*':
-                    raise LoginFailed(irc_msg.trailing)
-                elif irc_msg.command == 'CAP' and irc_msg.middles[1] == 'NAK':
-                    raise CapReqError(irc_msg)
-                elif irc_msg.command not in expected_commands:
-                    break  # we must be logged in if are getting unexpected messages
-        return IRCMsg.create_empty()
+        if not self.is_anon:
+            return await self._validate_connection()
+        else:  # must not have problems with an anon log in
+            return IRCMsg.create_empty()
+
+    async def _validate_connection(
+            self,
+            *,
+            expected_commands: Iterable[str] = ('001', '002', '003', '004', '372', '375', '376', 'CAP')
+    ) -> TwitchIRCMsg:
+        async for irc_msg in self:
+            if irc_msg.command == 'GLOBALUSERSTATE':
+                if 'user-login' not in irc_msg:
+                    irc_msg['user-login'] = self.login
+                return irc_msg
+            elif irc_msg.command == 'NOTICE' and irc_msg.middles[0] == '*':
+                raise LoginFailed(irc_msg.trailing)
+            elif irc_msg.command == 'CAP' and irc_msg.middles[1] == 'NAK':
+                raise CapReqError(irc_msg)  # too many things base on tags. whatever, it's escapable by try-block
+            elif irc_msg.command not in expected_commands:
+                return irc_msg.create_empty()  # we must be logged in if are getting unexpected messages
 
     async def send(self, irc_msg: Union[IRCMsg, str]):
         """
@@ -174,7 +178,6 @@ class TwitchIRCClient(IRCClient):
         await asyncio.sleep(next(self._delay_gen))  # realisation of recommended reconnect delays
         await self.connect()
         await self.join_channels(*self.joined_channel_logins)
-        print('Oops, irc_connection restarted')  # TODO: must be logging
         asyncio.create_task(self.on_recconect_callback())
         self._running_restart_task = None
 
