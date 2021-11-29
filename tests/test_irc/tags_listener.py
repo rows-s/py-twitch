@@ -177,7 +177,6 @@ if __name__ == '__main__':
             )
 
     async def start_listeners(listeners: List[IRCListener], channels_for_each: int):
-        loop = asyncio.get_event_loop()
         api = await Api.create(API_TOKEN)
         count = len(listeners)
         chnls_count = count * channels_for_each
@@ -185,16 +184,16 @@ if __name__ == '__main__':
         for i in range(count):
             start = i * channels_for_each
             end = start + channels_for_each
-            loop.create_task(start_listener(listeners[i], top_channels[start:end]))
+            asyncio.create_task(start_listener(listeners[i], top_channels[start:end]))
         print('LISTENERS HAVE BEEN STARTED')
         while True:
             await asyncio.sleep(30*60)
             top_channels = [json['user_login'] async for json in api.get_streams(chnls_count)]
             for i in range(count):
-                await listeners[i].part_channels(listeners[i]._irc_conn.joined_channel_logins)
+                await listeners[i].part_channels(*listeners[i]._irc_conn.joined_channel_logins)
                 start = i * channels_for_each
                 end = start + channels_for_each
-                await listeners[i].join_channels(top_channels[start:end])
+                await listeners[i].join_channels(*top_channels[start:end])
             print('CHANNEL UPDATED')
 
     async def start_listener(listener: IRCListener, channels: Iterable[str]):
@@ -210,11 +209,15 @@ if __name__ == '__main__':
         bot = Client(IRC_TOKEN, IRC_NICK)
 
         @bot.event
+        async def on_ready():
+            print("Console started")
+
+        @bot.event
         async def on_message(message: ChannelMessage):
             if message.author.login == IRC_NICK:
                 if message.content == '!write':
                     count = await save_tags_in_file()
-                    await message.channel.send(str(count))
+                    await message.channel.send(count)
                 elif message.content.startswith('!smart'):
                     if 'privmsg' in message.content:
                         await save_privmsg_smart_log()
@@ -225,20 +228,19 @@ if __name__ == '__main__':
                     for listener in listeners:
                         await listener.stop()
                     await bot.stop()
+                    asyncio.get_event_loop().stop()
 
         run_mod = input("Run mode ('listen %d %d' or 'ttv_console', default: 'ttv_console'): ")
         if run_mod.startswith('listen'):
             chnls_count, listeners_count = run_mod.split(' ', 2)[1:3]
             chnls_count, listeners_count = int(chnls_count), int(listeners_count)
             chnls_count = chnls_count // listeners_count * listeners_count
-            print(f'Start {chnls_count//listeners_count} listeners')
-            listeners = [IRCListener(IRC_TOKEN, IRC_NICK, f'No.{i}') for i in range(chnls_count//listeners_count)]
-            await start_listeners(listeners, chnls_count // listeners_count)
+            print(f'Start {listeners_count} listeners')
+            listeners = [IRCListener(IRC_TOKEN, IRC_NICK, f'No.{i}') for i in range(listeners_count)]
+            asyncio.create_task(start_listeners(listeners, chnls_count // listeners_count))
         elif run_mod == 'ttv_console':
             pass
-        else:
-            pass
-        asyncio.get_event_loop().create_task(bot.start([IRC_NICK]))
+        asyncio.create_task(bot.start([IRC_NICK]))
 
     async def save_tags_in_file(file_name: str = 'tags.txt'):
         def write(text: str):

@@ -170,10 +170,11 @@ class TwitchIRCClient(IRCClient):
         await self._restarting_task
 
     # have to have the func because of the problem that loop.current_task() returns root task, not the last awaited
-    async def _restart(self):
+    async def _restart(self):  # TODO: can stack without any message must be fixed by logging
         await asyncio.sleep(next(self._delay_gen))  # realisation of recommended reconnect delays
-        await self.log_in()
+        await self.connect()
         await self.join_channels(*self.joined_channel_logins)
+        print('Oops, irc_connection restarted')  # TODO: must be logging
         asyncio.create_task(self.on_recconect_callback())
         self._running_restart_task = None
 

@@ -563,7 +563,7 @@ class Client:
         """
         await self._irc_conn.send_whisper(target, content)
 
-    async def join_channels(self, *channels):
+    async def join_channels(self, *channels: str):
         await self._chnls_accum.start_accumulations(*channels)
         await self._irc_conn.join_channels(*channels)
 
