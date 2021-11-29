@@ -373,7 +373,7 @@ async def test_handle_mods():
 
 
 @pytest.mark.asyncio
-async def test_handle_vips():  # TODO: test no_vips
+async def test_handle_vips():
     class LClient(Client):
         def __init__(self, token: str, login: str):
             super().__init__(token, login)
