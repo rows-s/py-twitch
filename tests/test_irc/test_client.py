@@ -378,17 +378,20 @@ async def test_handle_vips():  # TODO: test no_vips
         def __init__(self, token: str, login: str):
             super().__init__(token, login)
             self.got_on_vips_update = False
+            self.got_no_vips = False
 
         async def on_vips_update(self, channel, before, after):
             assert channel.login == 'target'
-            assert before == VIPS
-            assert after == VIPS2
-            self.got_on_vips_update = True
+            if before == VIPS and after == VIPS2:
+                self.got_on_vips_update = True
+            elif before == VIPS2 and after == ():
+                self.got_no_vips = True
 
     bot = LClient('token', 'login')
-    await handle_commands(bot, *CHANNEL_PARTS, ROOM_VIPS2)
+    await handle_commands(bot, *CHANNEL_PARTS, ROOM_VIPS2, NO_VIPS)
     await asyncio.sleep(0.001)
     assert bot.got_on_vips_update
+    assert bot.got_no_vips
 
 
 @pytest.mark.asyncio
