@@ -588,7 +588,7 @@ class Client:
         delayed_irc_messages = self._delayed_irc_msgs.setdefault(irc_msg.channel, [])
         if len(delayed_irc_messages) == 30:
             print(f'#{irc_msg.channel} got delayed_msgs overflow')  # TODO: modify the print into logging
-            delayed_irc_messages.append(irc_msg)
+            delayed_irc_messages.append(irc_msg)  # was 30 becoming 31 no more true conditions
         elif len(delayed_irc_messages) < 30:
             delayed_irc_messages.append(irc_msg)
 
