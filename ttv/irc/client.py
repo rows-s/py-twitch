@@ -593,7 +593,7 @@ class Client:
             delayed_irc_messages.append(irc_msg)
         # protection from memory overflow
         elif len(delayed_irc_messages) == 30:
-            print(f'#{irc_msg.channel} has delayed msgs overflow')  # TODO: modify the print into logging
+            print(f'#{irc_msg.channel} got delayed_msgs overflow')  # TODO: modify the print into logging
             delayed_irc_messages.append(irc_msg)
         elif len(delayed_irc_messages) > 30:
             pass
