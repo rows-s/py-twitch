@@ -26,7 +26,9 @@ class Client:
             *,
             keep_alive: bool = True
     ) -> None:
-        self._irc_conn = TwitchIRCClient(login, token, keep_alive=keep_alive)
+        self._irc_conn = TwitchIRCClient(
+            login, token, keep_alive=keep_alive, on_recconect_callback=self._on_irc_conn_reconnect
+        )
         # state
         self.global_state: Optional[GlobalState] = None
         # channels
@@ -142,6 +144,9 @@ class Client:
 
     async def stop(self):  # TODO: script for case: self.is_running == False
         await self._irc_conn.stop()
+
+    async def _on_irc_conn_reconnect(self):
+        self._call_event('on_reconnect')
 
     async def _handle_command(
             self,
