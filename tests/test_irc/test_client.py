@@ -4,7 +4,7 @@ from typing import Tuple
 
 import pytest
 
-from tests.test_irc.irc_msgs import *  # TODO: bad import
+from tests.test_irc.irc_msgs import *
 from ttv.irc import Client, Channel, LocalState, ChannelMessage, Whisper
 from ttv.irc.events import *
 from ttv.irc.exceptions import *
@@ -111,14 +111,14 @@ async def test_handle_command():
         async def on_message(self, message): pass  # just to make bot handle PRIVMSG
             
         async def on_unknown_command(self, irc_msg):
-            assert irc_msg is CAP
+            assert irc_msg is CAPS
             self.is_on_unknown_command_called = True
 
     # delay msg
     bot = LClient('token', 'login')
-    await handle_commands(bot, MSG, CAP)
+    await handle_commands(bot, PRIVMSG, CAPS)
     await asyncio.sleep(0.001)
-    assert bot._delayed_irc_msgs['target'] == [MSG]
+    assert bot._delayed_irc_msgs['target'] == [PRIVMSG]
     assert bot.is_on_unknown_command_called
     # also is being tested in test_handle_* tests
 
@@ -127,10 +127,10 @@ async def test_handle_command():
 async def test_handle_names_part():
     bot = Client('token', 'login')
     # set(update)
-    await handle_commands(bot, NP, NE)
+    await handle_commands(bot, NAMES_PART, NAMES_END)
     assert (await bot._chnls_accum.get_parts('target')).names == NAMES[:3]
     # update
-    await handle_commands(bot, NP, NP2, NE)
+    await handle_commands(bot, NAMES_PART, NAMES_PART2, NAMES_END)
     assert (await bot._chnls_accum.get_parts('target')).names == NAMES
 
 
@@ -156,7 +156,7 @@ async def test_handle_names_update():
             self.is_names_updated = True
 
     bot = LClient('token', 'login')
-    await handle_commands(bot, *CHANNEL_PARTS, NP2, NE)
+    await handle_commands(bot, *CHANNEL_PARTS, NAMES_PART2, NAMES_END)
     assert bot.get_channel('target').names == NAMES[3:]
     await asyncio.sleep(0.001)
     assert bot.is_names_updated
@@ -165,8 +165,8 @@ async def test_handle_names_update():
 @pytest.mark.asyncio
 async def test_handle_roomstate():
     bot = Client('token', 'login')
-    await bot._handle_command(RS)
-    assert (await bot._chnls_accum.get_parts('target')).raw_channel_state == RS
+    await bot._handle_command(ROOMSTATE)
+    assert (await bot._chnls_accum.get_parts('target')).raw_channel_state == ROOMSTATE
     # also is being tested in `test_handle_channel_update()`
 
 
@@ -183,7 +183,7 @@ async def test_handle_channel_update():
             self.is_channel_updated = True
 
     bot = LClient('token', 'login')
-    _RS = RS.copy()
+    _RS = ROOMSTATE.copy()
     _RS.update({'emote-only': '1'})
     await handle_commands(bot, *CHANNEL_PARTS, _RS)
     assert bot.get_channel_by_login('target').is_emote_only
@@ -194,8 +194,8 @@ async def test_handle_channel_update():
 @pytest.mark.asyncio
 async def test_handle_userstate():
     bot = Client('token', 'login')
-    await handle_commands(bot, GS, US)
-    assert (await bot._chnls_accum.get_parts('target')).client_state == LocalState(US)
+    await handle_commands(bot, GLOBALSTATE, USERSTATE)
+    assert (await bot._chnls_accum.get_parts('target')).client_state == LocalState(USERSTATE)
 
 
 @pytest.mark.asyncio
@@ -212,7 +212,7 @@ async def test_handle_userstate_update():
             self.is_userstate_updated = True
 
     bot = LClient('token', 'login')
-    _US = US.copy()
+    _US = USERSTATE.copy()
     _US.update({'badges': 'broadcaster/1'})
     await handle_commands(bot, *CHANNEL_PARTS, _US)
     await asyncio.sleep(0.001)
@@ -233,7 +233,7 @@ async def test_handle_privmsg():
             assert not msg.is_reply
             self.did_handle_message = True
     bot = LClient('token', 'login')
-    await handle_commands(bot, *CHANNEL_PARTS, MSG)
+    await handle_commands(bot, *CHANNEL_PARTS, PRIVMSG)
     await asyncio.sleep(0.001)
     assert bot.did_handle_message
 
@@ -251,7 +251,7 @@ async def test_handle_whisper():
             assert not whisper.emote_only
             self.did_handle_whisper = True
     bot = LClient('token', 'login')
-    await bot._handle_command(WP)
+    await bot._handle_command(WHISPER)
     await asyncio.sleep(0.001)
     assert bot.did_handle_whisper
 
@@ -269,7 +269,7 @@ async def test_handle_join():
             self.did_join = True
 
     bot = LClient('token', 'login')
-    await handle_commands(bot, *CHANNEL_PARTS, JN)
+    await handle_commands(bot, *CHANNEL_PARTS, JOIN)
     await asyncio.sleep(0.001)
     assert bot.did_join
 
@@ -287,7 +287,7 @@ async def test_handle_part():
             self.did_part = True
 
     bot = LClient('token', 'login')
-    await handle_commands(bot, *CHANNEL_PARTS, PT)
+    await handle_commands(bot, *CHANNEL_PARTS, PART)
     await asyncio.sleep(0.001)
     assert bot.did_part
 
@@ -306,7 +306,7 @@ async def test_handle_notice():
             self.got_notice = True
 
     bot = LClient('token', 'login')
-    await handle_commands(bot, *CHANNEL_PARTS, NT)
+    await handle_commands(bot, *CHANNEL_PARTS, NT_WHISPER_INVALID_SELF)
     await asyncio.sleep(0.001)
     assert bot.got_notice
     # also is being tested in several next tests
@@ -326,7 +326,7 @@ async def test_handle_channel_join_error():
             self.got_channel_join_error = True
 
     bot = LClient('token', 'login')
-    await handle_commands(bot, *CHANNEL_PARTS, NT_CS)
+    await handle_commands(bot, *CHANNEL_PARTS, NT_CHNL_SUSPENDED)
     await asyncio.sleep(0.001)
     assert bot.got_channel_join_error
 
@@ -345,7 +345,7 @@ async def test_handle_send_message_error():
             self.got_send_message_error = True
 
     bot = LClient('token', 'login')
-    await handle_commands(bot, *CHANNEL_PARTS, NT_FOZ)
+    await handle_commands(bot, *CHANNEL_PARTS, NT_FLWONLY_0)
     await asyncio.sleep(0.001)
     assert bot.got_send_message_error
 
@@ -364,7 +364,7 @@ async def test_handle_mods():  # TODO: test no_mods
             self.got_on_mods_update = True
 
     bot = LClient('token', 'login')
-    await handle_commands(bot, *CHANNEL_PARTS, RM2)
+    await handle_commands(bot, *CHANNEL_PARTS, ROOM_MODS2)
     await asyncio.sleep(0.001)
     assert bot.got_on_mods_update
 
@@ -383,7 +383,7 @@ async def test_handle_vips():  # TODO: test no_vips
             self.got_on_vips_update = True
 
     bot = LClient('token', 'login')
-    await handle_commands(bot, *CHANNEL_PARTS, VS2)
+    await handle_commands(bot, *CHANNEL_PARTS, ROOM_VIPS2)
     await asyncio.sleep(0.001)
     assert bot.got_on_vips_update
 
@@ -402,7 +402,7 @@ async def test_handle_cmds_available():
             self.got_on_commands_update = True
 
     bot = LClient('token', 'login')
-    await handle_commands(bot, *CHANNEL_PARTS, CA2)
+    await handle_commands(bot, *CHANNEL_PARTS, ROOM_CMDS2)
     await asyncio.sleep(0.001)
     assert bot.got_on_commands_update
 
@@ -428,7 +428,7 @@ async def test_handle_timeout():
             self.got_on_timeout = True
 
     bot = LClient('token', 'login')
-    await handle_commands(bot, *CHANNEL_PARTS, CC_UT)
+    await handle_commands(bot, *CHANNEL_PARTS, CLEARCHAT_TIMEOUT)
     await asyncio.sleep(0.001)
     assert bot.got_on_timeout
 
@@ -448,7 +448,7 @@ async def test_handle_ban():
             self.got_on_ban = True
 
     bot = LClient('token', 'login')
-    await handle_commands(bot, *CHANNEL_PARTS, CC_UB)
+    await handle_commands(bot, *CHANNEL_PARTS, CLEARCHAT_BAN)
     await asyncio.sleep(0.001)
     assert bot.got_on_ban
 
@@ -466,7 +466,7 @@ async def test_hanlde_clear_chat():
             self.got_on_clear_chat = True
 
     bot = LClient('token', 'login')
-    await handle_commands(bot, *CHANNEL_PARTS, CC_CC)
+    await handle_commands(bot, *CHANNEL_PARTS, CLEARCHAT)
     await asyncio.sleep(0.001)
     assert bot.got_on_clear_chat
 
@@ -486,7 +486,7 @@ async def test_handle_clearmsg():
             self.got_on_message_delete = True
 
     bot = LClient('token', 'login')
-    await handle_commands(bot, *CHANNEL_PARTS, CM)
+    await handle_commands(bot, *CHANNEL_PARTS, CLEARMSG)
     await asyncio.sleep(0.001)
     assert bot.got_on_message_delete
 
