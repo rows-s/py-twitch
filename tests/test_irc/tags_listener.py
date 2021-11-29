@@ -24,10 +24,10 @@ class IRCListener(Client):
 
     async def start(
             self,
-            channels: Iterable[str]
+            *channels: Iterable[str]
     ) -> AsyncIterator[TwitchIRCMsg]:
         await self._irc_conn.connect()
-        await self._irc_conn.join_channels(channels)
+        await self._irc_conn.join_channels(*channels)
         async for irc_msg in self._irc_conn:
             yield irc_msg
 
@@ -42,7 +42,6 @@ if __name__ == '__main__':
     DB_HOST = os.getenv('DB_HOST', '127.0.0.1')
     IRC_TOKEN = os.environ['TTV_IRC_TOKEN']
     IRC_NICK = os.environ['TTV_IRC_NICK']
-    CHNLS_COUNT = int(os.getenv('TTV_IRC_CHANNEL_COUNT', 5))
     API_TOKEN = os.environ['TTV_API_TOKEN']
 
     loop = asyncio.get_event_loop()
@@ -199,7 +198,7 @@ if __name__ == '__main__':
             print('CHANNEL UPDATED')
 
     async def start_listener(listener: IRCListener, channels: Iterable[str]):
-        async for irc_msg in listener.start(channels):
+        async for irc_msg in listener.start(*channels):
             if irc_msg.command == 'USERNOTICE':
                 irc_msg.command = irc_msg.msg_id.upper()
             await check_irc_msg(irc_msg)
@@ -227,14 +226,16 @@ if __name__ == '__main__':
                         await listener.stop()
                     await bot.stop()
 
-        run_mod = input("Run mode ('listen' or 'ttv_console', default: 'ttv_console'): ")
-        if run_mod == 'listen':
-            print(f'Start {CHNLS_COUNT//5} listeners')
-            listeners = [IRCListener(IRC_TOKEN, IRC_NICK, f'listener no.{i}') for i in range(CHNLS_COUNT//5)]
-            await start_listeners(listeners, 5)
+        run_mod = input("Run mode ('listen %d %d' or 'ttv_console', default: 'ttv_console'): ")
+        if run_mod.startswith('listen'):
+            chnls_count, listeners_count = run_mod.split(' ', 2)[1:3]
+            chnls_count, listeners_count = int(chnls_count), int(listeners_count)
+            chnls_count = chnls_count // listeners_count * listeners_count
+            print(f'Start {chnls_count//listeners_count} listeners')
+            listeners = [IRCListener(IRC_TOKEN, IRC_NICK, f'No.{i}') for i in range(chnls_count//listeners_count)]
+            await start_listeners(listeners, chnls_count // listeners_count)
         elif run_mod == 'ttv_console':
             pass
-            # asyncio.get_event_loop().create_task(bot.start([IRC_NICK]))
         else:
             pass
         asyncio.get_event_loop().create_task(bot.start([IRC_NICK]))
