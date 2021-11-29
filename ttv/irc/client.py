@@ -586,18 +586,10 @@ class Client:
             `None`
         """
         delayed_irc_messages = self._delayed_irc_msgs.setdefault(irc_msg.channel, [])
-        if len(delayed_irc_messages) == 10:
-            # something's wrong if there are 10 delayed messages, better try to reconnect
-            await self.join_channels(irc_msg.channel)
-            print(f'Try to rejoin #{irc_msg.channel}')  # TODO: modify the print into logging
-            delayed_irc_messages.append(irc_msg)
-        # protection from memory overflow
-        elif len(delayed_irc_messages) == 30:
+        if len(delayed_irc_messages) == 30:
             print(f'#{irc_msg.channel} got delayed_msgs overflow')  # TODO: modify the print into logging
             delayed_irc_messages.append(irc_msg)
-        elif len(delayed_irc_messages) > 30:
-            pass
-        else:
+        elif len(delayed_irc_messages) < 30:
             delayed_irc_messages.append(irc_msg)
 
     def _call_event(
