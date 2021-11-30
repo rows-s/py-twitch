@@ -138,7 +138,7 @@ class Client:
         self._call_event('on_ready')
         await self.join_channels(*channels)
         async for irc_msg in self._irc_conn:
-            self._do_later(
+            asyncio.create_task(
                 self._handle_command(irc_msg)  # protection from a shutdown caused by an exception
             )
 
@@ -485,7 +485,7 @@ class Client:
             self,
             _: TwitchIRCMsg
     ):
-        self._do_later(self._irc_conn.restart())  # does not close connection if open
+        ''' TODO: must logging as CRITICAL'''
 
     def _save_channel(
             self,
@@ -508,7 +508,7 @@ class Client:
         # handle delayed irc_messages
         delayed_irc_messages = self._delayed_irc_msgs.pop(channel.login, ())
         for delayed_irc_message in delayed_irc_messages:
-            self._do_later(
+            asyncio.create_task(
                 self._handle_command(delayed_irc_message)
             )
         self._call_event('on_channel_join', channel)
@@ -603,9 +603,7 @@ class Client:
             *args
     ):
         if (event := getattr(self, event_name, None)) is not None:
-            self._do_later(
-                event(*args)
-            )
+            asyncio.create_task(event(*args))
 
     def event(self, coro: Callable[..., Coroutine]) -> Callable[[], Coroutine]:
         """
@@ -664,7 +662,7 @@ class Client:
             coro: Awaitable
     ) -> None:
         """Creates async task in `self.loop`"""
-        asyncio.get_event_loop().create_task(coro)
+        asyncio.create_task(coro)
 
     _COMMAND_HANDLERS: Dict[str, Callable[['Client', TwitchIRCMsg], Any]] = {
         'PRIVMSG': _handle_privmsg,
