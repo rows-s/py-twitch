@@ -190,7 +190,7 @@ if __name__ == '__main__':
             await asyncio.sleep(30*60)
             top_channels = [json['user_login'] async for json in api.get_streams(chnls_count)]
             for i in range(count):
-                await listeners[i].part_channels(*listeners[i]._irc_conn.joined_channel_logins)
+                await listeners[i].part_channels(*listeners[i]._irc_conn._joined_channel_logins)
                 start = i * channels_for_each
                 end = start + channels_for_each
                 await listeners[i].join_channels(*top_channels[start:end])

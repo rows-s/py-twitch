@@ -102,7 +102,7 @@ class TwitchIRCClient(IRCClient):
         self.keep_alive: bool = keep_alive
         self._restarting_task: Optional[Task] = None
         self.on_recconect_callback: Callable[[], Coroutine] = on_recconect_callback or empty_coroutine
-        self.joined_channel_logins: set = set()
+        self._joined_channel_logins: set = set()
 
     @property
     def is_restarting(self):
@@ -158,6 +158,14 @@ class TwitchIRCClient(IRCClient):
         through = through or self.whisper_agent
         await self.send_msg(through, f'/w {target} {msg}')
 
+    async def join_channels(self, *channels: str):
+        self._joined_channel_logins.update(channels)
+        await super().join_channels(*channels)
+
+    async def part_channels(self, *channels: str):
+        self._joined_channel_logins.difference_update(channels)
+        await super().part_channels(*channels)
+
     async def req_caps(self, *caps: str):
         if caps:
             caps_str = ' '.join(caps)
@@ -177,7 +185,7 @@ class TwitchIRCClient(IRCClient):
     async def _restart(self):  # TODO: can stack without any message must be fixed by logging
         await asyncio.sleep(next(self._delay_gen))  # realisation of recommended reconnect delays
         await self.connect()
-        await self.join_channels(*self.joined_channel_logins)
+        await self.join_channels(*self._joined_channel_logins)
         asyncio.create_task(self.on_recconect_callback())
         self._running_restart_task = None
 
