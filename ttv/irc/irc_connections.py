@@ -11,7 +11,7 @@ from websockets.legacy.client import WebSocketClientProtocol
 from .exceptions import CapReqError, LoginFailed
 from .irc_messages import IRCMsg, TwitchIRCMsg
 
-__all__ = ('IRCClient', 'irc_connect', 'TwitchIRCClient', 'ttv_connect', 'ANON_LOGIN')
+__all__ = ('IRCClient', 'irc_connect', 'TTVIRCClient', 'ttv_connect', 'ANON_LOGIN')
 
 
 ANON_LOGIN = 'justinfan0'
@@ -26,7 +26,6 @@ class IRCClient:
         self.is_running: bool = False
         self._uri = uri
         self._ws: WebSocketClientProtocol = WebSocketClientProtocol()
-        self._delay_gen = self._delay_gen()  # instance of the generator
         self.logger = logging.getLogger(f'{__name__}.{self.__class__.__name__}')
         logger.debug(f'Created {self.__repr__()}')
 
@@ -61,18 +60,6 @@ class IRCClient:
         await self._ws.close(code, reason)
         self.logger.info(f'Connection stoped with code: {code} and reason: {reason}')
 
-    @classmethod
-    def _delay_gen(cls) -> Generator[int, None, None]:
-        delay = 0
-        while True:
-            last_delayed = time()
-            yield delay
-            # increase
-            delay = min(16, max(1, delay * 2))  # if 0 - then 1, no greater then 16
-            # reset
-            if time() - last_delayed > 60:
-                delay = 0  # resetting overwrites the increasing that done anyway
-
     async def __aiter__(self) -> AsyncGenerator[TwitchIRCMsg, None]:
         self.is_running = True
         self.logger.info(f'{self.__repr__()} is running')
@@ -99,7 +86,7 @@ async def irc_connect(uri):
     return connection
 
 
-class TwitchIRCClient(IRCClient):
+class TTVIRCClient(IRCClient):
     def __init__(
             self,
             login: str,
@@ -114,7 +101,9 @@ class TwitchIRCClient(IRCClient):
         self.login: str = login
         self.token: str = 'oauth:' + token if not token.startswith('oauth:') else token
         self.whisper_agent = whisper_agent
+
         self.keep_alive: bool = keep_alive
+        self._delay_gen = self._delay_gen()  # instance of the generator
         self._restarting_task: Optional[Task] = None
         self.on_recconect_callback: Callable[[], Coroutine] = on_recconect_callback or empty_coroutine
         self._joined_channel_logins: set = set()
@@ -204,6 +193,18 @@ class TwitchIRCClient(IRCClient):
         asyncio.create_task(self.on_recconect_callback())
         self._running_restart_task = None
 
+    @classmethod
+    def _delay_gen(cls) -> Generator[int, None, None]:
+        delay = 0
+        while True:
+            last_delayed = time()
+            yield delay
+            # increase
+            delay = min(16, max(1, delay * 2))  # if 0 - then 1, no greater then 16
+            # reset
+            if time() - last_delayed > 60:
+                delay = 0  # resetting overwrites the increasing that done anyway
+
     async def __aiter__(self):
         agen = super().__aiter__()
         while True:
@@ -219,7 +220,7 @@ class TwitchIRCClient(IRCClient):
 
 
 async def ttv_connect(login, token, *args, **kwards):
-    connection = TwitchIRCClient(login, token, *args, **kwards)
+    connection = TTVIRCClient(login, token, *args, **kwards)
     await connection.connect()
     return connection
 

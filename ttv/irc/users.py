@@ -2,7 +2,7 @@ from abc import ABC
 from typing import Callable, Coroutine
 
 from .channel import Channel
-from .irc_connections import TwitchIRCClient
+from .irc_connections import TTVIRCClient
 from .irc_messages import TwitchIRCMsg
 from .user_states import BaseState, LocalState, GlobalState
 
@@ -16,10 +16,10 @@ class BaseUser(BaseState, ABC):
     def __init__(
             self,
             irc_msg: TwitchIRCMsg,
-            irc_conn: TwitchIRCClient,
+            irc_conn: TTVIRCClient,
     ):
         super().__init__(irc_msg)
-        self._irc_conn: TwitchIRCClient = irc_conn
+        self._irc_conn: TTVIRCClient = irc_conn
 
     async def send_whisper(
             self,
@@ -34,7 +34,7 @@ class ChannelUser(BaseUser, LocalState):
             self, 
             irc_msg: TwitchIRCMsg,
             channel: Channel,
-            irc_conn: TwitchIRCClient,
+            irc_conn: TTVIRCClient,
     ) -> None:
         super().__init__(irc_msg, irc_conn)
         self.channel: Channel = channel
@@ -73,12 +73,12 @@ class ParentMessageUser:
     def __init__(
             self,
             irc_msg: TwitchIRCMsg,
-            irc_conn: TwitchIRCClient,
+            irc_conn: TTVIRCClient,
     ):
         self.id = irc_msg.tags.pop('reply-parent-user-id')
         self.login = irc_msg.tags.pop('reply-parent-user-login')
         self.display_name = irc_msg.tags.pop('reply-parent-display-name')
-        self._irc_conn: TwitchIRCClient = irc_conn
+        self._irc_conn: TTVIRCClient = irc_conn
 
     async def send_whisper(
             self,

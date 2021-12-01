@@ -1,6 +1,6 @@
 from typing import Tuple
 
-from .irc_connections import TwitchIRCClient
+from .irc_connections import TTVIRCClient
 from .irc_messages import TwitchIRCMsg
 from .user_states import LocalState
 
@@ -16,7 +16,7 @@ class Channel:
             commands: Tuple[str, ...],
             mods: Tuple[str, ...],
             vips: Tuple[str, ...],
-            irc_conn: TwitchIRCClient
+            irc_conn: TTVIRCClient
     ) -> None:
         self.id: str = raw_state.get('room-id')
         self.login: str = raw_state.channel
@@ -29,7 +29,7 @@ class Channel:
         self.mods: Tuple[str, ...] = mods
         self.vips: Tuple[str, ...] = vips
         self._raw_state: TwitchIRCMsg = raw_state
-        self._irc_conn: TwitchIRCClient = irc_conn
+        self._irc_conn: TTVIRCClient = irc_conn
 
     @property
     def is_unique_only(self) -> bool:

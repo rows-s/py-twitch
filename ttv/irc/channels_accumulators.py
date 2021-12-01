@@ -3,7 +3,7 @@ from asyncio import Task
 from typing import Callable, Dict, Union, List, Tuple, Optional
 
 from .channel import Channel
-from .irc_connections import TwitchIRCClient
+from .irc_connections import TTVIRCClient
 from .irc_messages import TwitchIRCMsg
 from .user_states import LocalState
 
@@ -81,7 +81,7 @@ class ChannelParts:
 
     def create_channel(
             self,
-            irc_conn: TwitchIRCClient
+            irc_conn: TTVIRCClient
     ) -> Channel:
         """
         Args:
@@ -226,12 +226,12 @@ class ChannelsAccumulator:
             self,
             *,
             channel_ready_callback: Callable[[Channel], None],
-            irc_conn: TwitchIRCClient,
+            irc_conn: TTVIRCClient,
             accumulation_timeout: float = 50,
             is_anon: bool = False
     ) -> None:
         self._channel_ready_callback: Callable[[Channel], None] = channel_ready_callback
-        self._irc_conn: TwitchIRCClient = irc_conn
+        self._irc_conn: TTVIRCClient = irc_conn
         self._all_parts: Dict[str, ChannelParts] = {}
         self._timeout: float = accumulation_timeout
         self._timeout_tasks: Dict[str, Task] = {}

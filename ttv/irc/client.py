@@ -7,7 +7,7 @@ from .channels_accumulators import ChannelsAccumulator
 from .events import OnUserTimeout, OnChannelJoinError, OnNotice, OnMessageDelete, OnSendMessageError, OnUserBan, \
     OnClearChat
 from .exceptions import *
-from .irc_connections import TwitchIRCClient
+from .irc_connections import TTVIRCClient
 from .irc_messages import TwitchIRCMsg
 from .messages import ChannelMessage, Whisper
 from .user_events import *
@@ -26,7 +26,7 @@ class Client:
             *,
             keep_alive: bool = True
     ) -> None:
-        self._irc_conn = TwitchIRCClient(
+        self._irc_conn = TTVIRCClient(
             login, token, keep_alive=keep_alive, on_recconect_callback=self._on_irc_conn_reconnect
         )
         # state
