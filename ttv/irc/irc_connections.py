@@ -26,11 +26,11 @@ class IRCClient:
         self.is_running: bool = False
         self._uri = uri
         self._ws: WebSocketClientProtocol = WebSocketClientProtocol()
-        self.logger = logging.getLogger(f'{__name__}.{self.__class__.__name__}')
-        logger.debug(f'Created {self.__repr__()}')
+        self.logger = logger
+        self.logger.debug(f'Created {self.__class__.__name__} for uri:{self._uri}')
 
     @property
-    def is_open(self):
+    def is_connected(self):
         return self._ws.open
 
     async def connect(self):
@@ -41,17 +41,19 @@ class IRCClient:
         """ Sends <irc_msg> """
         irc_msg = str(irc_msg) + '\r\n'
         await self._ws.send(irc_msg)
-        self.logger.debug(f'Sending {irc_msg}')
+        self.logger.debug(f'[{self.__repr__()}] Sending {irc_msg}')
 
     async def send_msg(self, channel: str, msg: str):
         await self.send(f'PRIVMSG #{channel} :{msg}')
 
     async def join_channels(self, *channels: str):
+        self.logger.debug(f'{self.__repr__()} join {len(channels)} channels')
         if channels:
             logins_str = ',#'.join(channels)
             await self.send(f'JOIN #{logins_str}')
 
     async def part_channels(self, *channels: str):
+        self.logger.debug(f'{self.__repr__()} part {len(channels)} channels')
         if channels:
             logins_str = ',#'.join(channels)
             await self.send(f'PART #{logins_str}')
@@ -69,11 +71,11 @@ class IRCClient:
                     continue
                 elif raw_irc_msg.startswith('PING'):
                     await self.send(raw_irc_msg.replace('PING', 'PONG', 1))  # saving parts such servername
-                    self.logger.debug('PING requested. PONG sent')
+                    self.logger.debug(f'{self.__repr__()} PING requested. PONG sent')
                 else:
-                    self.logger.debug(f'got raw_msg: {raw_irc_msg}')
+                    self.logger.debug(f'{self.__repr__()} got raw_msg: {raw_irc_msg}')
                     yield TwitchIRCMsg(raw_irc_msg)
-        self.logger.info(f'{self.__repr__()} stoped')
+        self.logger.info(f'{self.__repr__()} successfully stoped')
         self.is_running = False
 
     def __repr__(self):
@@ -134,12 +136,18 @@ class TTVIRCClient(IRCClient):
             if irc_msg.command == 'GLOBALUSERSTATE':
                 if 'user-login' not in irc_msg:
                     irc_msg['user-login'] = self.login
+                self.logger.info(f'[{self.__repr__()}] Loged in successfully: {irc_msg}')
                 return irc_msg
             elif irc_msg.command == 'NOTICE' and irc_msg.middles[0] == '*':
+                self.logger.error(f'[{self.__repr__()}] Loging in failed: {irc_msg}')
                 raise LoginFailed(irc_msg.trailing)
             elif irc_msg.command == 'CAP' and irc_msg.middles[1] == 'NAK':
+                self.logger.error(f'[{self.__repr__()}] caps request failed: {irc_msg}')
                 raise CapReqError(irc_msg)  # too many things base on tags. whatever, it's escapable by try-block
             elif irc_msg.command not in expected_commands:
+                self.logger.warning(
+                    f'[{self.__repr__()}] skipped validation (unexpected command {irc_msg.command}): {irc_msg}'
+                )
                 return irc_msg.create_empty()  # we must be logged in if are getting unexpected messages
 
     async def send(self, irc_msg: Union[IRCMsg, str]):
@@ -165,20 +173,24 @@ class TTVIRCClient(IRCClient):
     async def join_channels(self, *channels: str):
         self._joined_channel_logins.update(channels)
         await super().join_channels(*channels)
+        self.logger.debug(f'actual channels for [{self.__repr__()}] are: {self._joined_channel_logins}')
 
     async def part_channels(self, *channels: str):
         self._joined_channel_logins.difference_update(channels)
         await super().part_channels(*channels)
+        self.logger.debug(f'actual channels for [{self.__repr__()}] are: {self._joined_channel_logins}')
 
     async def req_caps(self, *caps: str):
         if caps:
             caps_str = ' '.join(caps)
             await self.send(f'CAP REQ :{caps_str}')
+            self.logger.debug(f'[{self.__repr__()}] cappabilities requested: {caps_str}')
 
     async def log_in(self):
         if self.token:  # no PASS for an anon user
             await self.send(f'PASS {self.token}')
         await self.send(f'NICK {self.login}')
+        self.logger.debug(f'logging in as {self.login} (anon:{self.is_anon})')
 
     async def restart(self):
         if not self.is_restarting:
@@ -187,11 +199,13 @@ class TTVIRCClient(IRCClient):
 
     # have to have the func because of the problem that loop.current_task() returns root task, not the last awaited
     async def _restart(self):  # TODO: can stack without any message must be fixed by logging
+        self.logger.warning(f'{self.__repr__()} is restarting')
         await asyncio.sleep(next(self._delay_gen))  # realisation of recommended reconnect delays
         await self.connect()
         await self.join_channels(*self._joined_channel_logins)
         asyncio.create_task(self.on_recconect_callback())
         self._running_restart_task = None
+        self.logger.warning(f'{self.__repr__()} restarted')
 
     @classmethod
     def _delay_gen(cls) -> Generator[int, None, None]:
@@ -217,6 +231,9 @@ class TTVIRCClient(IRCClient):
                     raise
             except StopAsyncIteration:
                 return
+
+    def __repr__(self):
+        return f'{super().__repr__()}:({self.login}:{self.token[6:9]})'
 
 
 async def ttv_connect(login, token, *args, **kwards):

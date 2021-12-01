@@ -9,9 +9,9 @@ import asyncpg
 from ttv.api import Api
 from ttv.irc import Client, TwitchIRCMsg, ChannelMessage, logger
 
-formatter = logging.Formatter('%(asctime)s%(name)s:%(message)s')
+formatter = logging.Formatter('%(asctime) %(levelname) %(name): %(message)s')
 
-file_handler = logging.FileHandler('tags_listener.log')
+file_handler = logging.FileHandler('tags_listener.log', encoding='UTF-8')
 file_handler.setFormatter(formatter)
 
 logger.addHandler(file_handler)
@@ -219,6 +219,10 @@ if __name__ == '__main__':
         @bot.event
         async def on_ready():
             print("Console started")
+
+        @bot.event
+        async def on_reconnect():
+            print('Console reconnected')
 
         @bot.event
         async def on_message(message: ChannelMessage):
