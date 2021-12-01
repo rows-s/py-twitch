@@ -1,13 +1,21 @@
 import asyncio
+import logging
 import os
 from dataclasses import dataclass
 from itertools import combinations
 from typing import Iterable, Dict, List, Optional, AsyncIterator, Set
-
 import asyncpg
 
 from ttv.api import Api
-from ttv.irc import Client, TwitchIRCMsg, ChannelMessage
+from ttv.irc import Client, TwitchIRCMsg, ChannelMessage, logger
+
+formatter = logging.Formatter('%(asctime)s%(name)s:%(message)s')
+
+file_handler = logging.FileHandler('tags_listener.log')
+file_handler.setFormatter(formatter)
+
+logger.addHandler(file_handler)
+logger.setLevel('DEBUG')  # logging only irc
 
 
 class IRCListener(Client):

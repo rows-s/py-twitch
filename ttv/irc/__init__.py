@@ -10,3 +10,7 @@ from .irc_messages import TwitchIRCMsg
 from .messages import BaseMessage, ChannelMessage, ParentMessage, Whisper
 from .user_states import BaseState, GlobalState, LocalState
 from .users import BaseUser, ChannelUser, GlobalUser, ParentMessageUser
+
+import logging
+
+logger = logging.getLogger(__name__)

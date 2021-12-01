@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from asyncio import Task, create_task
 from time import time
 from typing import Optional, Union, AsyncGenerator, Callable, Coroutine, Generator, Iterable
@@ -14,6 +15,7 @@ __all__ = ('IRCClient', 'irc_connect', 'TwitchIRCClient', 'ttv_connect', 'ANON_L
 
 
 ANON_LOGIN = 'justinfan0'
+logger = logging.getLogger(__name__)
 
 
 class IRCClient:
@@ -25,6 +27,8 @@ class IRCClient:
         self._uri = uri
         self._ws: WebSocketClientProtocol = WebSocketClientProtocol()
         self._delay_gen = self._delay_gen()  # instance of the generator
+        self.logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
+        logger.debug(f'Create new {self.__class__.__name__}')
 
     @property
     def is_open(self):

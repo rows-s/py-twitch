@@ -9,3 +9,4 @@ tests/test_irc/log.txt
 tests/test_irc/privmsg_log.txt
 tests/test_irc/smart_tags.txt
 tests/test_irc/tags.txt
+*.log
