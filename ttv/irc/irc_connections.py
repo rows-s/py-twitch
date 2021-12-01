@@ -27,8 +27,8 @@ class IRCClient:
         self._uri = uri
         self._ws: WebSocketClientProtocol = WebSocketClientProtocol()
         self._delay_gen = self._delay_gen()  # instance of the generator
-        self.logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
-        logger.debug(f'Create new {self.__class__.__name__}')
+        self.logger = logging.getLogger(f'{__name__}.{self.__class__.__name__}')
+        logger.debug(f'Created {self.__repr__()}')
 
     @property
     def is_open(self):
@@ -36,10 +36,13 @@ class IRCClient:
 
     async def connect(self):
         self._ws = await websockets.connect(self._uri)
+        self.logger.info(f'{self.__repr__()} has connected')
 
     async def send(self, irc_msg: Union[IRCMsg, str]):
         """ Sends <irc_msg> """
-        return await self._ws.send(str(irc_msg) + '\r\n')
+        irc_msg = str(irc_msg) + '\r\n'
+        await self._ws.send(irc_msg)
+        self.logger.debug(f'Sending {irc_msg}')
 
     async def send_msg(self, channel: str, msg: str):
         await self.send(f'PRIVMSG #{channel} :{msg}')
@@ -56,6 +59,7 @@ class IRCClient:
 
     async def stop(self, code: int = 1000, reason: str = 'no reason'):
         await self._ws.close(code, reason)
+        self.logger.info(f'Connection stoped with code: {code} and reason: {reason}')
 
     @classmethod
     def _delay_gen(cls) -> Generator[int, None, None]:
@@ -71,15 +75,22 @@ class IRCClient:
 
     async def __aiter__(self) -> AsyncGenerator[TwitchIRCMsg, None]:
         self.is_running = True
+        self.logger.info(f'{self.__repr__()} is running')
         async for raw_irc_msgs in self._ws:
             for raw_irc_msg in raw_irc_msgs.split('\r\n'):
                 if not raw_irc_msg:  # skip empty ones
                     continue
                 elif raw_irc_msg.startswith('PING'):
                     await self.send(raw_irc_msg.replace('PING', 'PONG', 1))  # saving parts such servername
+                    self.logger.debug('PING requested. PONG sent')
                 else:
+                    self.logger.debug(f'got raw_msg: {raw_irc_msg}')
                     yield TwitchIRCMsg(raw_irc_msg)
+        self.logger.info(f'{self.__repr__()} stoped')
         self.is_running = False
+
+    def __repr__(self):
+        return f'{self.__class__.__name__} ({self._uri})'
 
 
 async def irc_connect(uri):
