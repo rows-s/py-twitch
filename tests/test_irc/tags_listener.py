@@ -4,12 +4,13 @@ import os
 from dataclasses import dataclass
 from itertools import combinations
 from typing import Iterable, Dict, List, Optional, AsyncIterator, Set
+
 import asyncpg
 
 from ttv.api import Api
 from ttv.irc import Client, TwitchIRCMsg, ChannelMessage, logger
 
-formatter = logging.Formatter('%(asctime) %(levelname) %(name): %(message)s')
+formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s')
 
 file_handler = logging.FileHandler('tags_listener.log', encoding='UTF-8')
 file_handler.setFormatter(formatter)
