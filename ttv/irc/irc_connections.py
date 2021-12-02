@@ -118,7 +118,7 @@ class TTVIRCClient(IRCClient):
         return self.login.startswith('justinfan') and not self.login == 'justinfan'
 
     async def connect(self) -> TwitchIRCMsg:
-        self._ws = await websockets.connect(self._uri)
+        await super().connect()
         await self.req_caps('twitch.tv/membership', 'twitch.tv/commands', 'twitch.tv/tags')
         await self.log_in()
         if not self.is_anon:
