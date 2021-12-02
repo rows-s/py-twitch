@@ -186,7 +186,7 @@ class TTVIRCClient(IRCClient):
             self._logger.debug(f'[{self.__repr__()}] cappabilities requested: {caps_str}')
 
     async def log_in(self):
-        if self.token:  # no PASS for an anon user
+        if not self.is_anon:  # no PASS for an anon user
             await self.send(f'PASS {self.token}')
         await self.send(f'NICK {self.login}')
         self._logger.debug(f'logging in as {self.login} (anon:{self.is_anon})')
